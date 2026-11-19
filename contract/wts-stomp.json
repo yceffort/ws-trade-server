@@ -1,0 +1,1261 @@
+{
+  "handshake": {
+    "path": "/ws",
+    "offeredProtocols": "v12.stomp, v11.stomp, v10.stomp",
+    "selectedProtocol": "v12.stomp",
+    "offeredExtensions": "permessage-deflate; client_max_window_bits",
+    "selectedExtensions": "permessage-deflate"
+  },
+  "clientFrames": [
+    {
+      "atMs": 0,
+      "command": "CONNECT",
+      "headers": [
+        [
+          "device-id",
+          "<redacted>"
+        ],
+        [
+          "connection-id",
+          "00000000-0000-4000-8000-000000000000"
+        ],
+        [
+          "authorization",
+          "<redacted>"
+        ],
+        [
+          "platform",
+          "Web/wts"
+        ],
+        [
+          "accept-version",
+          "1.2,1.1,1.0"
+        ],
+        [
+          "heart-beat",
+          "5000,5000"
+        ]
+      ]
+    },
+    {
+      "atMs": 433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "0"
+        ],
+        [
+          "receipt",
+          "0-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A005930"
+        ]
+      ]
+    },
+    {
+      "atMs": 433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "1"
+        ],
+        [
+          "receipt",
+          "1-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A352820"
+        ]
+      ]
+    },
+    {
+      "atMs": 433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "2"
+        ],
+        [
+          "receipt",
+          "2-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A009150"
+        ]
+      ]
+    },
+    {
+      "atMs": 433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "3"
+        ],
+        [
+          "receipt",
+          "3-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A000660"
+        ]
+      ]
+    },
+    {
+      "atMs": 433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "4"
+        ],
+        [
+          "receipt",
+          "4-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A041510"
+        ]
+      ]
+    },
+    {
+      "atMs": 433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "5"
+        ],
+        [
+          "receipt",
+          "5-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A483650"
+        ]
+      ]
+    },
+    {
+      "atMs": 433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "6"
+        ],
+        [
+          "receipt",
+          "6-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/us/stock/trade/NAS0231213008"
+        ]
+      ]
+    },
+    {
+      "atMs": 433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "7"
+        ],
+        [
+          "receipt",
+          "7-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/us/stock/trade/AMX0250304001"
+        ]
+      ]
+    },
+    {
+      "atMs": 433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "8"
+        ],
+        [
+          "receipt",
+          "8-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A039130"
+        ]
+      ]
+    },
+    {
+      "atMs": 433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "9"
+        ],
+        [
+          "receipt",
+          "9-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A356860"
+        ]
+      ]
+    },
+    {
+      "atMs": 433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "10"
+        ],
+        [
+          "receipt",
+          "10-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/us/stock/trade/US19990122001"
+        ]
+      ]
+    },
+    {
+      "atMs": 829,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "11"
+        ],
+        [
+          "receipt",
+          "11-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/status/A005930"
+        ]
+      ]
+    },
+    {
+      "atMs": 829,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "12"
+        ],
+        [
+          "receipt",
+          "12-sub_receipt"
+        ],
+        [
+          "params",
+          "viewType=int_regular"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A005930"
+        ]
+      ]
+    },
+    {
+      "atMs": 5028,
+      "heartbeat": true
+    },
+    {
+      "atMs": 10029,
+      "heartbeat": true
+    },
+    {
+      "atMs": 11229,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "1-unsub_receipt"
+        ],
+        [
+          "id",
+          "1"
+        ]
+      ]
+    },
+    {
+      "atMs": 11229,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "2-unsub_receipt"
+        ],
+        [
+          "id",
+          "2"
+        ]
+      ]
+    },
+    {
+      "atMs": 11229,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "3-unsub_receipt"
+        ],
+        [
+          "id",
+          "3"
+        ]
+      ]
+    },
+    {
+      "atMs": 11229,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "4-unsub_receipt"
+        ],
+        [
+          "id",
+          "4"
+        ]
+      ]
+    },
+    {
+      "atMs": 11229,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "5-unsub_receipt"
+        ],
+        [
+          "id",
+          "5"
+        ]
+      ]
+    },
+    {
+      "atMs": 11229,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "6-unsub_receipt"
+        ],
+        [
+          "id",
+          "6"
+        ]
+      ]
+    },
+    {
+      "atMs": 11229,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "7-unsub_receipt"
+        ],
+        [
+          "id",
+          "7"
+        ]
+      ]
+    },
+    {
+      "atMs": 11229,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "8-unsub_receipt"
+        ],
+        [
+          "id",
+          "8"
+        ]
+      ]
+    },
+    {
+      "atMs": 11229,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "9-unsub_receipt"
+        ],
+        [
+          "id",
+          "9"
+        ]
+      ]
+    },
+    {
+      "atMs": 11229,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "10-unsub_receipt"
+        ],
+        [
+          "id",
+          "10"
+        ]
+      ]
+    },
+    {
+      "atMs": 11229,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "11-unsub_receipt"
+        ],
+        [
+          "id",
+          "11"
+        ]
+      ]
+    },
+    {
+      "atMs": 11229,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "12-unsub_receipt"
+        ],
+        [
+          "id",
+          "12"
+        ]
+      ]
+    },
+    {
+      "atMs": 12433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "13"
+        ],
+        [
+          "receipt",
+          "13-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A035720"
+        ]
+      ]
+    },
+    {
+      "atMs": 12433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "14"
+        ],
+        [
+          "receipt",
+          "14-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A352820"
+        ]
+      ]
+    },
+    {
+      "atMs": 12433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "15"
+        ],
+        [
+          "receipt",
+          "15-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A009150"
+        ]
+      ]
+    },
+    {
+      "atMs": 12433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "16"
+        ],
+        [
+          "receipt",
+          "16-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A000660"
+        ]
+      ]
+    },
+    {
+      "atMs": 12433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "17"
+        ],
+        [
+          "receipt",
+          "17-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A041510"
+        ]
+      ]
+    },
+    {
+      "atMs": 12433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "18"
+        ],
+        [
+          "receipt",
+          "18-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A483650"
+        ]
+      ]
+    },
+    {
+      "atMs": 12433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "19"
+        ],
+        [
+          "receipt",
+          "19-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/us/stock/trade/NAS0231213008"
+        ]
+      ]
+    },
+    {
+      "atMs": 12433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "20"
+        ],
+        [
+          "receipt",
+          "20-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/us/stock/trade/AMX0250304001"
+        ]
+      ]
+    },
+    {
+      "atMs": 12433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "21"
+        ],
+        [
+          "receipt",
+          "21-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A039130"
+        ]
+      ]
+    },
+    {
+      "atMs": 12433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "22"
+        ],
+        [
+          "receipt",
+          "22-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A356860"
+        ]
+      ]
+    },
+    {
+      "atMs": 12433,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "23"
+        ],
+        [
+          "receipt",
+          "23-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/us/stock/trade/US19990122001"
+        ]
+      ]
+    },
+    {
+      "atMs": 12833,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "24"
+        ],
+        [
+          "receipt",
+          "24-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/status/A035720"
+        ]
+      ]
+    },
+    {
+      "atMs": 12833,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "25"
+        ],
+        [
+          "receipt",
+          "25-sub_receipt"
+        ],
+        [
+          "params",
+          "viewType=krx_all"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A035720"
+        ]
+      ]
+    },
+    {
+      "atMs": 15033,
+      "heartbeat": true
+    },
+    {
+      "atMs": 20029,
+      "heartbeat": true
+    },
+    {
+      "atMs": 23228,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "15-unsub_receipt"
+        ],
+        [
+          "id",
+          "15"
+        ]
+      ]
+    },
+    {
+      "atMs": 23228,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "17-unsub_receipt"
+        ],
+        [
+          "id",
+          "17"
+        ]
+      ]
+    },
+    {
+      "atMs": 23228,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "23-unsub_receipt"
+        ],
+        [
+          "id",
+          "23"
+        ]
+      ]
+    },
+    {
+      "atMs": 23228,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "24-unsub_receipt"
+        ],
+        [
+          "id",
+          "24"
+        ]
+      ]
+    },
+    {
+      "atMs": 23228,
+      "command": "UNSUBSCRIBE",
+      "headers": [
+        [
+          "receipt",
+          "25-unsub_receipt"
+        ],
+        [
+          "id",
+          "25"
+        ]
+      ]
+    },
+    {
+      "atMs": 23228,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "26"
+        ],
+        [
+          "receipt",
+          "26-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/status/A005930"
+        ]
+      ]
+    },
+    {
+      "atMs": 23228,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "27"
+        ],
+        [
+          "receipt",
+          "27-sub_receipt"
+        ],
+        [
+          "params",
+          "viewType=int_regular"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A005930"
+        ]
+      ]
+    },
+    {
+      "atMs": 23228,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "28"
+        ],
+        [
+          "receipt",
+          "28-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A035900"
+        ]
+      ]
+    },
+    {
+      "atMs": 23228,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "29"
+        ],
+        [
+          "receipt",
+          "29-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A089590"
+        ]
+      ]
+    },
+    {
+      "atMs": 23228,
+      "command": "SUBSCRIBE",
+      "headers": [
+        [
+          "id",
+          "30"
+        ],
+        [
+          "receipt",
+          "30-sub_receipt"
+        ],
+        [
+          "destination",
+          "/topic/v1/kr/stock/trade/A005380"
+        ]
+      ]
+    },
+    {
+      "atMs": 25029,
+      "heartbeat": true
+    },
+    {
+      "atMs": 30028,
+      "heartbeat": true
+    },
+    {
+      "atMs": 35029,
+      "heartbeat": true
+    }
+  ],
+  "server": {
+    "opcodes": [
+      1
+    ],
+    "everyFrameEndsWithNul": true,
+    "connected": [
+      [
+        "version",
+        "1.2"
+      ],
+      [
+        "heart-beat",
+        "5000,5000"
+      ]
+    ],
+    "receipt": [
+      [
+        [
+          "receipt-id",
+          "{receipt}"
+        ],
+        [
+          "message",
+          "subscribe success"
+        ],
+        [
+          "response-code",
+          "200"
+        ]
+      ]
+    ],
+    "unsubscribeReceipt": [
+      [
+        [
+          "receipt-id",
+          "{receipt}"
+        ],
+        [
+          "message",
+          "unsubscribe success"
+        ],
+        [
+          "response-code",
+          "200"
+        ]
+      ]
+    ],
+    "noMessageAfterUnsubscribeReceipt": true,
+    "receiptBeforeFirstMessage": true,
+    "message": {
+      "headerOrders": [
+        [
+          "message-id",
+          "subscription",
+          "content-length",
+          "content-type"
+        ]
+      ],
+      "messageId": "{connection-id}-{seq}",
+      "messageIdMatchesConnectionId": true,
+      "sequenceStartsAtOneWithoutGaps": true,
+      "contentLengthEqualsBodyBytes": true,
+      "contentTypes": [
+        "application/json"
+      ]
+    },
+    "bodies": {
+      "/topic/v1/kr/stock/trade/{code}": {
+        "count": 1211,
+        "keyOrders": [
+          [
+            "code",
+            "dt",
+            "currency",
+            "exchange",
+            "session",
+            "base",
+            "close",
+            "volume",
+            "tradeType",
+            "changeType",
+            "tradingStrength",
+            "cumulativeVolume",
+            "cumulativeAmount"
+          ]
+        ],
+        "fields": {
+          "code": {
+            "types": [
+              "string"
+            ]
+          },
+          "dt": {
+            "types": [
+              "string"
+            ],
+            "format": "UTC, 초 단위"
+          },
+          "currency": {
+            "types": [
+              "string"
+            ],
+            "values": [
+              "KRW"
+            ]
+          },
+          "exchange": {
+            "types": [
+              "string"
+            ],
+            "values": [
+              "krx",
+              "nxt"
+            ]
+          },
+          "session": {
+            "types": [
+              "string"
+            ],
+            "values": [
+              "REGULAR"
+            ]
+          },
+          "base": {
+            "types": [
+              "integer"
+            ]
+          },
+          "close": {
+            "types": [
+              "integer"
+            ]
+          },
+          "volume": {
+            "types": [
+              "integer"
+            ]
+          },
+          "tradeType": {
+            "types": [
+              "string"
+            ],
+            "values": [
+              "BUY",
+              "SELL"
+            ]
+          },
+          "changeType": {
+            "types": [
+              "string"
+            ],
+            "values": [
+              "DOWN",
+              "UP"
+            ]
+          },
+          "tradingStrength": {
+            "types": [
+              "decimal"
+            ],
+            "maxSignificantDigits": 19
+          },
+          "cumulativeVolume": {
+            "types": [
+              "integer"
+            ]
+          },
+          "cumulativeAmount": {
+            "types": [
+              "integer"
+            ]
+          }
+        }
+      },
+      "/topic/v1/us/stock/trade/{code}": {
+        "count": 26,
+        "keyOrders": [
+          [
+            "code",
+            "dt",
+            "session",
+            "currency",
+            "base",
+            "close",
+            "baseKrw",
+            "closeKrw",
+            "volume",
+            "tradeType",
+            "changeType",
+            "tradingStrength",
+            "cumulativeVolume",
+            "cumulativeAmount",
+            "cumulativeAmountKrw"
+          ]
+        ],
+        "fields": {
+          "code": {
+            "types": [
+              "string"
+            ]
+          },
+          "dt": {
+            "types": [
+              "string"
+            ],
+            "format": "UTC, 초 단위"
+          },
+          "session": {
+            "types": [
+              "string"
+            ],
+            "values": [
+              "DAY"
+            ]
+          },
+          "currency": {
+            "types": [
+              "string"
+            ],
+            "values": [
+              "USD"
+            ]
+          },
+          "base": {
+            "types": [
+              "decimal"
+            ],
+            "maxSignificantDigits": 5
+          },
+          "close": {
+            "types": [
+              "decimal"
+            ],
+            "maxSignificantDigits": 5
+          },
+          "baseKrw": {
+            "types": [
+              "decimal"
+            ],
+            "maxSignificantDigits": 9
+          },
+          "closeKrw": {
+            "types": [
+              "decimal"
+            ],
+            "maxSignificantDigits": 9
+          },
+          "volume": {
+            "types": [
+              "integer"
+            ]
+          },
+          "tradeType": {
+            "types": [
+              "string"
+            ],
+            "values": [
+              "BUY",
+              "SELL"
+            ]
+          },
+          "changeType": {
+            "types": [
+              "string"
+            ],
+            "values": [
+              "UP"
+            ]
+          },
+          "tradingStrength": {
+            "types": [
+              "decimal"
+            ],
+            "maxSignificantDigits": 5
+          },
+          "cumulativeVolume": {
+            "types": [
+              "integer"
+            ]
+          },
+          "cumulativeAmount": {
+            "types": [
+              "integer"
+            ]
+          },
+          "cumulativeAmountKrw": {
+            "types": [
+              "decimal"
+            ],
+            "maxSignificantDigits": 13
+          }
+        }
+      }
+    },
+    "duplicateSubscriptions": [
+      {
+        "destination": "/topic/v1/kr/stock/trade/{code}",
+        "subscriptions": 3,
+        "deliveredToEach": true
+      },
+      {
+        "destination": "/topic/v1/kr/stock/trade/{code}",
+        "subscriptions": 2,
+        "deliveredToEach": false
+      },
+      {
+        "destination": "/topic/v1/kr/stock/trade/{code}",
+        "subscriptions": 2,
+        "deliveredToEach": false
+      },
+      {
+        "destination": "/topic/v1/kr/stock/trade/{code}",
+        "subscriptions": 2,
+        "deliveredToEach": false
+      },
+      {
+        "destination": "/topic/v1/kr/stock/trade/{code}",
+        "subscriptions": 2,
+        "deliveredToEach": false
+      },
+      {
+        "destination": "/topic/v1/kr/stock/trade/{code}",
+        "subscriptions": 2,
+        "deliveredToEach": false
+      },
+      {
+        "destination": "/topic/v1/us/stock/trade/{code}",
+        "subscriptions": 2,
+        "deliveredToEach": false
+      },
+      {
+        "destination": "/topic/v1/us/stock/trade/{code}",
+        "subscriptions": 2,
+        "deliveredToEach": true
+      },
+      {
+        "destination": "/topic/v1/kr/stock/trade/{code}",
+        "subscriptions": 2,
+        "deliveredToEach": false
+      },
+      {
+        "destination": "/topic/v1/kr/stock/trade/{code}",
+        "subscriptions": 2,
+        "deliveredToEach": false
+      },
+      {
+        "destination": "/topic/v1/us/stock/trade/{code}",
+        "subscriptions": 2,
+        "deliveredToEach": false
+      },
+      {
+        "destination": "/topic/v1/kr/stock/status/{code}",
+        "subscriptions": 2,
+        "deliveredToEach": true
+      },
+      {
+        "destination": "/topic/v1/kr/stock/trade/{code}",
+        "subscriptions": 2,
+        "deliveredToEach": true
+      }
+    ]
+  },
+  "timing": {
+    "serverHeartbeatGapsMs": [
+      5003,
+      5123,
+      4879,
+      4997,
+      5001,
+      5001
+    ],
+    "clientHeartbeatGapsMs": [
+      5001,
+      5004,
+      4996,
+      5000,
+      4999,
+      5001
+    ],
+    "messagesPerSecond": {
+      "min": 10,
+      "max": 77
+    }
+  }
+}
