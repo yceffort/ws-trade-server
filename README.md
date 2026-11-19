@@ -60,7 +60,7 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 
 ## 부하 실험
 
-`bench/run.sh <이름> --connections 200 --seconds 5`로 gateway를 띄우고 부하를 걸어 `bench/results/<이름>.json`을 만든다. 인자와 결과 필드는 `bench/README.md`에 있다.
+`bench/run.sh <이름> --connections 200 --seconds 5`로 gateway를 띄우고 부하를 걸어 `bench/results/<이름>.json`을 만든다. 인자와 결과 필드는 `bench/README.md`에 있다. Linux에서 재려면 같은 명령 앞에 `bench/linux.sh`를 붙인다.
 
 ## 공유 메모리 링 버퍼
 

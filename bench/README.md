@@ -12,6 +12,13 @@ bench/run.sh poll-1000us --poll-us 1000 --connections 200
 
 스크립트는 `ulimit -n`을 올리고, 릴리스 빌드한 `gateway`를 임시 링과 빈 포트로 띄우고, `loadgen`을 돌리면서 1초마다 gateway의 RSS와 CPU를 `ps`로 읽고, 끝나면 결과를 `bench/results/<이름>.json`에 쓴다. gateway와 임시 파일은 어떤 경우에도 남기지 않는다. `jq`가 필요하다. `--url`, `--ring`, `--out`은 스크립트가 정하므로 넘기지 않는다.
 
+Linux에서 재려면 `bench/linux.sh`로 같은 명령을 컨테이너 안에서 돌린다(Docker 필요). gateway는 코어 0-3, loadgen은 4-9에 `taskset`으로 고정하고, 바꾸려면 `GATEWAY_CPUS`, `LOADGEN_CPUS`를 준다. 고정한 코어는 결과의 `environment`에 남는다.
+
+```sh
+bench/linux.sh bench/run.sh linux-conn-1000 --connections 1000
+GATEWAY_CPUS=0-1 LOADGEN_CPUS=2-9 bench/linux.sh bench/run.sh linux-conn-1000-2core --connections 1000
+```
+
 `loadgen`을 직접 쓸 때는 gateway를 먼저 띄우고 같은 `--ring`을 준다. 워밍업은 1초 이상으로 둔다. gateway의 링 브리지는 링 파일이 생긴 뒤 최대 0.5초 늦게 열고 열린 시점의 끝에서부터 읽으므로, 워밍업이 짧으면 처음 체결이 전달되지 않아 `delivery.ratio`가 1보다 작아진다.
 
 | 인자 | 기본값 | 뜻 |
@@ -65,6 +72,24 @@ bench/run.sh poll-1000us --poll-us 1000 --connections 200
 | `gateway.cpu_pct_mean`, `cpu_pct_max` | 측정 구간 `ps %cpu`의 평균과 최댓값. `ps`의 값은 구간 값이 아니라(macOS는 감쇠 평균, Linux는 프로세스 수명 평균) 앞 구간의 부하가 섞인다 |
 | `gateway.cpu_pct_from_time` | 측정 구간 첫 표본과 끝 표본 사이 누적 CPU 시간의 증가분을 경과 시간으로 나눈 값 |
 | `gateway.samples` | 측정 구간 안의 `ps` 표본 수 |
-| `environment` | OS, CPU 모델, 코어 수, `rustc --version`, 커밋 해시(커밋이 없으면 null) |
+| `environment` | OS, CPU 모델, 코어 수, `rustc --version`, 커밋 해시(커밋이 없으면 null), `gateway_cpus`와 `loadgen_cpus`(코어를 고정하지 않았으면 null) |
 
 CPU는 코어 하나를 100으로 센다. 측정 구간이 짧으면 표본이 몇 개뿐이므로 `gateway.samples`를 함께 본다.
+
+## macOS 루프백 결과를 읽을 때
+
+연결 5,000개 이상의 결과에는 gateway가 아니라 측정 환경의 한계가 섞여 있다. 클라이언트와 서버가 같은 기계에 있으면 연결 하나가 소켓 두 개를 쓰고, 그 버퍼가 모두 한 커널의 네트워크 메모리에서 나온다. 2026-11-19에 연결 10,000개 조건(Apple M5, macOS)에서 확인한 것은 다음과 같다.
+
+- gateway 워커 스레드 10개의 호출 스택을 `sample`로 5초 동안 뜨면 스레드마다 표본의 78~100%가 `sendto` 안이다. 같은 조건에서 gateway가 쓴 CPU는 코어 1개 안팎이고, loadgen 워커는 표본의 약 75%가 대기 상태였다.
+- 한 실행에서 `netstat -m`의 `requests for memory denied`가 2,090,227 늘었다. 연결 1,000개와 5,000개 실행에서는 늘지 않았다. 연결 5,000개 실행 중간에는 네트워크 메모리의 41.3%가 쓰이고 있었다.
+- 그 실행은 20초짜리 측정이 15분 넘게 걸렸다.
+
+그래서 `conn-10000*.json`의 지연은 서버 설계의 수치로 쓰지 않는다. 같은 조건을 Linux에서 재면(`linux-conn-10000.json`) p50 14.7ms, p99 41.5ms이고 세 번 돌려 p50이 14.7~15.0ms였다. 그때 gateway 워커 4개는 CPU를 24%씩 고르게 썼고 `/proc/net/sockstat`의 TCP 메모리는 226쪽이었다.
+
+결과를 비교하기 전에 `connect.failed`가 0인지, `written.per_sec`가 조건(종목 수 x `--rate`)과 맞는지 먼저 본다. 둘 중 하나라도 어긋난 실행은 버린다.
+
+## Linux 결과를 읽을 때
+
+`linux-*.json`은 같은 기계(Apple M5)의 OrbStack 가상 머신(Linux 7.0.14, aarch64, 10코어)에서 쟀다. 클라이언트와 서버가 한 커널에 있다는 점은 macOS 측정과 같다.
+
+이 가상 머신에서는 짧은 sleep이 요청한 만큼 자지 않는다. 50us, 200us, 1000us를 요청하면 모두 약 3ms(최대 4.5ms)를 잔다(같은 측정이 macOS에서는 79us, 304us, 1512us). 그래서 `--poll-us`가 0이 아닌 결과에는 링을 읽기까지의 대기가 0~4.5ms 섞이고, `linux-poll-50`, `linux-poll-200`, `linux-poll-1000`은 서로 구별되지 않는다. 링 대기를 뺀 전달 지연은 `--poll-us 0`으로 잰 `linux-conn-*-poll0.json`에 있다. 이때 gateway의 코어 하나는 링을 읽는 스레드가 계속 쓴다.
