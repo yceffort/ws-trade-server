@@ -1,0 +1,70 @@
+{
+  "clients": {
+    "normal": 4950,
+    "probes": 50,
+    "stalled": 0
+  },
+  "config": {
+    "connections": 5000,
+    "probes": 50,
+    "rate": 5,
+    "ring": "/tmp/tmp.xHdXId8cKb/ring",
+    "seconds": 20,
+    "stalled": 0,
+    "symbols": [
+      "/topic/v1/kr/stock/trade/A005930",
+      "/topic/v1/kr/stock/trade/A000660",
+      "/topic/v1/us/stock/trade/US19990122001"
+    ],
+    "url": "ws://127.0.0.1:44013/ws",
+    "warmup": 3
+  },
+  "connect": {
+    "failed": 0,
+    "millis": 4276,
+    "ready": 5000
+  },
+  "latency_us": {
+    "max": 24450,
+    "outside_window": 50,
+    "p50": 7497,
+    "p90": 13193,
+    "p99": 18383,
+    "samples": 13800,
+    "unmatched": 0,
+    "unparsed": 0
+  },
+  "messages": {
+    "expected": 1380000,
+    "measured": 1376536,
+    "per_sec": 68826.8,
+    "ratio": 1.0036231884057971,
+    "total": 1560000
+  },
+  "seq_gap_clients": 0,
+  "stalled_kicked": 0,
+  "unexpected_disconnects": 0,
+  "written": {
+    "measured": 276,
+    "per_sec": 13.8,
+    "total": 312
+  },
+  "gateway": {
+    "poll_us": 0,
+    "rss_kb_idle": 2664,
+    "rss_kb_max": 60740,
+    "cpu_pct_mean": 115.7,
+    "cpu_pct_max": 120,
+    "cpu_pct_from_time": 126.2,
+    "samples": 20
+  },
+  "environment": {
+    "os": "Linux 7.0.14-orbstack-00380-ga7e0a2dc9535 aarch64",
+    "cpu_model": "",
+    "cores": 10,
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "commit": "05ae66329025da3cd67b05957f21c4d3d613e11f",
+    "gateway_cpus": "0-3",
+    "loadgen_cpus": "4-9"
+  }
+}

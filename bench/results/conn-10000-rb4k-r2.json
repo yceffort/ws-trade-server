@@ -1,0 +1,68 @@
+{
+  "clients": {
+    "normal": 9950,
+    "probes": 50,
+    "stalled": 0
+  },
+  "config": {
+    "connections": 10000,
+    "probes": 50,
+    "rate": 5.0,
+    "ring": "/var/folders/v5/gcj4wdxs0xs4m813pdmdcwqc0000gn/T/tmp.s6XS9qaiTa/ring",
+    "seconds": 20,
+    "stalled": 0,
+    "symbols": [
+      "/topic/v1/kr/stock/trade/A005930",
+      "/topic/v1/kr/stock/trade/A000660",
+      "/topic/v1/us/stock/trade/US19990122001"
+    ],
+    "url": "ws://127.0.0.1:56142/ws",
+    "warmup": 3
+  },
+  "connect": {
+    "failed": 0,
+    "millis": 385,
+    "ready": 10000
+  },
+  "latency_us": {
+    "max": 13014707,
+    "outside_window": 734,
+    "p50": 216559,
+    "p90": 1274559,
+    "p99": 4698112,
+    "samples": 14521,
+    "unmatched": 0,
+    "unparsed": 0
+  },
+  "messages": {
+    "expected": 2940000,
+    "measured": 2988255,
+    "per_sec": 149412.75,
+    "ratio": 1.038156462585034,
+    "total": 3428098
+  },
+  "seq_gap_clients": 0,
+  "stalled_kicked": 0,
+  "unexpected_disconnects": 0,
+  "written": {
+    "measured": 294,
+    "per_sec": 14.7,
+    "total": 346
+  },
+  "gateway": {
+    "poll_us": 200,
+    "rss_kb_idle": 6224,
+    "rss_kb_max": 134960,
+    "cpu_pct_mean": 92.8,
+    "cpu_pct_max": 212.4,
+    "cpu_pct_from_time": 92.3,
+    "samples": 20
+  },
+  "environment": {
+    "os": "Darwin 27.2.0 arm64",
+    "cpu_model": "Apple M5",
+    "cores": 10,
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "commit": "05ae66329025da3cd67b05957f21c4d3d613e11f"
+  }
+}
