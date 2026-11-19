@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package feed.v1;
+
+// 체결 발생 프로세스(feed)가 공유 메모리 링 버퍼에 쓰고 웹소켓 서버(gateway)가 읽는 내부 메시지다.
+// 필드 구성은 토스증권 웹 화면의 체결 프레임(JSON)을 참고했고, 타입과 이름은 따로 정했다.
+// 클라이언트로 나가는 형식은 이 메시지가 아니라 gateway가 이 메시지로 만든 JSON이다.
+message Trade {
+  // feed가 1부터 매기는 순번. gateway는 빠진 번호로 유실 건수를 센다.
+  uint64 seq = 1;
+  Market market = 2;
+  string code = 3;
+  // 체결 시각. 유닉스 epoch 밀리초
+  int64 traded_at_ms = 4;
+  Exchange exchange = 5;
+  Session session = 6;
+  // ISO 4217 통화 코드. 예: "KRW", "USD"
+  string currency = 7;
+  Decimal price = 8;
+  // 등락을 계산하는 기준가(전일 종가)
+  Decimal base_price = 9;
+  uint64 volume = 10;
+  Side side = 11;
+  ChangeType change_type = 12;
+  // 체결강도(%)
+  Decimal trading_strength = 13;
+  uint64 cumulative_volume = 14;
+  Decimal cumulative_amount = 15;
+  // 원화가 아닌 종목에만 채운다
+  KrwConversion krw = 16;
+}
+
+message KrwConversion {
+  Decimal price = 1;
+  Decimal base_price = 2;
+  Decimal cumulative_amount = 3;
+}
+
+// 값 = units / 10^scale. 예: 150.96은 units 15096, scale 2
+// 부동소수점을 거치지 않으려고 정수와 자릿수로 나눴다.
+message Decimal {
+  sint64 units = 1;
+  uint32 scale = 2;
+}
+
+// 아래 enum에는 캡처에서 관측한 값만 넣었다. 실제 서비스에는 값이 더 있을 것이다.
+
+enum Market {
+  MARKET_UNSPECIFIED = 0;
+  MARKET_KR = 1;
+  MARKET_US = 2;
+}
+
+enum Exchange {
+  EXCHANGE_UNSPECIFIED = 0;
+  EXCHANGE_KRX = 1;
+  EXCHANGE_NXT = 2;
+}
+
+enum Session {
+  SESSION_UNSPECIFIED = 0;
+  SESSION_REGULAR = 1;
+  SESSION_DAY = 2;
+}
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  SIDE_BUY = 1;
+  SIDE_SELL = 2;
+}
+
+enum ChangeType {
+  CHANGE_TYPE_UNSPECIFIED = 0;
+  CHANGE_TYPE_UP = 1;
+  CHANGE_TYPE_DOWN = 2;
+  CHANGE_TYPE_UPPER_LIMIT = 3;
+}

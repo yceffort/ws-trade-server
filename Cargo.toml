@@ -1,0 +1,25 @@
+[package]
+name = "ws-trade-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+futures-util = "0.3.34"
+memmap2 = "0.9.12"
+prost = "0.14.6"
+rand = "0.10.4"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["raw_value"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+tokio-tungstenite = "0.30.0"
+
+[dev-dependencies]
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+
+[build-dependencies]
+prost-build = "0.14.6"
+protox = "0.10.0"
+
+[lints.rust]
+unsafe_code = "deny"
