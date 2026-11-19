@@ -40,7 +40,13 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-"$target/gateway" --addr 127.0.0.1:0 --ring "$work/ring" --poll-us "$poll_us" 2>"$work/gateway.log" &
+# GATEWAY_CPUS, LOADGEN_CPUS(예: 0-3, 4-9)를 주면 taskset으로 두 프로세스가 쓰는 코어를 나눈다. Linux 전용이다.
+gateway_pin=()
+loadgen_pin=()
+[ -z "${GATEWAY_CPUS:-}" ] || gateway_pin=(taskset -c "$GATEWAY_CPUS")
+[ -z "${LOADGEN_CPUS:-}" ] || loadgen_pin=(taskset -c "$LOADGEN_CPUS")
+
+${gateway_pin[@]+"${gateway_pin[@]}"} "$target/gateway" --addr 127.0.0.1:0 --ring "$work/ring" --poll-us "$poll_us" 2>"$work/gateway.log" &
 gateway_pid=$!
 port=""
 for _ in $(seq 50); do
@@ -54,17 +60,23 @@ done
 [ -n "$port" ] || { echo "gateway가 뜨지 않았다:" >&2; cat "$work/gateway.log" >&2; exit 1; }
 
 now() { perl -MTime::HiRes=time -e 'printf "%.3f", time'; }
+# gateway의 누적 CPU 시간(초). Linux의 ps는 초 단위로만 주므로 /proc에서 틱 단위로 읽는다.
+cpu_seconds() {
+  if [ -r "/proc/$gateway_pid/stat" ]; then
+    awk -v hz="$(getconf CLK_TCK)" '{ sub(/.*\) /, ""); print ($12 + $13) / hz }' "/proc/$gateway_pid/stat"
+  else
+    ps -o time= -p "$gateway_pid" | awk '{ n = split($1, p, ":"); s = 0; for (i = 1; i <= n; i++) s = s * 60 + p[i]; print s }'
+  fi
+}
 # 시각, RSS(KB), ps의 %cpu, 누적 CPU 시간(초), 측정 구간 안인지(1/0)를 한 줄로 쓴다.
 sample() {
   local in_window=0
   if grep -q '^phase=measure' "$work/loadgen.err" 2>/dev/null && ! grep -q '^phase=trailing' "$work/loadgen.err"; then in_window=1; fi
-  ps -o rss=,%cpu=,time= -p "$gateway_pid" | awk -v t="$(now)" -v w="$in_window" '{
-    n = split($3, p, ":"); s = 0; for (i = 1; i <= n; i++) s = s * 60 + p[i]
-    print t, $1, $2, s, w }'
+  ps -o rss=,%cpu= -p "$gateway_pid" | awk -v t="$(now)" -v w="$in_window" -v s="$(cpu_seconds)" '{ print t, $1, $2, s, w }'
 }
 
 idle_rss=$(sample | awk '{print $2}')
-"$target/loadgen" --url "ws://127.0.0.1:$port/ws" --ring "$work/ring" ${loadgen_args[@]+"${loadgen_args[@]}"} --out "$work/loadgen.json" 2>"$work/loadgen.err" &
+${loadgen_pin[@]+"${loadgen_pin[@]}"} "$target/loadgen" --url "ws://127.0.0.1:$port/ws" --ring "$work/ring" ${loadgen_args[@]+"${loadgen_args[@]}"} --out "$work/loadgen.json" 2>"$work/loadgen.err" &
 loadgen_pid=$!
 while kill -0 "$loadgen_pid" 2>/dev/null; do
   sample >>"$work/samples.txt" || true
@@ -91,7 +103,9 @@ cpu=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || awk -F': ' '/model name/
 cores=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
 commit=$(git rev-parse --verify --quiet HEAD 2>/dev/null || true)
 environment=$(jq -n --arg os "$(uname -srm)" --arg cpu "$cpu" --argjson cores "$cores" --arg rustc "$(rustc --version)" --arg commit "$commit" \
-  '{os: $os, cpu_model: $cpu, cores: $cores, rustc: $rustc, commit: (if $commit == "" then null else $commit end)}')
+  --arg gateway_cpus "${GATEWAY_CPUS:-}" --arg loadgen_cpus "${LOADGEN_CPUS:-}" \
+  'def opt: if . == "" then null else . end;
+   {os: $os, cpu_model: ($cpu | opt), cores: $cores, rustc: $rustc, commit: ($commit | opt), gateway_cpus: ($gateway_cpus | opt), loadgen_cpus: ($loadgen_cpus | opt)}')
 
 mkdir -p bench/results
 jq --argjson gateway "$gateway" --argjson environment "$environment" '. + {gateway: $gateway, environment: $environment}' \
