@@ -44,7 +44,10 @@ trap 'exit 130' INT TERM
 gateway_pid=$!
 port=""
 for _ in $(seq 50); do
-  port=$(awk '/수신 대기/ { n = split($0, a, ":"); print a[n] }' "$work/gateway.log")
+  # gateway는 로그 한 줄을 여러 번에 나눠 쓴다. read는 줄바꿈까지 쓰인 줄만 성공하므로 덜 쓰인 줄에서 잘린 포트를 뽑지 않는다.
+  while IFS= read -r line; do
+    case $line in *"수신 대기"*) port=${line##*:} ;; esac
+  done <"$work/gateway.log"
   [ -z "$port" ] || break
   sleep 0.1
 done
