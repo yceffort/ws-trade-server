@@ -12,6 +12,7 @@ pub mod metrics;
 pub mod pb;
 mod region;
 pub mod ring;
+pub mod source;
 pub mod stomp;
 pub mod trade;
 

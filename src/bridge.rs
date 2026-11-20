@@ -1,7 +1,7 @@
 use crate::hub::Hub;
 use crate::pb::Trade;
 use crate::ring::{Read, Reader};
-use crate::trade;
+use crate::source::{Publication, RingAdapter};
 use prost::Message;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -42,6 +42,7 @@ impl Drop for Bridge {
 pub fn spawn(path: PathBuf, poll: Duration, hub: Hub) -> Bridge {
     let stopped = Arc::new(AtomicBool::new(false));
     let stop = stopped.clone();
+    let input = hub.input();
     let thread = thread::spawn(move || {
         tracing::info!(event = "ring_waiting");
         let Some(mut reader) = open(&path, &stop) else { return };
@@ -50,8 +51,8 @@ pub fn spawn(path: PathBuf, poll: Duration, hub: Hub) -> Bridge {
             let read = reader.read();
             if matches!(read, Read::Empty) {
                 thread::park_timeout(poll);
-            } else if let Some((topic, body)) = process(read, &mut last_seq, &hub.bridge)
-                && !hub.publish_blocking(topic, body)
+            } else if let Some(publication) = process(read, &mut last_seq, &hub.bridge)
+                && input.enqueue_blocking(publication).is_err()
             {
                 break;
             }
@@ -60,11 +61,7 @@ pub fn spawn(path: PathBuf, poll: Duration, hub: Hub) -> Bridge {
     Bridge { stopped, thread: Some(thread) }
 }
 
-fn process(
-    read: Read,
-    last_seq: &mut Option<u64>,
-    counters: &crate::metrics::BridgeCounters,
-) -> Option<(String, Arc<str>)> {
+fn process(read: Read, last_seq: &mut Option<u64>, counters: &crate::metrics::BridgeCounters) -> Option<Publication> {
     let payload = match read {
         Read::Empty => return None,
         Read::Lost => {
@@ -84,7 +81,7 @@ fn process(
         counters.observe_seq(last, trade.seq);
     }
     *last_seq = Some(trade.seq);
-    let message = trade::to_message(&trade);
+    let message = RingAdapter::prepare(&trade).ok();
     if message.is_none() {
         counters.invalid_trades.fetch_add(1, Ordering::Relaxed);
     }

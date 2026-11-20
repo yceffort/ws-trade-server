@@ -3,6 +3,7 @@ mod metrics;
 use crate::metrics::{BridgeCounters, Metrics};
 mod state;
 use crate::limits::{Limits, Rate};
+use crate::source::{AppliedRecord, Input, InputError, Publication};
 use cache::Cache;
 use std::collections::HashMap;
 use std::sync::{
@@ -50,8 +51,8 @@ enum Command {
     Metrics(oneshot::Sender<Metrics>),
     Snapshot(oneshot::Sender<String>),
     Publish {
-        topic: String,
-        body: Arc<str>,
+        publication: Publication,
+        reply: Option<oneshot::Sender<Option<Arc<AppliedRecord>>>>,
     },
 }
 
@@ -149,7 +150,12 @@ impl Hub {
                     Command::Snapshot(reply) => {
                         let _ = reply.send(state.cache.json());
                     }
-                    Command::Publish { topic, body } => state.publish(&topic, body),
+                    Command::Publish { publication, reply } => {
+                        state.publish(&publication.topic, publication.body);
+                        if let Some(reply) = reply {
+                            let _ = reply.send(publication.record);
+                        }
+                    }
                 }
             }
         });
@@ -211,12 +217,31 @@ impl Hub {
     }
 
     pub async fn publish(&self, topic: String, body: Arc<str>) {
-        self.send(Command::Publish { topic, body }).await;
+        self.send(Command::Publish { publication: Publication::local(topic, body), reply: None }).await;
     }
 
     // 런타임 밖의 스레드(링 브리지)에서 부른다. 채널이 차면 자리가 날 때까지 막힌다. 실패를 무시하는 이유는 send와 같다.
     pub fn publish_blocking(&self, topic: String, body: Arc<str>) -> bool {
-        self.commands.blocking_send(Command::Publish { topic, body }).is_ok()
+        self.enqueue_input_blocking(Publication::local(topic, body)).is_ok()
+    }
+
+    pub fn input(&self) -> Input {
+        Input { hub: self.clone() }
+    }
+
+    pub(crate) async fn publish_input(
+        &self,
+        publication: &Publication,
+    ) -> Result<Option<Arc<AppliedRecord>>, InputError> {
+        // 대기 중 취소되면 입력을 소비하지 않으며, 전송 이후 취소는 적용 취소를 뜻하지 않는다.
+        let permit = self.commands.reserve().await.map_err(|_| InputError::Closed)?;
+        let (reply, applied) = oneshot::channel();
+        permit.send(Command::Publish { publication: publication.clone(), reply: Some(reply) });
+        applied.await.map_err(|_| InputError::CompletionLost)
+    }
+
+    pub(crate) fn enqueue_input_blocking(&self, publication: Publication) -> Result<(), InputError> {
+        self.commands.blocking_send(Command::Publish { publication, reply: None }).map_err(|_| InputError::Closed)
     }
 
     async fn send(&self, command: Command) {
