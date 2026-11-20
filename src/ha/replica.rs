@@ -179,9 +179,15 @@ impl ReplicaTask {
                 }
                 let result = (|| {
                     let snapshot = input.kafka.latest(SNAPSHOT, SHARD.as_bytes())?.ok_or(Error::MissingCheckpoint)?;
+                    if stopped.load(Ordering::Relaxed) {
+                        return Ok(());
+                    }
                     let snapshot = Snapshot::from_json(&snapshot, &input.source)?;
                     let next = snapshot.through.ok_or(Error::InvalidState)?.0.checked_add(1).ok_or(Error::Exhausted)?;
                     let mut reader = input.kafka.reader_catchup(EVENTS, next)?;
+                    if stopped.load(Ordering::Relaxed) {
+                        return Ok(());
+                    }
                     let mut log_end = reader.initial_high();
                     let mut sampled = Instant::now();
                     runtime.block_on(hub.restore_replica(input.source.clone(), snapshot))?;

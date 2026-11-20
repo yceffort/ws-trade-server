@@ -57,8 +57,8 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
     let config = {
         let mut config = config;
         if let Some(input) = &config.ha {
-            if input.kafka.timeout_ms > 5000 {
-                return Err(io::Error::new(io::ErrorKind::InvalidInput, "HA broker 호출은 5초 이내여야 한다"));
+            if input.kafka.timeout_ms > 10000 {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "HA broker 호출은 10초 이내여야 한다"));
             }
             if config.ha_lifecycle.is_none() {
                 config.ha_lifecycle = Some(crate::ha::Lifecycle::default());
@@ -178,8 +178,15 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
         drop(listener);
         rejects.shutdown().await;
         shutdown.send_replace(true);
+        let flush_timeout = config.shutdown_timeout;
+        #[cfg(feature = "ha")]
+        let flush_timeout = if config.ha_lifecycle.is_some() {
+            flush_timeout.min(std::time::Duration::from_secs(3))
+        } else {
+            flush_timeout
+        };
         let drain = async { while connections.join_next().await.is_some() {} };
-        if tokio::time::timeout(config.shutdown_timeout, drain).await.is_err() {
+        if tokio::time::timeout(flush_timeout, drain).await.is_err() {
             connections.shutdown().await;
         }
         if let Some(task) = auth_reload {
