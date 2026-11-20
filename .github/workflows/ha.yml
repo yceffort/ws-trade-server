@@ -1,0 +1,49 @@
+name: HA
+on:
+  pull_request:
+    paths:
+      - src/**
+      - tests/**
+      - proto/**
+      - build.rs
+      - Cargo.toml
+      - Cargo.lock
+      - deploy/ha/**
+      - .github/workflows/ha.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ha-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ha-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt,clippy && rustup default 1.95.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --features ha --all-targets -- -D warnings
+      - run: cargo test --locked --features ha
+  replicated-log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.95.0 --profile minimal && rustup default 1.95.0
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: deploy/ha/smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: producer-failover
+          path: deploy/local/ha/results/*.json

@@ -1,6 +1,6 @@
 # 고가용성과 재접속 복구 설계
 
-상태: 참조 설계, 미구현. 기준 코드는 `3476d44`다. 현재 서비스가 아래 보장을 제공한다는 뜻은 아니다. [설계 이슈 #45](https://github.com/yceffort/ws-trade-server/issues/45)의 산출물이며 구현 순서와 배포 검증은 [HA 배포 계획](ha-rollout.md)에 둔다. 특정 증권사의 내부 구조를 관측한 결과가 아니라 공개 명세와 현재 코드에서 도출한 실험 설계다.
+상태: 단계별 구현 중. 공통 입력 경계와 [복제 로그 및 producer 복구](../deploy/ha/README.md)는 구현했고 gateway와 클라이언트 복구 및 HA 배포는 후속 작업이다. 설계 시작 기준 코드는 `3476d44`다. 현재 서비스가 아래 보장을 제공한다는 뜻은 아니다. [설계 이슈 #45](https://github.com/yceffort/ws-trade-server/issues/45)의 산출물이며 구현 순서와 배포 검증은 [HA 배포 계획](ha-rollout.md)에 둔다. 특정 증권사의 내부 구조를 관측한 결과가 아니라 공개 명세와 현재 코드에서 도출한 실험 설계다.
 
 ## 결정과 보장 범위
 
@@ -97,7 +97,7 @@ active/standby 2개를 별도 노드에 배치한다. Kubernetes Lease는 인계
 1. Lease를 획득한 후보가 shard의 고정 transactional.id로 producer를 초기화해 이전 producer를 fence한다. 초기화 전후에 Lease 소유를 재확인한다.
 2. 이전 transaction 정리가 끝난 뒤 `read_committed` checkpoint를 복원한다. 일반 재시작에서는 source epoch, seq, 가격, 누적 수량과 금액, generator 난수 상태 및 symbol 설정을 초기화하지 않는다.
 3. 최대 100ms 또는 설정한 batch 상한까지 이벤트를 만들고, 이벤트와 다음 generator checkpoint를 같은 transaction에 기록한다. commit 성공 뒤에만 해당 batch를 완료 처리한다.
-4. 10초마다 전체 topic snapshot도 같은 transaction에 넣는다. 이벤트 send 결과의 offset으로 경계 B를 정하고, snapshot 상태는 B까지의 이벤트를 반영한다. 초기화와 거래가 없는 기간에도 유효한 snapshot 및 source 상태를 기록한다.
+4. 전체 topic snapshot도 같은 transaction에 넣는다. 최초 두 topic 구현은 매 transaction마다 기록하며, 10초 주기 최적화는 쓰기 비용을 측정한 뒤 검토한다. 이벤트 send 결과의 offset으로 경계 B를 정하고, snapshot 상태는 B까지의 이벤트를 반영한다. 초기화와 거래가 없는 기간에도 유효한 snapshot 및 source 상태를 기록한다.
 5. commit 결과가 불명확하면 임의로 새 event ID를 만들어 재전송하지 않는다. 입력을 멈추고 transaction 정리와 committed checkpoint를 기준으로 재시작한다. source가 ACK를 지원하면 broker commit 이후에만 ACK한다.
 
 Lease 갱신 실패, fencing, 권한 오류는 입력 중단과 명시적 종료로 처리한다. fence된 프로세스가 같은 세션에서 producer 초기화를 반복하며 새 leader를 다시 fence하지 않도록 한다. 지연된 옛 후보의 초기화가 새 producer를 방해할 가능성도 있으므로 Lease 재확인만으로 가용성이 증명됐다고 보지 않는다. 긴 프로세스 정지 후 재개와 API/broker 분할 시험에서 committed 순서, 중복, 복구 시간을 모두 검사한다. [Kafka producer API](https://kafka.apache.org/41/javadoc/org/apache/kafka/clients/producer/KafkaProducer.html)의 transaction 복원과 fatal fencing 의미를 따른다.
