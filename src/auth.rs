@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::watch;
 
@@ -11,26 +12,32 @@ pub struct Token {
     pub principal: Option<String>,
 }
 
+struct Entry {
+    token: Token,
+    generation: Arc<()>,
+}
+
 #[derive(Clone)]
 pub struct Auth {
-    tokens: watch::Sender<Vec<Token>>,
+    tokens: watch::Sender<Vec<Entry>>,
     path: Option<PathBuf>,
 }
 
 #[derive(Clone)]
 pub(crate) struct Session {
-    tokens: watch::Receiver<Vec<Token>>,
+    tokens: watch::Receiver<Vec<Entry>>,
     token: String,
+    generation: Arc<()>,
     pub(crate) principal: Option<String>,
 }
 
-fn find<'a>(tokens: &'a [Token], token: &str) -> Option<&'a Token> {
-    tokens.iter().find(|entry| entry.token == token)
+fn find<'a>(tokens: &'a [Entry], token: &str) -> Option<&'a Entry> {
+    tokens.iter().find(|entry| entry.token.token == token)
 }
 
-fn expiry(tokens: &[Token], token: &str, now: SystemTime) -> Result<SystemTime, &'static str> {
+fn expiry(tokens: &[Entry], token: &str, now: SystemTime) -> Result<SystemTime, &'static str> {
     let entry = find(tokens, token).ok_or("auth-invalid")?;
-    let expires = UNIX_EPOCH.checked_add(Duration::from_secs(entry.expires_at)).ok_or("auth-expired")?;
+    let expires = UNIX_EPOCH.checked_add(Duration::from_secs(entry.token.expires_at)).ok_or("auth-expired")?;
     if expires <= now {
         return Err("auth-expired");
     }
@@ -39,7 +46,8 @@ fn expiry(tokens: &[Token], token: &str, now: SystemTime) -> Result<SystemTime, 
 
 impl Auth {
     pub fn new(tokens: Vec<Token>) -> Self {
-        let (tokens, _) = watch::channel(tokens);
+        let entries = tokens.into_iter().map(|token| Entry { token, generation: Arc::new(()) }).collect();
+        let (tokens, _) = watch::channel(entries);
         Self { tokens, path: None }
     }
 
@@ -51,10 +59,19 @@ impl Auth {
 
     pub fn replace(&self, tokens: Vec<Token>) {
         self.tokens.send_if_modified(|current| {
-            if *current == tokens {
+            if current.iter().map(|entry| &entry.token).eq(tokens.iter()) {
                 false
             } else {
-                *current = tokens;
+                // watch가 중간 변경을 합쳐도 삭제되거나 주체가 바뀐 토큰의 이전 세대는 복원하지 않는다.
+                *current = tokens
+                    .into_iter()
+                    .map(|token| {
+                        let generation = find(current, &token.token)
+                            .filter(|entry| entry.token.principal == token.principal)
+                            .map_or_else(|| Arc::new(()), |entry| entry.generation.clone());
+                        Entry { token, generation }
+                    })
+                    .collect();
                 true
             }
         });
@@ -66,13 +83,14 @@ impl Auth {
             .filter(|token| !token.is_empty())
             .ok_or("auth-invalid")?;
         let tokens = self.tokens.subscribe();
-        let principal = {
+        let (principal, generation) = {
             let current = tokens.borrow();
             expiry(&current, token, SystemTime::now())?;
             // 주체를 바꾸려면 기존 연결을 폐기하고 새로 인증해야 한다.
-            find(&current, token).and_then(|entry| entry.principal.clone())
+            let entry = find(&current, token).ok_or("auth-invalid")?;
+            (entry.token.principal.clone(), entry.generation.clone())
         };
-        Ok(Session { tokens, token: token.into(), principal })
+        Ok(Session { tokens, token: token.into(), generation, principal })
     }
 
     pub(crate) fn reload(&self) -> Option<tokio::task::JoinHandle<()>> {
@@ -114,7 +132,7 @@ impl Session {
         loop {
             let until = {
                 let current = self.tokens.borrow_and_update();
-                if find(&current, &self.token).is_none_or(|entry| entry.principal != self.principal) {
+                if find(&current, &self.token).is_none_or(|entry| !Arc::ptr_eq(&entry.generation, &self.generation)) {
                     return "auth-revoked";
                 }
                 match expiry(&current, &self.token, now()) {
@@ -168,17 +186,51 @@ fn open_regular(_: &Path) -> io::Result<std::fs::File> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    };
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[tokio::test]
+    async fn coalesced_principal_changes_and_removals_revoke_old_sessions() {
+        let original = Token { token: "demo".into(), expires_at: u32::MAX.into(), principal: Some("a".into()) };
+        let changed = Token { principal: Some("b".into()), ..original.clone() };
+        for intermediate in [vec![changed], Vec::new()] {
+            let auth = Auth::new(vec![original.clone()]);
+            let mut old = auth.authorize(Some("Bearer demo")).unwrap();
+            let mut old_writer = old.clone();
+            auth.replace(intermediate);
+            auth.replace(vec![original.clone()]);
+            for session in [&mut old, &mut old_writer] {
+                assert_eq!(
+                    tokio::time::timeout(Duration::from_secs(1), session.invalidated()).await.unwrap(),
+                    "auth-revoked"
+                );
+            }
+            let mut fresh = auth.authorize(Some("Bearer demo")).unwrap();
+            assert!(tokio::time::timeout(Duration::from_millis(10), fresh.invalidated()).await.is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn unchanged_principal_survives_reload_and_unrelated_changes() {
+        let token = Token { token: "demo".into(), expires_at: u32::MAX.into(), principal: Some("a".into()) };
+        let auth = Auth::new(vec![token.clone()]);
+        let mut session = auth.authorize(Some("Bearer demo")).unwrap();
+        auth.replace(vec![token.clone()]);
+        auth.replace(vec![
+            Token { token: "other".into(), ..token.clone() },
+            Token { expires_at: token.expires_at + 1, ..token },
+        ]);
+        assert!(tokio::time::timeout(Duration::from_millis(10), session.invalidated()).await.is_err());
+    }
 
     #[tokio::test]
     async fn expiration_rechecks_wall_time_without_token_changes() {
         let clock = Arc::new(AtomicU64::new(100));
-        let (tokens, receiver) =
-            watch::channel(vec![Token { token: "demo".into(), expires_at: 1000, principal: None }]);
-        let mut session = Session { tokens: receiver, token: "demo".into(), principal: None };
+        let (tokens, receiver) = watch::channel(vec![Entry {
+            token: Token { token: "demo".into(), expires_at: 1000, principal: None },
+            generation: Arc::new(()),
+        }]);
+        let generation = receiver.borrow()[0].generation.clone();
+        let mut session = Session { tokens: receiver, token: "demo".into(), generation, principal: None };
         let advanced = clock.clone();
         let task = tokio::spawn(async move {
             session.invalidated_at(|| UNIX_EPOCH + Duration::from_secs(advanced.load(Ordering::Relaxed))).await
