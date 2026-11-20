@@ -55,6 +55,7 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 - `--auth-file <경로>`는 실험용 JSON 토큰 배열 `[{"token":"demo-only","expires_at":<UNIX 초>}]`을 읽고 CONNECT의 `authorization:Bearer <토큰>`을 검사한다. Unix에서 일반 파일만 읽고 500ms마다 다시 확인하며 실패하면 목록을 비운다. 파일 열기는 nonblocking으로 처리해 FIFO로 교체돼도 종료를 막지 않는다. 만료도 최대 500ms마다 시스템 시각으로 재검사한다. 활성 세션의 만료와 폐기도 반영하고, 송신이 막혀 오류 통지를 못 보낸 소켓은 1초 안에 닫는다. 잘못된 토큰, 만료, 폐기는 각각 `auth-invalid`, `auth-expired`, `auth-revoked` 오류로 구분한다. 실제 OAuth 검증을 대신하지 않는다. 재접속 예제는 `DEMO_TOKEN` 환경 변수를 사용한다. 조회 HTTP는 로컬 관리용이며 토큰 인증 대상이 아니다.
 - 선택적인 [TLS 프록시](edge/README.md)는 로컬 인증서로 WSS를 제공한다. `/ws`, `v12.stomp`, 메시지 경계와 ping/pong을 gateway까지 전달하고 송신 버퍼가 1 MiB를 넘으면 연결을 끊는다. 기본 gateway는 계속 WS이며 WTS 서버의 내부 TLS 배치를 재현한다고 주장하지 않는다.
 - TLS 프록시는 명시적인 `deflate` 옵션에서만 permessage-deflate를 협상한다. 양방향 context takeover를 끄고 압축 작업 동시 수를 4로 제한한다. gateway와 프록시 사이는 계속 평문이며 WTS의 압축 파라미터를 재현한 것은 아니다. 같은 합성 데이터의 전송 바이트, CPU, 메모리와 지연 비교는 `node edge/compare.mjs`로 실행한다.
+- `cargo run --example corrections`는 별도 `/experimental/trade-events` topic에서 생성, 정정, 취소를 발행하고 WebSocket 소비자가 누적 수량과 금액을 갱신하는 예제다. `event_id`는 중복 적용을 막고 정정 및 취소의 `target_id`는 기존 체결을 가리킨다. 잘못된 수량, 없는 대상, 이미 취소한 대상과 같은 이벤트 id의 다른 본문은 오류다. 이력 용량을 넘으면 자동 퇴출하지 않고 오류를 반환한다. 금액은 정수 최소 단위다. [Alpaca의 정정 및 취소 기능](https://docs.alpaca.markets/us/docs/real-time-stock-pricing-data)에서 착안했으며 형식과 합성 값은 WTS와 무관하다.
 - 연결마다 잡는 읽기 버퍼는 4 KiB(웹소켓 라이브러리 기본값은 128 KiB)
 
 구현하지 않은 것:

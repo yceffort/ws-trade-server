@@ -1,6 +1,7 @@
 pub mod auth;
 mod bridge;
 pub mod connection;
+pub mod corrections;
 pub mod feed;
 mod http;
 pub mod hub;
