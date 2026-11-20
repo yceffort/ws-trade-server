@@ -3,7 +3,7 @@ import https from 'node:https'
 import { once } from 'node:events'
 import WebSocket, { WebSocketServer } from 'ws'
 
-export async function startProxy({ backend, tls, host = '127.0.0.1', port = 0, maxConnections = 1024, maxBuffer = 1 << 20 }) {
+export async function startProxy({ backend, tls, host = '127.0.0.1', port = 0, maxConnections = 1024, maxBuffer = 1 << 20, compression = false }) {
   const options = { headersTimeout: 5000, requestTimeout: 5000, maxHeaderSize: 8192 }
   const handler = (_, response) => { response.writeHead(404); response.end() }
   const server = tls ? https.createServer({ ...options, ...tls, minVersion: 'TLSv1.2', handshakeTimeout: 5000 }, handler) : http.createServer(options, handler)
@@ -11,7 +11,7 @@ export async function startProxy({ backend, tls, host = '127.0.0.1', port = 0, m
   const sockets = new Set()
   const backends = new Set()
   server.on('connection', (socket) => { sockets.add(socket); socket.on('error', () => {}); socket.once('close', () => sockets.delete(socket)) })
-  const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 65536, autoPong: false, handleProtocols: () => 'v12.stomp' })
+  const wss = new WebSocketServer({ noServer: true, perMessageDeflate: compression ? { serverNoContextTakeover: true, clientNoContextTakeover: true, concurrencyLimit: 4, threshold: 0 } : false, maxPayload: 65536, autoPong: false, handleProtocols: () => 'v12.stomp' })
   server.on('upgrade', (request, socket, head) => {
     const reject = (status) => { if (!socket.destroyed) socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`) }
     if (request.url !== '/ws') return reject('404 Not Found')
