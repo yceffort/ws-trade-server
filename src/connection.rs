@@ -1,5 +1,6 @@
 mod batch;
 mod idle;
+mod read;
 mod rejection;
 use crate::hub::{Hub, Outgoing};
 use crate::stomp::{self, Incoming};
@@ -93,7 +94,7 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
         // 오류 통지를 보낼 수 없는 느린 소켓도 인증 폐기 후 1초 안에 닫는다.
         _ = async { auth::invalidated(&mut auth_guard).await; tokio::time::sleep(Duration::from_secs(1)).await; } => "auth_invalidated",
         _ = idle::wait(last_received, config.idle_timeout) => "idle_timeout",
-        reason = read_loop(reader, &hub, conn, activity) => reason,
+        reason = read::run(reader, &hub, conn, activity) => reason,
         reason = write_loop(writer, outgoing, &connection_id, config.heartbeat_ms, shutdown, session) => reason,
         _ = kicked => "hub_closed",
     };
@@ -112,49 +113,6 @@ async fn read_connect(reader: &mut Reader) -> Option<stomp::Frame> {
         return None;
     }
     Some(frame)
-}
-
-async fn read_loop(mut reader: Reader, hub: &Hub, conn: u64, activity: Option<watch::Sender<Instant>>) -> &'static str {
-    loop {
-        let message = match reader.next().await {
-            Some(Ok(message)) => message,
-            Some(Err(_)) => return "read_error",
-            None => return "peer_closed",
-        };
-        // 허브 전송을 기다리는 동안에도 별도 감시자가 이 수신 시각으로 마감을 판단한다.
-        if let Some(activity) = &activity {
-            activity.send_replace(Instant::now());
-        }
-        let text = match message {
-            Message::Text(text) => text,
-            Message::Ping(_) | Message::Pong(_) => continue,
-            Message::Close(_) => return "peer_closed",
-            _ => return "unsupported_message",
-        };
-        let Some(incoming) = stomp::parse(&text) else {
-            return "invalid_frame";
-        };
-        let Incoming::Frame(frame) = incoming else {
-            continue;
-        };
-        match frame.command.as_str() {
-            "SUBSCRIBE" => {
-                let (Some(id), Some(destination)) = (frame.header("id"), frame.header("destination")) else {
-                    return "invalid_frame";
-                };
-                let receipt = frame.header("receipt").map(str::to_string);
-                hub.subscribe(conn, id.to_string(), destination.to_string(), receipt).await;
-            }
-            "UNSUBSCRIBE" => {
-                let Some(id) = frame.header("id") else { return "invalid_command" };
-                let receipt = frame.header("receipt").map(str::to_string);
-                hub.unsubscribe(conn, id.to_string(), receipt).await;
-            }
-            // DISCONNECT, 두 번째 CONNECT, 모르는 명령은 모두 연결을 닫는다.
-            "DISCONNECT" => return "client_disconnect",
-            _ => return "unsupported_command",
-        }
-    }
 }
 
 async fn write_loop(

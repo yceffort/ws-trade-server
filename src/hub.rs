@@ -19,14 +19,37 @@ pub enum Outgoing {
 }
 
 enum Command {
-    Connect { conn: u64, queue: mpsc::Sender<Outgoing>, kick: oneshot::Sender<()> },
-    Subscribe { conn: u64, id: String, destination: String, receipt: Option<String> },
-    Unsubscribe { conn: u64, id: String, receipt: Option<String> },
-    Disconnect { conn: u64 },
+    #[cfg(test)]
+    Pause {
+        entered: oneshot::Sender<()>,
+        resume: oneshot::Receiver<()>,
+    },
+    Connect {
+        conn: u64,
+        queue: mpsc::Sender<Outgoing>,
+        kick: oneshot::Sender<()>,
+    },
+    Subscribe {
+        conn: u64,
+        id: String,
+        destination: String,
+        receipt: Option<String>,
+    },
+    Unsubscribe {
+        conn: u64,
+        id: String,
+        receipt: Option<String>,
+    },
+    Disconnect {
+        conn: u64,
+    },
     Stop(oneshot::Sender<()>),
     Metrics(oneshot::Sender<Metrics>),
     Snapshot(oneshot::Sender<String>),
-    Publish { topic: String, body: Arc<str> },
+    Publish {
+        topic: String,
+        body: Arc<str>,
+    },
 }
 
 #[derive(Clone)]
@@ -78,6 +101,11 @@ impl Hub {
                 State { limits, log_drops: drops, bridge: counters, cache: Cache::new(topics), ..State::default() };
             while let Some(command) = inbox.recv().await {
                 match command {
+                    #[cfg(test)]
+                    Command::Pause { entered, resume } => {
+                        let _ = entered.send(());
+                        let _ = resume.await;
+                    }
                     Command::Connect { conn, queue, kick } => {
                         state.clients.insert(
                             conn,
@@ -164,5 +192,7 @@ impl Hub {
     }
 }
 
+#[cfg(test)]
+mod test_support;
 #[cfg(test)]
 mod tests;
