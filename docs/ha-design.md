@@ -1,6 +1,6 @@
 # 고가용성과 재접속 복구 설계
 
-상태: 단계별 구현 중. 공통 입력 경계와 [복제 로그 및 producer 복구](../deploy/ha/README.md)와 [gateway 복원](ha-gateway.md)은 구현했고 클라이언트 복구 및 HA 배포는 후속 작업이다. 설계 시작 기준 코드는 `3476d44`다. 현재 서비스가 아래 보장을 제공한다는 뜻은 아니다. [설계 이슈 #45](https://github.com/yceffort/ws-trade-server/issues/45)의 산출물이며 구현 순서와 배포 검증은 [HA 배포 계획](ha-rollout.md)에 둔다. 특정 증권사의 내부 구조를 관측한 결과가 아니라 공개 명세와 현재 코드에서 도출한 실험 설계다.
+상태: 단계별 구현 중. 공통 입력 경계와 [복제 로그 및 producer 복구](../deploy/ha/README.md)와 [gateway 복원](ha-gateway.md)은 구현했고 [클라이언트 복구](ha-protocol.md)까지 구현했고 HA 배포는 후속 작업이다. 설계 시작 기준 코드는 `3476d44`다. 현재 서비스가 아래 보장을 제공한다는 뜻은 아니다. [설계 이슈 #45](https://github.com/yceffort/ws-trade-server/issues/45)의 산출물이며 구현 순서와 배포 검증은 [HA 배포 계획](ha-rollout.md)에 둔다. 특정 증권사의 내부 구조를 관측한 결과가 아니라 공개 명세와 현재 코드에서 도출한 실험 설계다.
 
 ## 결정과 보장 범위
 

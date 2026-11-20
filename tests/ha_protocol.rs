@@ -63,8 +63,10 @@ async fn durable_client_recovers_across_gateways_and_replay_limits() {
     let (a, b, c) = tokio::join!(start_managed(config()), start_managed(config()), start_managed(config()));
     let (a, b, c) = (a.unwrap(), b.unwrap(), c.unwrap());
     let urls: Vec<_> = [&a, &b, &c].iter().map(|server| format!("ws://{}/experimental/ha/ws", server.addr)).collect();
+    let read = reader.clone();
+    let tail = tokio::task::spawn_blocking(move || read.reader(EVENTS, None).unwrap().initial_high()).await.unwrap();
     let fixture = directory.join("protocol-oracle.json");
-    std::fs::write(&fixture,serde_json::to_vec(&json!({"urls":urls,"topics":source.topics,"log_id":source.log_id,"start":expected[0]["offset"],"events":expected})).unwrap()).unwrap();
+    std::fs::write(&fixture,serde_json::to_vec(&json!({"urls":urls,"topics":source.topics,"log_id":source.log_id,"tail":tail.to_string(),"start":expected[0]["offset"],"events":expected})).unwrap()).unwrap();
     let output = tokio::task::spawn_blocking(move || {
         std::process::Command::new("node")
             .args(["tests/ha-client-oracle.mjs", fixture.to_str().unwrap()])

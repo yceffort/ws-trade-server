@@ -15,10 +15,32 @@ if (process.argv[3] === 'crash') {
   const mode = process.argv[5]
   await runClient({ urls: [fixture.urls[0]], token, store: new FileStore(process.argv[4], mode, fixture.topics), startAt,
     onFrame(frame) {
-      if (frame.type === (mode === 'events' ? 'event' : 'snapshot-chunk')) process.send({reached:true}, () => process.kill(process.pid, 'SIGKILL'))
+      if (frame.type === 'error') console.error('server error:',frame.code)
+      if (frame.type === (mode === 'events' ? 'event' : 'snapshot-chunk')) return new Promise(() => process.send({reached:true}, () => process.kill(process.pid, 'SIGKILL')))
     }
   })
   throw new Error('crash point not reached')
+}
+async function request(resume, expected) {
+  const { default: WebSocket } = await import('../edge/node_modules/ws/wrapper.mjs')
+  const socket = new WebSocket(fixture.urls[2], 'wts.ha.v1', { handshakeTimeout: 3000 })
+  const frames = []
+  try {
+    await new Promise((resolve,reject) => {
+      const timer = setTimeout(() => reject(new Error('request timed out')),5000)
+      const done = fn => value => { clearTimeout(timer); fn(value) }
+      socket.on('error',done(reject))
+      socket.on('open', () => socket.send(JSON.stringify({type:'connect',token:token()})))
+      socket.on('message', data => {
+        const frame = JSON.parse(data)
+        frames.push(frame)
+        if (frame.type === 'connected') socket.send(JSON.stringify({type:'resume',request_id:'bounds',topics:fixture.topics,mode:'events',...resume}))
+        else if (frame.type === 'heartbeat') socket.send('{"type":"heartbeat"}')
+        else if (frame.type === 'error' || frame.type === 'caught-up') done(resolve)(frame)
+      })
+    }).then(frame => assert.equal(frame.type === 'error' ? frame.code : frame.type,expected))
+    return frames
+  } finally { socket.terminate() }
 }
 const directory = mkdtempSync(join(tmpdir(), 'wts-ha-oracle-'))
 async function crash(mode, path) {
@@ -32,7 +54,8 @@ async function crash(mode, path) {
     assert.equal(signal,'SIGKILL')
     assert.ok(reached, 'child reached the intended frame before crashing')
     const saved = new FileStore(path,mode,fixture.topics).load()
-    assert.equal(saved.cursor,null)
+    if (mode === 'state') assert.equal(saved.cursor,null)
+    else if (saved.offset !== null) assert.ok(BigInt(saved.offset) < BigInt(fixture.start))
     assert.equal(saved.count,'0')
   } finally { clearTimeout(killed); child.kill('SIGKILL') }
 }
@@ -67,6 +90,13 @@ try {
     assert.equal(saved.states[topic].event_id,last.id)
     assert.deepEqual(saved.states[topic].body,last.body)
   }
+  await request({start_at:{...startAt,offset:'9223372036854775807'}},'start-out-of-range')
+  await request({start_at:{...startAt,log_id:'wrong-log'}},'start-out-of-range')
+  await request({cursor:saved.cursor,topics:[fixture.topics[0]]},'invalid-cursor')
+  await request({cursor:`${saved.cursor}x`},'invalid-cursor')
+  await request({cursor:saved.cursor,start_at:startAt},'invalid-resume')
+  const tail = await request({start_at:{...startAt,offset:fixture.tail}},'caught-up')
+  assert.equal(tail.filter(frame => frame.type === 'event').length,0)
   const statePath = join(directory,'state.json')
   await crash('state',statePath)
   const stateController = new AbortController()

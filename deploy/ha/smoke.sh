@@ -19,12 +19,14 @@ cleanup() {
 }
 trap cleanup EXIT
 node deploy/ha/prepare.mjs
+npm ci --prefix edge --ignore-scripts
 cargo build --locked --features ha --bins
 "${compose[@]}" up -d --wait --wait-timeout 180
 deploy/ha/bootstrap.sh
 cargo test --locked --features ha --test ha_broker synthetic_checkpoint_fencing_and_snapshot_are_atomic -- --ignored --nocapture
 cargo test --locked --features ha --test ha_broker recovery_survives_more_than_4096_aborted_positions -- --ignored --nocapture
 cargo test --locked --features ha --test ha_replica -- --ignored --nocapture
+cargo test --locked --features ha --test ha_protocol -- --ignored --nocapture
 mkdir -p deploy/local/ha/results
 node deploy/ha/producer-failover.mjs | tee deploy/local/ha/results/producer-failover.json
 cargo test --locked --features ha --test ha_broker replicated_log_survives_broker_loss_and_rejects_no_quorum -- --ignored --nocapture

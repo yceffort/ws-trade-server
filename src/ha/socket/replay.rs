@@ -40,6 +40,9 @@ impl Replay {
                     if Instant::now() >= deadline || count >= 10000 {
                         return Err("replay-limit");
                     }
+                    if reader.at_end() && reader.next_offset() <= end {
+                        reader.refresh_end().map_err(error)?;
+                    }
                     if let Some(stored) = reader.poll(Duration::from_millis(50)).map_err(error)? {
                         if stored.offset > end {
                             break;
