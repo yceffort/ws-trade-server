@@ -1,9 +1,11 @@
+use crate::limits::{Limits, Rate};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
 
 pub enum Outgoing {
+    Error(&'static str),
     Receipt { receipt_id: String, message: &'static str },
     Message { subscription: Arc<str>, body: Arc<str> },
 }
@@ -26,23 +28,33 @@ struct Client {
     // 이 값을 버리면 연결 쪽 kicked 수신이 풀려서 연결이 끊긴다.
     _kick: oneshot::Sender<()>,
     subs: HashMap<Arc<str>, String>,
+    rate: Rate,
+    closing: bool,
 }
 
 #[derive(Default)]
 struct State {
+    limits: Limits,
     clients: HashMap<u64, Client>,
     index: HashMap<String, Vec<(u64, Arc<str>)>>,
 }
 
 impl Hub {
     pub fn spawn() -> Hub {
+        Self::with_limits(Limits::default())
+    }
+
+    pub fn with_limits(limits: Limits) -> Hub {
         let (commands, mut inbox) = mpsc::channel(1024);
         tokio::spawn(async move {
-            let mut state = State::default();
+            let mut state = State { limits, ..State::default() };
             while let Some(command) = inbox.recv().await {
                 match command {
                     Command::Connect { conn, queue, kick } => {
-                        state.clients.insert(conn, Client { queue, _kick: kick, subs: HashMap::new() });
+                        state.clients.insert(
+                            conn,
+                            Client { queue, _kick: kick, subs: HashMap::new(), rate: Rate::default(), closing: false },
+                        );
                     }
                     Command::Subscribe { conn, id, destination, receipt } => {
                         state.subscribe(conn, id, destination, receipt)
@@ -95,6 +107,26 @@ impl State {
         let Some(client) = self.clients.get_mut(&conn) else {
             return;
         };
+        if client.closing {
+            return;
+        }
+        let error = if !client.rate.allow(self.limits.commands_per_second) {
+            Some("rate-limit-exceeded")
+        } else if !self.limits.topics.is_empty() && !self.limits.topics.contains(&destination) {
+            Some("unknown-topic")
+        } else if self.limits.subscriptions > 0
+            && client.subs.len() >= self.limits.subscriptions
+            && !client.subs.contains_key(id.as_str())
+        {
+            Some("too-many-subscriptions")
+        } else {
+            None
+        };
+        if let Some(code) = error {
+            client.closing = true;
+            self.deliver(conn, Outgoing::Error(code));
+            return;
+        }
         let id: Arc<str> = id.into();
         if let Some(old) = client.subs.insert(id.clone(), destination.clone()) {
             self.unindex(conn, &id, &old);
@@ -111,6 +143,14 @@ impl State {
     // 구독 중이 아닌 id도 관측이 없어 같은 RECEIPT로 답한다.
     fn unsubscribe(&mut self, conn: u64, id: &str, receipt: Option<String>) {
         let Some(client) = self.clients.get_mut(&conn) else { return };
+        if client.closing {
+            return;
+        }
+        if !client.rate.allow(self.limits.commands_per_second) {
+            client.closing = true;
+            self.deliver(conn, Outgoing::Error("rate-limit-exceeded"));
+            return;
+        }
         if let Some(topic) = client.subs.remove(id) {
             self.unindex(conn, id, &topic);
         }
@@ -128,6 +168,9 @@ impl State {
             let Some(client) = self.clients.get(conn) else {
                 continue;
             };
+            if client.closing {
+                continue;
+            }
             let message = Outgoing::Message { subscription: id.clone(), body: body.clone() };
             if let Err(TrySendError::Full(_)) = client.queue.try_send(message) {
                 full.push(*conn);
@@ -175,65 +218,4 @@ impl State {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-    use tokio::time::timeout;
-
-    async fn recv(queue: &mut mpsc::Receiver<Outgoing>) -> Option<Outgoing> {
-        timeout(Duration::from_secs(2), queue.recv()).await.expect("2초 안에 와야 한다")
-    }
-
-    #[tokio::test]
-    async fn full_queue_drops_only_that_connection() {
-        let hub = Hub::spawn();
-        let (mut slow, slow_kicked) = hub.connect(1, 1).await;
-        let (mut healthy, _healthy_kicked) = hub.connect(2, 8).await;
-        for conn in [1, 2] {
-            hub.subscribe(conn, "0".into(), "/topic".into(), None).await;
-        }
-        for n in 0..3 {
-            hub.publish("/topic".into(), Arc::from(n.to_string())).await;
-        }
-
-        for n in 0..3 {
-            let Some(Outgoing::Message { body, .. }) = recv(&mut healthy).await else {
-                panic!("메시지가 와야 한다")
-            };
-            assert_eq!(&*body, n.to_string());
-        }
-        // 큐 용량 1인 연결은 첫 메시지만 받고 끊긴다.
-        assert!(timeout(Duration::from_secs(2), slow_kicked).await.unwrap().is_err());
-        assert!(matches!(recv(&mut slow).await, Some(Outgoing::Message { .. })));
-        assert!(recv(&mut slow).await.is_none());
-    }
-
-    #[tokio::test]
-    async fn receipt_is_queued_before_first_message_of_that_subscription() {
-        let hub = Hub::spawn();
-        let (mut queue, _kicked) = hub.connect(1, 8).await;
-        hub.subscribe(1, "0".into(), "/t".into(), Some("r".into())).await;
-        hub.publish("/t".into(), Arc::from("x")).await;
-        assert!(matches!(recv(&mut queue).await, Some(Outgoing::Receipt { .. })));
-        assert!(matches!(recv(&mut queue).await, Some(Outgoing::Message { .. })));
-    }
-
-    #[tokio::test]
-    async fn nothing_for_a_subscription_follows_its_unsubscribe_receipt() {
-        let hub = Hub::spawn();
-        let (mut queue, _kicked) = hub.connect(1, 8).await;
-        hub.subscribe(1, "a".into(), "/t".into(), None).await;
-        hub.subscribe(1, "b".into(), "/u".into(), None).await;
-        hub.publish("/t".into(), Arc::from("before")).await;
-        hub.unsubscribe(1, "a".into(), Some("r".into())).await;
-        hub.publish("/t".into(), Arc::from("after")).await;
-        hub.publish("/u".into(), Arc::from("other")).await;
-
-        assert!(matches!(recv(&mut queue).await, Some(Outgoing::Message { body, .. }) if &*body == "before"));
-        assert!(matches!(recv(&mut queue).await, Some(Outgoing::Receipt { message: "unsubscribe success", .. })));
-        let Some(Outgoing::Message { subscription, .. }) = recv(&mut queue).await else {
-            panic!("메시지가 와야 한다")
-        };
-        assert_eq!(&*subscription, "b");
-    }
-}
+mod tests;

@@ -91,3 +91,8 @@ mod tests {
         assert!(matches!(parse("\n"), Some(Incoming::Heartbeat)));
     }
 }
+
+// 이 오류 코드는 공개 WTS에서 관측한 값이 아니라 선택적 제한 기능의 실험 규약이다.
+pub fn error(code: &str) -> String {
+    serialize("ERROR", &[("message", code)], "")
+}

@@ -35,6 +35,14 @@ fn negotiate(request: &Request, mut response: Response) -> Result<Response, Erro
     Ok(response)
 }
 
+// tungstenite의 콜백이 정한 오류 타입을 그대로 반환한다.
+#[allow(clippy::result_large_err)]
+pub async fn reject_overloaded(stream: TcpStream) {
+    // 초과 연결에는 태스크를 더 만들지 않고 짧은 마감 안에서 HTTP 거절을 보낸다.
+    let callback = |_: &Request, _: Response| Err(reject(503));
+    let _ = timeout(Duration::from_millis(250), accept_hdr_async_with_config(stream, callback, None)).await;
+}
+
 // 업그레이드와 첫 CONNECT를 이 시간 안에 끝내지 못하면 끊는다. 아무것도 보내지 않는 소켓이 쌓이는 것을 막는다.
 const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(10);
 // 실제 클라이언트 프레임은 수백 바이트다. 기본값 64 MiB는 연결마다 버퍼를 그만큼 허용한다.
@@ -137,6 +145,10 @@ async fn write_loop(
     loop {
         let text = tokio::select! {
             outgoing = outgoing.recv() => match outgoing {
+                Some(Outgoing::Error(code)) => {
+                    let _ = writer.send(Message::text(stomp::error(code))).await;
+                    return;
+                }
                 Some(Outgoing::Receipt { receipt_id, message }) => stomp::receipt(&receipt_id, message),
                 Some(Outgoing::Message { subscription, body }) => {
                     seq += 1;

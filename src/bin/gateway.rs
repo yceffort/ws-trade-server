@@ -6,6 +6,15 @@ fn parse_args() -> Option<Config> {
     while let Some(flag) = args.next() {
         let value = args.next()?;
         match flag.as_str() {
+            "--max-connections" => config.limits.connections = value.parse().ok()?,
+            "--max-subscriptions" => config.limits.subscriptions = value.parse().ok()?,
+            "--max-commands-per-sec" => config.limits.commands_per_second = value.parse().ok()?,
+            "--allowed-topics" => {
+                if value.split(',').any(str::is_empty) {
+                    return None;
+                }
+                config.limits.topics = value.split(',').map(str::to_string).collect();
+            }
             "--addr" => config.addr = value,
             "--ring" => config.ring = Some(value.into()),
             "--poll-us" => config.poll_us = value.parse().ok()?,
@@ -22,7 +31,9 @@ fn parse_args() -> Option<Config> {
 #[tokio::main]
 async fn main() {
     let Some(config) = parse_args() else {
-        eprintln!("사용법: gateway [--addr 127.0.0.1:8080] [--ring 경로] [--poll-us 200] [--idle-ms 0]");
+        eprintln!(
+            "사용법: gateway [--addr 127.0.0.1:8080] [--ring 경로] [--poll-us 200] [--idle-ms 0] [--max-connections 0] [--max-subscriptions 0] [--max-commands-per-sec 0] [--allowed-topics topic,...]"
+        );
         std::process::exit(2);
     };
     match start(config).await {
