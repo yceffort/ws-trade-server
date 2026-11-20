@@ -48,7 +48,20 @@ impl Default for Args {
     }
 }
 
-// 종목마다 평균 초당 rate건, 간격은 지수분포다(feed::run과 같다). 쓰기 직전에 시각을 찍어 두고, 멈추라는 신호는 50ms 안에 본다.
+// 발행 시각까지 기다린다. 멈추라는 신호가 오면 false다. 신호는 50ms 안에 보고, 일정이 밀려 기다릴 것이 없을 때도 본다.
+fn wait_until(due: Instant, stop: &AtomicBool) -> bool {
+    loop {
+        if stop.load(Relaxed) {
+            return false;
+        }
+        let Some(left) = due.checked_duration_since(Instant::now()) else {
+            return true;
+        };
+        thread::sleep(left.min(Duration::from_millis(50)));
+    }
+}
+
+// 종목마다 평균 초당 rate건, 간격은 지수분포다(feed::run과 같다). 쓰기 직전에 시각을 찍어 둔다.
 fn write_trades(mut writer: Writer, args: &Args, stop: &AtomicBool) -> std::io::Result<Vec<Stamp>> {
     let wait = || Duration::from_secs_f64(-(1.0 - rand::random::<f64>()).ln() / args.rate);
     let mut schedule: Vec<(Instant, Generator)> =
@@ -58,11 +71,8 @@ fn write_trades(mut writer: Writer, args: &Args, stop: &AtomicBool) -> std::io::
     );
     for seq in 1.. {
         let next = (0..schedule.len()).min_by_key(|&i| schedule[i].0).expect("종목은 하나 이상이다");
-        while let Some(left) = schedule[next].0.checked_duration_since(Instant::now()) {
-            if stop.load(Relaxed) {
-                return Ok(stamps);
-            }
-            thread::sleep(left.min(Duration::from_millis(50)));
+        if !wait_until(schedule[next].0, stop) {
+            return Ok(stamps);
         }
         schedule[next].0 += wait();
         let trade = schedule[next].1.next_trade(seq);
@@ -184,4 +194,17 @@ fn report(
         "stalled_kicked": outcomes.iter().filter(|(_, o)| o.kicked).count(),
         "latency_us": latency_report(stamps, samples, unparsed, window),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 발행률이 처리량보다 높으면 다음 발행 시각이 계속 과거다. 그때도 멈추라는 신호를 봐야 실험이 끝난다.
+    #[test]
+    fn stop_is_seen_when_the_schedule_is_behind() {
+        let due = Instant::now();
+        thread::sleep(Duration::from_millis(1));
+        assert!(!wait_until(due, &AtomicBool::new(true)));
+    }
 }
