@@ -1,4 +1,6 @@
 mod cache;
+mod metrics;
+use crate::metrics::{BridgeCounters, Metrics};
 mod state;
 use crate::limits::{Limits, Rate};
 use cache::Cache;
@@ -19,6 +21,7 @@ enum Command {
     Unsubscribe { conn: u64, id: String, receipt: Option<String> },
     Disconnect { conn: u64 },
     Stop(oneshot::Sender<()>),
+    Metrics(oneshot::Sender<Metrics>),
     Snapshot(oneshot::Sender<String>),
     Publish { topic: String, body: Arc<str> },
 }
@@ -26,6 +29,7 @@ enum Command {
 #[derive(Clone)]
 pub struct Hub {
     commands: mpsc::Sender<Command>,
+    pub(crate) bridge: Arc<BridgeCounters>,
 }
 
 struct Client {
@@ -40,6 +44,10 @@ struct Client {
 #[derive(Default)]
 struct State {
     limits: Limits,
+    bridge: Arc<BridgeCounters>,
+    published: u64,
+    enqueued: u64,
+    slow_disconnections: u64,
     cache: Cache,
     clients: HashMap<u64, Client>,
     index: HashMap<String, Vec<(u64, Arc<str>)>>,
@@ -56,8 +64,10 @@ impl Hub {
 
     pub fn configured(limits: Limits, topics: Vec<String>) -> Hub {
         let (commands, mut inbox) = mpsc::channel(1024);
+        let bridge = Arc::new(BridgeCounters::default());
+        let counters = bridge.clone();
         tokio::spawn(async move {
-            let mut state = State { limits, cache: Cache::new(topics), ..State::default() };
+            let mut state = State { limits, bridge: counters, cache: Cache::new(topics), ..State::default() };
             while let Some(command) = inbox.recv().await {
                 match command {
                     Command::Connect { conn, queue, kick } => {
@@ -77,6 +87,9 @@ impl Hub {
                         let _ = reply.send(());
                         break;
                     }
+                    Command::Metrics(reply) => {
+                        let _ = reply.send(state.metrics(inbox.len()));
+                    }
                     Command::Snapshot(reply) => {
                         let _ = reply.send(state.cache.json());
                     }
@@ -84,7 +97,7 @@ impl Hub {
                 }
             }
         });
-        Hub { commands }
+        Hub { commands, bridge }
     }
 
     pub async fn connect(&self, conn: u64, queue_capacity: usize) -> (mpsc::Receiver<Outgoing>, oneshot::Receiver<()>) {
@@ -110,6 +123,12 @@ impl Hub {
         let (reply, done) = oneshot::channel();
         self.send(Command::Stop(reply)).await;
         let _ = done.await;
+    }
+
+    pub async fn metrics(&self) -> Option<Metrics> {
+        let (reply, response) = oneshot::channel();
+        self.send(Command::Metrics(reply)).await;
+        response.await.ok()
     }
 
     pub async fn snapshot(&self) -> Option<String> {

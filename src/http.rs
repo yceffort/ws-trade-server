@@ -51,6 +51,11 @@ async fn respond(mut stream: TcpStream, hub: &Hub) -> io::Result<()> {
             Some(body) => ("200 OK", body),
             None => ("503 Service Unavailable", "{}".into()),
         }
+    } else if first == b"GET /metrics HTTP/1.1\r" {
+        match hub.metrics().await {
+            Some(metrics) => ("200 OK", serde_json::to_string(&metrics).expect("정수 필드만 직렬화한다")),
+            None => ("503 Service Unavailable", "{}".into()),
+        }
     } else {
         ("404 Not Found", "{}".into())
     };

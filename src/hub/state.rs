@@ -58,6 +58,7 @@ impl State {
     }
 
     pub(super) fn publish(&mut self, topic: &str, body: Arc<str>) {
+        self.published += 1;
         self.cache.record(topic, body.clone());
         let Some(targets) = self.index.get(topic) else {
             return;
@@ -71,8 +72,10 @@ impl State {
                 continue;
             }
             let message = Outgoing::Message { subscription: id.clone(), body: body.clone() };
-            if let Err(TrySendError::Full(_)) = client.queue.try_send(message) {
-                full.push(*conn);
+            match client.queue.try_send(message) {
+                Ok(()) => self.enqueued += 1,
+                Err(TrySendError::Full(_)) => full.push(*conn),
+                Err(TrySendError::Closed(_)) => {}
             }
         }
         for conn in full {
@@ -84,13 +87,16 @@ impl State {
         let Some(client) = self.clients.get(&conn) else {
             return;
         };
-        if let Err(TrySendError::Full(_)) = client.queue.try_send(outgoing) {
-            self.drop_slow(conn);
+        match client.queue.try_send(outgoing) {
+            Ok(()) => self.enqueued += 1,
+            Err(TrySendError::Full(_)) => self.drop_slow(conn),
+            Err(TrySendError::Closed(_)) => {}
         }
     }
 
     pub(super) fn drop_slow(&mut self, conn: u64) {
         if self.clients.contains_key(&conn) {
+            self.slow_disconnections += 1;
             eprintln!("느린 클라이언트 차단: conn {conn}");
             self.remove(conn);
         }
