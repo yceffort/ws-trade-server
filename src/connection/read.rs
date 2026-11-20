@@ -1,12 +1,11 @@
-use super::Reader;
 use crate::{
     hub::Hub,
     stomp::{self, Incoming},
 };
-use futures_util::StreamExt;
+use futures_util::{Stream, StreamExt};
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::{Error, Message};
 
 const PENDING_COMMANDS: usize = 32;
 
@@ -15,12 +14,10 @@ enum Command {
     Unsubscribe { id: String, receipt: Option<String> },
 }
 
-pub(super) async fn run(
-    reader: Reader,
-    hub: &Hub,
-    conn: u64,
-    activity: Option<watch::Sender<Instant>>,
-) -> &'static str {
+pub(super) async fn run<S>(reader: S, hub: &Hub, conn: u64, activity: Option<watch::Sender<Instant>>) -> &'static str
+where
+    S: Stream<Item = Result<Message, Error>> + Unpin,
+{
     let (commands, pending) = mpsc::channel(PENDING_COMMANDS);
     tokio::select! {
         reason = receive(reader, commands, activity) => reason,
@@ -37,11 +34,14 @@ async fn dispatch(mut commands: mpsc::Receiver<Command>, hub: &Hub, conn: u64) {
     }
 }
 
-async fn receive(
-    mut reader: Reader,
+async fn receive<S>(
+    mut reader: S,
     commands: mpsc::Sender<Command>,
     activity: Option<watch::Sender<Instant>>,
-) -> &'static str {
+) -> &'static str
+where
+    S: Stream<Item = Result<Message, Error>> + Unpin,
+{
     loop {
         let message = match reader.next().await {
             Some(Ok(message)) => message,

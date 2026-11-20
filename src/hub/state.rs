@@ -22,8 +22,7 @@ impl State {
         };
         if let Some(code) = error {
             tracing::debug!(event = "subscription_rejected", conn, reason = code);
-            client.closing = true;
-            self.deliver(conn, Outgoing::Error(code));
+            self.reject(conn, code);
             return;
         }
         let id: Arc<str> = id.into();
@@ -47,8 +46,7 @@ impl State {
         }
         if !client.rate.allow(self.limits.commands_per_second) {
             tracing::debug!(event = "subscription_rejected", conn, reason = "rate-limit-exceeded");
-            client.closing = true;
-            self.deliver(conn, Outgoing::Error("rate-limit-exceeded"));
+            self.reject(conn, "rate-limit-exceeded");
             return;
         }
         if let Some(topic) = client.subs.remove(id) {
@@ -83,6 +81,16 @@ impl State {
         for conn in full {
             self.drop_slow(conn);
         }
+    }
+
+    fn reject(&mut self, conn: u64, code: &'static str) {
+        let Some(client) = self.clients.get_mut(&conn) else { return };
+        client.closing = true;
+        // 송신 큐가 막혀도 연결 쪽에서 종료 기한을 시작할 수 있어야 한다.
+        if let Some(kick) = client.kick.take() {
+            let _ = kick.send(code);
+        }
+        self.deliver(conn, Outgoing::Error(code));
     }
 
     pub(super) fn deliver(&mut self, conn: u64, outgoing: Outgoing) {
