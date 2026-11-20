@@ -43,6 +43,7 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 - 구독 중이 아닌 id의 `UNSUBSCRIBE`도 `receipt`가 있으면 같은 `RECEIPT`로 답함
 - `UNSUBSCRIBE`에 `receipt`가 없으면 응답 없음
 - `DISCONNECT`, 파싱할 수 없는 프레임, `CONNECT` 전의 다른 명령, 모르는 명령은 연결을 닫음
+- 프레임은 NUL로 끝나야 하고, NUL 뒤에 줄바꿈이 더 붙은 프레임도 받음(캡처한 클라이언트 프레임은 모두 NUL로 끝남)
 - 같은 id로 다시 구독하면 기존 구독을 덮어씀
 - 송신 큐가 가득 찬 느린 클라이언트는 연결을 끊음(임시 정책)
 - 웹소켓 업그레이드와 첫 `CONNECT`를 10초 안에 끝내지 못하면 연결을 끊음
