@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 const records = readFileSync(process.argv[2], 'utf8')
   .trim()
   .split('\n')
-  .map((line) => JSON.parse(line))
+  .map((line, order) => ({ order, ...JSON.parse(line) }))
 
 const REDACTED_HEADERS = new Set(['authorization', 'device-id'])
 const VOCABULARY_KEYS = new Set(['currency', 'exchange', 'session', 'tradeType', 'changeType'])
@@ -28,10 +28,11 @@ const header = (frame, name) => frame.headers.find(([key]) => key === name)?.[1]
 const unique = (values) => [...new Set(values.map((value) => JSON.stringify(value)))].map((value) => JSON.parse(value))
 const gaps = (times) => times.slice(1).map((time, index) => time - times[index])
 
-const sent = records.filter((r) => r.event === 'webSocketFrameSent').map((r) => ({ ms: r.ms, ...parseFrame(r.response.payloadData) }))
+// order는 보낸 프레임과 받은 프레임을 통틀어 캡처에 적힌 순서다
+const sent = records.filter((r) => r.event === 'webSocketFrameSent').map((r) => ({ ms: r.ms, order: r.order, ...parseFrame(r.response.payloadData) }))
 const received = records
   .filter((r) => r.event === 'webSocketFrameReceived')
-  .map((r, index) => ({ ms: r.ms, index, ...parseFrame(r.response.payloadData) }))
+  .map((r, index) => ({ ms: r.ms, order: r.order, index, ...parseFrame(r.response.payloadData) }))
 const request = records.find((r) => r.event === 'webSocketWillSendHandshakeRequest').request.headers
 const response = records.find((r) => r.event === 'webSocketHandshakeResponseReceived').response
 const created = records.find((r) => r.event === 'webSocketCreated')
@@ -82,12 +83,34 @@ for (const frame of messages) {
 }
 
 const perSecond = Object.values(Object.groupBy(messages, (frame) => Math.floor(frame.ms / 1000))).map((group) => group.length)
+// 구독이 살아 있는 구간은 구독 RECEIPT를 받은 뒤부터 UNSUBSCRIBE를 보내기 전까지다. RECEIPT가 없으면 언제부터인지 알 수 없어 근거로 쓰지 않는다
+const activeSpan = (frame) => {
+  const id = header(frame, 'id')
+  const receipt = receipts.find((r) => header(r, 'receipt-id') === header(frame, 'receipt'))
+  const unsubscribe = unsubscribes.find((u) => header(u, 'id') === id)
+  return { id, from: receipt?.order ?? Infinity, until: unsubscribe?.order ?? Infinity }
+}
+// 그 구간에 구독이 받은 본문과 횟수. 두 구독의 결과를 문자열로 견준다
+const bodyCounts = (id, from, until) => {
+  const counts = {}
+  for (const frame of messages) {
+    if (header(frame, 'subscription') === id && frame.order > from && frame.order < until) counts[frame.body] = (counts[frame.body] ?? 0) + 1
+  }
+  return JSON.stringify(Object.entries(counts).sort())
+}
 const duplicated = Object.entries(Object.groupBy(subscribes, (frame) => header(frame, 'destination')))
   .filter(([, group]) => group.length > 1)
   .map(([destination, group]) => {
-    const ids = group.map((frame) => header(frame, 'id'))
-    const [first, second] = ids.map((id) => messages.filter((frame) => header(frame, 'subscription') === id).map((frame) => frame.body))
-    return { destination: pattern(destination), subscriptions: ids.length, deliveredToEach: second.every((body) => first.includes(body)) }
+    const spans = group.map(activeSpan)
+    // 두 구독이 함께 살아 있던 구간마다 같은 본문을 같은 횟수만큼 받았는지 본다. 그 구간에 메시지가 없는 쌍은 근거가 못 된다
+    const verdicts = spans.flatMap((a, i) =>
+      spans.slice(i + 1).flatMap((b) => {
+        const [from, until] = [Math.max(a.from, b.from), Math.min(a.until, b.until)]
+        const [left, right] = [bodyCounts(a.id, from, until), bodyCounts(b.id, from, until)]
+        return left === '[]' && right === '[]' ? [] : [left === right]
+      }),
+    )
+    return { destination: pattern(destination), subscriptions: group.length, deliveredToEach: verdicts.length === 0 ? null : verdicts.every(Boolean) }
   })
 
 console.log(

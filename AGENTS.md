@@ -14,6 +14,12 @@ cargo test
 
 프레임 모양을 건드렸다면 `README.md`의 "캡처와 대조하기" 절차로 `contract/wts-stomp.json`과 비교한다.
 
+`capture/extract-contract.mjs`를 바꾸면 합성 캡처 테스트도 통과해야 한다.
+
+```sh
+node --test capture/extract-contract.test.mjs
+```
+
 ## Rust 스킬
 
 Rust 코드를 쓰거나 검토할 때 `rust-skills` 스킬을 쓴다. Codex는 `.agents/skills/rust-skills/`, Claude Code는 같은 폴더를 가리키는 `.claude/skills/rust-skills`에서 읽는다. 규칙이 265개라 전부 볼 필요는 없고, 이 저장소에서는 아래 범주를 먼저 본다.
