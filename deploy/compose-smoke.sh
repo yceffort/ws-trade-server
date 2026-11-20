@@ -3,14 +3,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 temporary=$(mktemp -d)
 export WTS_SECRETS_DIR="$temporary/secrets" WTS_PORT=0
-export COMPOSE_PROJECT_NAME="wts-smoke-$$"
+export COMPOSE_PROJECT_NAME="wts-smoke-$(node -p 'require("crypto").randomUUID()')"
 client_pid=
 cleanup() {
   result=$?
   trap - EXIT
   if [ "$result" -ne 0 ]; then docker compose logs --no-color --tail 100 || true; fi
   if [ -n "$client_pid" ]; then kill "$client_pid" 2>/dev/null || true; wait "$client_pid" 2>/dev/null || true; fi
-  docker compose down --volumes --timeout 10
+  if ! docker compose down --volumes --timeout 10; then result=1; fi
   rm -rf "$temporary"
   exit "$result"
 }
