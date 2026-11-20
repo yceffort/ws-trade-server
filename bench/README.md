@@ -38,16 +38,23 @@ GATEWAY_CPUS=0-1 LOADGEN_CPUS=2-9 bench/linux.sh bench/run.sh linux-conn-1000-2c
 
 ## CI에서 돌리기
 
-`.github/workflows/bench.yml`이 서버나 측정 도구를 건드린 PR마다, 그리고 Actions 탭에서 직접 실행할 때 `bench/ci.sh`를 돌린다. 연결 2,000개에 종목당 초당 20건을 10초씩 세 번 흘리고, 실행별 값과 중앙값을 실행 요약에 표로 적는다. PR이면 기준 브랜치도 같은 러너에 받아 번갈아 돌려 나란히 적는다.
+`.github/workflows/bench.yml`이 서버나 측정 도구를 건드린 PR마다, 그리고 Actions 탭에서 직접 실행할 때 `bench/ci.sh`를 돌린다. 조건은 둘이고 각각 10초씩 세 번 돌려 실행별 값과 중앙값을 실행 요약에 표로 적는다. PR이면 기준 브랜치도 같은 러너에 받아 번갈아 돌려 나란히 적는다.
 
-공용 러너는 코어가 적고 이웃의 부하에 따라 값이 흔들리므로 지연은 실패 조건이 아니다. 같은 실행 안의 기준 값과만 견준다. 실패 조건은 전달이 온전한지다. 연결 실패, 순번 빠짐, 예상 밖 끊김, 짝 없는 표본이 0이고 `delivery.ratio`가 1이어야 한다. 결과 JSON은 `bench-results` 아티팩트로 남는다.
+| 조건 | 연결 | 종목당 초당 건수 | 보는 것 |
+| --- | --- | --- | --- |
+| `steady` | 1,000 | 10 | gateway가 여유 있을 때의 지연 |
+| `saturated` | 2,000 | 20 | 코어 하나가 꽉 찼을 때 초당 몇 프레임을 보내는가 |
 
-로컬에서도 같은 스크립트를 쓸 수 있다. 조건은 환경 변수로 바꾼다.
+조건의 이름은 2코어 러너 기준이다. gateway와 loadgen에 코어를 하나씩 주면 `saturated`에서 gateway 코어가 100%가 되고 지연이 초 단위로 밀린다(2026-11-20 첫 실행에서 초당 약 11만 프레임). 코어가 많은 기계에서는 같은 조건이 포화에 이르지 않는다.
+
+공용 러너는 이웃의 부하에 따라 값이 흔들리므로 지연과 처리량은 실패 조건이 아니다. 같은 실행 안의 기준 값과만 견준다. 실패 조건은 전달이 온전한지다. 모든 실행에서 연결 실패, 순번 빠짐, 예상 밖 끊김, 짝 없는 표본이 0이어야 하고, `steady`에서는 `delivery.ratio`가 1이어야 한다. 결과 JSON은 `bench-results` 아티팩트로 남는다.
+
+로컬에서도 같은 스크립트를 쓸 수 있다. 횟수, 시간, 조건은 환경 변수로 바꾼다.
 
 ```sh
 bench/ci.sh                                   # 지금 코드만
 bench/ci.sh ../ws-trade-server-main           # 기준 체크아웃과 번갈아
-BENCH_CONNECTIONS=500 BENCH_RATE=5 BENCH_SECONDS=5 BENCH_ROUNDS=2 bench/ci.sh
+BENCH_ROUNDS=2 BENCH_SECONDS=5 BENCH_SCENARIOS="steady:500:5" bench/ci.sh
 ```
 
 ## 지연을 재는 법
