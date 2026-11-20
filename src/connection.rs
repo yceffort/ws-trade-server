@@ -1,3 +1,4 @@
+mod idle;
 use crate::Config;
 use crate::hub::{Hub, Outgoing};
 use crate::stomp::{self, Incoming};
@@ -5,7 +6,7 @@ use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, MissedTickBehavior, interval_at, timeout};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
@@ -56,8 +57,11 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64) {
     eprintln!("연결: {connection_id}");
 
     let (outgoing, kicked) = hub.connect(conn, config.queue_capacity).await;
+    let (activity, last_received) = watch::channel(Instant::now());
+    let activity = config.idle_timeout.map(|_| activity);
     tokio::select! {
-        _ = read_loop(reader, &hub, conn, config.idle_timeout) => {}
+        _ = idle::wait(last_received, config.idle_timeout) => {}
+        _ = read_loop(reader, &hub, conn, activity) => {}
         _ = write_loop(writer, outgoing, &connection_id, config.heartbeat_ms) => {}
         _ = kicked => {}
     }
@@ -78,14 +82,13 @@ async fn read_connect(reader: &mut Reader) -> Option<String> {
     frame.header("connection-id").map(str::to_string)
 }
 
-async fn read_loop(mut reader: Reader, hub: &Hub, conn: u64, idle: Option<Duration>) {
+async fn read_loop(mut reader: Reader, hub: &Hub, conn: u64, activity: Option<watch::Sender<Instant>>) {
     loop {
-        // 송신은 수신 타이머를 갱신하지 않는다. heartbeat와 제어 프레임도 수신 활동이다.
-        let incoming = match idle {
-            Some(limit) => timeout(limit, reader.next()).await.ok().flatten(),
-            None => reader.next().await,
-        };
-        let Some(Ok(message)) = incoming else { return };
+        let Some(Ok(message)) = reader.next().await else { return };
+        // 허브 전송을 기다리는 동안에도 별도 감시자가 이 수신 시각으로 마감을 판단한다.
+        if let Some(activity) = &activity {
+            activity.send_replace(Instant::now());
+        }
         let text = match message {
             Message::Text(text) => text,
             Message::Ping(_) | Message::Pong(_) => continue,
