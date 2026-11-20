@@ -31,7 +31,7 @@ for (;;) {
         state.stream(topic, body.replace(/\0$/, ''))
         console.log(topic, state.values.get(topic))
       }
-      if (command === 'ERROR') socket.close()
+      if (command === 'ERROR') { console.error('서버 종료 사유:', headers.message); socket.close() }
     }
     socket.onerror = () => socket.close()
     socket.onclose = () => { clearInterval(heartbeat); abort.abort(); resolve() }

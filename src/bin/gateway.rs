@@ -1,4 +1,4 @@
-use ws_trade_server::{Config, default_ring_path, start};
+use ws_trade_server::{Config, default_ring_path, start_managed};
 
 fn parse_args() -> Option<Config> {
     let mut config = Config { ring: Some(default_ring_path()), ..Config::default() };
@@ -38,14 +38,31 @@ async fn main() {
         );
         std::process::exit(2);
     };
-    match start(config).await {
-        Ok((addr, _hub)) => {
-            eprintln!("수신 대기: {addr}");
-            std::future::pending::<()>().await;
+    match start_managed(config).await {
+        Ok(server) => {
+            eprintln!("수신 대기: {}", server.addr);
+            if let Some(addr) = server.http_addr {
+                eprintln!("조회 API: {addr}");
+            }
+            wait_for_signal().await;
+            server.shutdown().await;
         }
         Err(error) => {
             eprintln!("시작 실패: {error}");
             std::process::exit(1);
         }
+    }
+}
+
+async fn wait_for_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut terminate = signal(SignalKind::terminate()).expect("SIGTERM 감시 등록");
+        tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
     }
 }
