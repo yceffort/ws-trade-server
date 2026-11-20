@@ -10,6 +10,10 @@ seconds=${BENCH_SECONDS:-10}
 # 이름:연결 수:종목당 초당 건수. 2코어 러너에서 steady는 gateway 코어의 일부만 쓰고, saturated는 코어 하나로 다 보내지 못한다.
 scenarios=${BENCH_SCENARIOS:-steady:1000:10 saturated:2000:20}
 
+# 이전 호출이 남긴 결과가 표와 검사에 섞이지 않게 지운다.
+rm -f bench/results/ci-head-*.json
+[ -z "$base" ] || rm -f "$base"/bench/results/ci-base-*.json
+
 # 번갈아 돌려야 러너의 상태가 시간에 따라 바뀌어도 한쪽에만 쏠리지 않는다.
 for round in $(seq "$rounds"); do
   for scenario in $scenarios; do
@@ -31,7 +35,9 @@ rows() {
   shift
   jq -rs --arg label "$label" '
     def ms: if . == null then "-" else (. / 10 | round / 100 | tostring) end;
-    def median: map(select(. != null)) | sort | if length == 0 then null else .[(length - 1) / 2 | floor] end;
+    def median: map(select(. != null)) | sort | length as $n
+      | if $n == 0 then null elif $n % 2 == 1 then .[($n - 1) / 2] else (.[$n / 2 - 1] + .[$n / 2]) / 2 end;
+    def rounded(unit): if . == null then null else (. / unit | round * unit * 10000 | round / 10000) end;
     def row(name): "| \(name) | \(.p50 | ms) | \(.p90 | ms) | \(.p99 | ms) | \(.cpu // "-") | \(.rss_mb // "-") | \(.per_sec // "-") | \(.ratio // "-") |";
     map({
       p50: .latency_us.p50, p90: .latency_us.p90, p99: .latency_us.p99,
@@ -39,8 +45,9 @@ rows() {
       per_sec: (.messages.per_sec | round), ratio: .delivery.ratio
     })
     | (to_entries[] | . as $run | $run.value | row("\($label) \($run.key + 1)")),
-      ({p50: (map(.p50) | median), p90: (map(.p90) | median), p99: (map(.p99) | median), cpu: (map(.cpu) | median),
-        rss_mb: (map(.rss_mb) | median), per_sec: (map(.per_sec) | median), ratio: (map(.ratio) | median)} | row("**\($label) 중앙값**"))
+      ({p50: (map(.p50) | median), p90: (map(.p90) | median), p99: (map(.p99) | median), cpu: (map(.cpu) | median | rounded(0.1)),
+        rss_mb: (map(.rss_mb) | median | rounded(1)), per_sec: (map(.per_sec) | median | rounded(1)),
+        ratio: (map(.ratio) | median | rounded(0.0001))} | row("**\($label) 중앙값**"))
   ' "$@"
 }
 
