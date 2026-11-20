@@ -84,10 +84,11 @@ for (const frame of messages) {
 
 const perSecond = Object.values(Object.groupBy(messages, (frame) => Math.floor(frame.ms / 1000))).map((group) => group.length)
 // 구독이 살아 있는 구간은 구독 RECEIPT를 받은 뒤부터 UNSUBSCRIBE를 보내기 전까지다. RECEIPT가 없으면 언제부터인지 알 수 없어 근거로 쓰지 않는다
+// receipt 값이나 id가 다시 쓰여도 엉뚱한 프레임을 고르지 않게, 이 SUBSCRIBE보다 뒤에 오간 것 중 첫 번째를 고른다
 const activeSpan = (frame) => {
   const id = header(frame, 'id')
-  const receipt = receipts.find((r) => header(r, 'receipt-id') === header(frame, 'receipt'))
-  const unsubscribe = unsubscribes.find((u) => header(u, 'id') === id)
+  const receipt = receipts.find((r) => r.order > frame.order && header(r, 'receipt-id') === header(frame, 'receipt'))
+  const unsubscribe = unsubscribes.find((u) => u.order > frame.order && header(u, 'id') === id)
   return { id, from: receipt?.order ?? Infinity, until: unsubscribe?.order ?? Infinity }
 }
 // 그 구간에 구독이 받은 본문과 횟수. 두 구독의 결과를 문자열로 견준다
