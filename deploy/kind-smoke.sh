@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 temporary=$(mktemp -d)
 export KUBECONFIG="$temporary/kubeconfig"
-cluster="wts-smoke-$$"
+cluster="wts-smoke-$(node -p 'require("crypto").randomUUID()')"
 forward_pid= client_pid=
 cleanup() {
   result=$?
@@ -16,7 +16,7 @@ cleanup() {
   for pid in "$client_pid" "$forward_pid"; do
     if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi
   done
-  kind delete cluster --name "$cluster"
+  if ! kind delete cluster --name "$cluster"; then result=1; fi
   rm -rf "$temporary"
   exit "$result"
 }
