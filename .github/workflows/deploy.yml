@@ -27,5 +27,6 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --prefix edge
+      - run: node deploy/context-smoke.mjs
       - run: docker compose build
       - run: bash deploy/compose-smoke.sh

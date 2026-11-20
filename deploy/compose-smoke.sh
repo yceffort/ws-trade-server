@@ -30,7 +30,10 @@ for attempt in {1..20}; do
   if ! docker compose exec -T gateway container-probe ready; then break; fi
   sleep 1
 done
-! docker compose exec -T gateway container-probe ready
+if docker compose exec -T gateway container-probe ready; then
+  echo 'feed 중지 후에도 gateway readiness가 성공했습니다.' >&2
+  exit 1
+fi
 docker compose exec -T gateway container-probe live
 docker compose start feed
 for attempt in {1..20}; do

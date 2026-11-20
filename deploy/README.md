@@ -24,9 +24,12 @@ gateway의 readiness는 허용한 두 topic 모두에 최근 10초 이내 체결
 ```sh
 docker compose build
 npm ci --prefix edge
+node deploy/context-smoke.mjs
 bash deploy/compose-smoke.sh
 ```
 
 검증은 별도 Compose 프로젝트와 임시 인증 자료, 임의의 loopback 포트를 사용한다. 양쪽 topic 수신, 잘못된 토큰 거절, non-root와 읽기 전용 루트, feed 중지 시 readiness 실패와 복구, 전체 종료 시 종료 프레임을 확인하고 컨테이너와 volume을 지운다. Bash도 필요하다. GitHub Actions의 `Deployment` 워크플로에서 같은 절차를 실행한다.
+
+context 검증은 합성 파일만 담은 임시 디렉터리에 실제 `.dockerignore`를 적용하고 Docker의 COPY 결과를 검사한다. 인증 파일, 캡처, node_modules가 build context에서 제외되는지 확인하며 저장소의 실제 인증 파일이나 캡처를 읽지 않는다.
 
 이 구성은 단일 feed 실험이다. volume을 지우면 링 데이터가 사라지고 gateway를 재시작하면 snapshot과 replay가 초기화된다. 이미지 기본 태그는 `ws-trade-server:local`, `ws-trade-edge:local`이며 `WTS_SERVER_IMAGE`, `WTS_EDGE_IMAGE`로 바꿀 수 있다. 레지스트리 업로드, 인증서 자동 갱신, 부하 분산과 무중단 배포를 제공하지 않는다.

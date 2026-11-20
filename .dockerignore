@@ -7,9 +7,11 @@
 !proto/
 !proto/**
 !deploy/
+deploy/**
 !deploy/container/
 !deploy/container/**
 !edge/
+edge/**
 !edge/package.json
 !edge/package-lock.json
 !edge/run.mjs
