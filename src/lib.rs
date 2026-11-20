@@ -62,6 +62,7 @@ pub async fn start(config: Config) -> std::io::Result<(SocketAddr, Hub)> {
     let accept_hub = hub.clone();
     tokio::spawn(async move {
         let mut conn = 0;
+        let mut rejects = connection::Rejector::default();
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
@@ -71,7 +72,7 @@ pub async fn start(config: Config) -> std::io::Result<(SocketAddr, Hub)> {
                         match permits.clone().try_acquire_owned() {
                             Ok(permit) => Some(permit),
                             Err(_) => {
-                                connection::reject_overloaded(stream).await;
+                                rejects.reject(stream);
                                 continue;
                             }
                         }

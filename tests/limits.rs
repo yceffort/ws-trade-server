@@ -57,3 +57,23 @@ async fn excess_connection_is_rejected_without_dropping_the_first() {
     let mut next = connect_stomp(&addr, "next").await;
     subscribe(&mut next, "a", KR).await;
 }
+
+#[tokio::test]
+async fn silent_rejected_connections_do_not_delay_new_admission() {
+    use tokio::net::TcpStream;
+    let addr = server(Limits { connections: 1, ..Limits::default() }).await;
+    let mut first = connect_stomp(&addr, "first").await;
+    let mut silent = Vec::new();
+    for _ in 0..20 {
+        silent.push(TcpStream::connect(&addr).await.unwrap());
+    }
+    assert!(open(&addr, "/ws", Some("v12.stomp")).await.is_err());
+    send(&mut first, "DISCONNECT", &[]).await;
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while first.next().await.is_some_and(|item| item.is_ok()) {}
+        let mut next = connect_stomp(&addr, "next").await;
+        subscribe(&mut next, "a", KR).await;
+    })
+    .await
+    .unwrap();
+}

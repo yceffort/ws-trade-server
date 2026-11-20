@@ -1,9 +1,11 @@
 mod idle;
+mod rejection;
 use crate::Config;
 use crate::hub::{Hub, Outgoing};
 use crate::stomp::{self, Incoming};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
+pub(crate) use rejection::Rejector;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
@@ -38,7 +40,7 @@ fn negotiate(request: &Request, mut response: Response) -> Result<Response, Erro
 // tungstenite의 콜백이 정한 오류 타입을 그대로 반환한다.
 #[allow(clippy::result_large_err)]
 pub async fn reject_overloaded(stream: TcpStream) {
-    // 초과 연결에는 태스크를 더 만들지 않고 짧은 마감 안에서 HTTP 거절을 보낸다.
+    // 거절용 태스크는 Rejector가 제한한다. 소켓 하나의 대기도 짧게 끝낸다.
     let callback = |_: &Request, _: Response| Err(reject(503));
     let _ = timeout(Duration::from_millis(250), accept_hdr_async_with_config(stream, callback, None)).await;
 }
