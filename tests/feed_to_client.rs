@@ -33,8 +33,11 @@ async fn trades_from_feed_process_reach_client_through_the_ring() {
     let (addr, _hub) = start(config).await.unwrap();
 
     let mut client = connect_stomp(&addr.to_string(), "feed").await;
-    subscribe(&mut client, "kr", KR).await;
-    subscribe(&mut client, "us", US).await;
+    // feed가 이미 체결을 흘리고 있어서 두 번째 구독의 RECEIPT보다 첫 구독의 MESSAGE가 먼저 올 수 있다.
+    // 이 테스트는 RECEIPT를 보지 않으므로 receipt 없이 구독해 MESSAGE만 받는다.
+    for (id, destination) in [("kr", KR), ("us", US)] {
+        send(&mut client, "SUBSCRIBE", &[("id", id), ("destination", destination)]).await;
+    }
     let mut pending = vec!["kr", "us"];
     let received = timeout(Duration::from_secs(10), async {
         while !pending.is_empty() {
