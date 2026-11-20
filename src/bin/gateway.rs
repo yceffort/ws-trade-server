@@ -18,6 +18,10 @@ fn parse_args() -> Option<Config> {
             }
             #[cfg(feature = "ha")]
             "--ha-source" => source = Some(read_ha_config(&value)?),
+            #[cfg(feature = "ha")]
+            "--ha-cursor-keys" => {
+                config.ha_protocol = Some(ws_trade_server::ha::Protocol::new(read_ha_config(&value)?).ok()?)
+            }
             "--max-connections" => config.limits.connections = value.parse().ok()?,
             "--max-subscriptions" => config.limits.subscriptions = value.parse().ok()?,
             "--max-commands-per-sec" => config.limits.commands_per_second = value.parse().ok()?,

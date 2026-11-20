@@ -29,6 +29,8 @@ pub use server::{Server, start_managed};
 pub struct Config {
     #[cfg(feature = "ha")]
     pub ha: Option<ha::ReplicaInput>,
+    #[cfg(feature = "ha")]
+    pub ha_protocol: Option<ha::Protocol>,
     pub auth: Option<auth::Auth>,
     pub addr: String,
     pub http_addr: Option<String>,
@@ -47,6 +49,8 @@ impl Default for Config {
         Config {
             #[cfg(feature = "ha")]
             ha: None,
+            #[cfg(feature = "ha")]
+            ha_protocol: None,
             auth: None,
             addr: "127.0.0.1:8080".to_string(),
             http_addr: None,

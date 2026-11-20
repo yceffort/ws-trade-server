@@ -81,6 +81,8 @@ struct Client {
 struct State {
     #[cfg(feature = "ha")]
     replica: Option<crate::ha::Replica>,
+    #[cfg(feature = "ha")]
+    live: crate::ha::LiveSubscribers,
     limits: Limits,
     log_drops: Arc<AtomicU64>,
     bridge: Arc<BridgeCounters>,

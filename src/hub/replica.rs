@@ -8,6 +8,8 @@ pub(super) enum Command {
     Boundary(u64, u64, oneshot::Sender<Result<(), Error>>),
     Observed(u64, u64, std::time::Instant, oneshot::Sender<Result<(), Error>>),
     View(oneshot::Sender<Result<ReplicaView, Error>>),
+    Follow(u64, oneshot::Sender<Result<(ReplicaView, crate::ha::LiveStream), &'static str>>),
+    Unfollow(u64),
     Fail,
 }
 
@@ -47,6 +49,9 @@ impl State {
                 {
                     replica.fail();
                 }
+                if matches!(result, Ok(true)) {
+                    self.live.publish(offset, record);
+                }
                 let _ = reply.send(result);
             }
             Command::Boundary(next, log_end, reply) => {
@@ -68,6 +73,16 @@ impl State {
             Command::View(reply) => {
                 let _ = reply.send(self.replica.as_ref().map(Replica::view).ok_or(Error::InvalidState));
             }
+            Command::Follow(id, reply) => {
+                let result = self.replica.as_ref().map(Replica::view).ok_or("retry-later").and_then(|view| {
+                    if !view.ready(true) {
+                        return Err("source-stale");
+                    }
+                    Ok((view, self.live.attach(id)?))
+                });
+                let _ = reply.send(result);
+            }
+            Command::Unfollow(id) => self.live.detach(id),
             Command::Fail => {
                 if let Some(replica) = &mut self.replica {
                     replica.fail();
@@ -78,6 +93,15 @@ impl State {
 }
 
 impl Hub {
+    pub async fn follow_replica(&self, id: u64) -> Result<(ReplicaView, crate::ha::LiveStream), &'static str> {
+        let (reply, applied) = oneshot::channel();
+        self.replica_command(Command::Follow(id, reply)).await.map_err(|_| "retry-later")?;
+        applied.await.map_err(|_| "retry-later")?
+    }
+
+    pub async fn unfollow_replica(&self, id: u64) {
+        let _ = self.replica_command(Command::Unfollow(id)).await;
+    }
     async fn replica_command(&self, command: Command) -> Result<(), Error> {
         self.commands.send(super::Command::Replica(Box::new(command))).await.map_err(|_| Error::ReplicaFailed)
     }

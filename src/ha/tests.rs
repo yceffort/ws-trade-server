@@ -64,6 +64,58 @@ fn unclear_commit_result_restores_committed_input() {
 }
 
 #[tokio::test]
+async fn live_registration_captures_snapshot_and_future_records_at_one_boundary() {
+    let config = config();
+    let hub = crate::hub::Hub::spawn();
+    let mut snapshot = Snapshot::empty(&config).unwrap();
+    snapshot.apply(&LogRecord::Status(SourceStatus::new(&config, replica::now_ms(), false)), 0, &config).unwrap();
+    hub.restore_replica(config.clone(), snapshot).await.unwrap();
+    hub.apply_replica(2, LogRecord::Status(SourceStatus::new(&config, replica::now_ms(), true))).await.unwrap();
+    hub.replica_boundary(3, 3).await.unwrap();
+    let (snapshot, mut live) = hub.follow_replica(42).await.unwrap();
+    let mut generator = Synthetic::new(&config, 1, 1000).unwrap();
+    let event = generator.next(&config, 1, replica::now_ms()).unwrap();
+    hub.apply_replica(4, LogRecord::Trade(Box::new(event))).await.unwrap();
+    assert_eq!(snapshot.next, 3);
+    assert!(snapshot.snapshot.topics.values().all(Option::is_none));
+    let delivered = live.records.recv().await.unwrap();
+    assert_eq!(delivered.offset, 4);
+    assert!(matches!(delivered.record.as_ref(), LogRecord::Trade(event) if event.source_seq() == 1));
+    assert_eq!(hub.replica_view().await.unwrap().next, 5);
+    hub.unfollow_replica(42).await;
+    assert!(live.records.recv().await.is_none());
+    hub.stop().await;
+}
+
+#[tokio::test]
+async fn byte_limited_live_buffer_disconnects_only_the_slow_reader() {
+    let config = config();
+    let mut generator = Synthetic::new(&config, 1, 1000).unwrap();
+    let event = generator.next(&config, 1, 2000).unwrap();
+    let mut trade = event.trade().clone();
+    trade.currency = "X".repeat(8000);
+    let event = Envelope::new(
+        config.log_id.clone(),
+        config.source_id.clone(),
+        config.epoch.clone(),
+        SourceSeq(1),
+        trade,
+        ReceivedAtMs(2000),
+    )
+    .unwrap();
+    let mut subscribers = LiveSubscribers::default();
+    let slow = subscribers.attach(1).unwrap();
+    let mut fast = subscribers.attach(2).unwrap();
+    for offset in 0..100 {
+        subscribers.publish(offset, LogRecord::Trade(Box::new(event.clone())));
+        assert_eq!(fast.records.recv().await.unwrap().offset, offset);
+    }
+    assert_eq!(slow.failed.await.unwrap(), "replay-limit");
+    subscribers.publish(100, LogRecord::Status(SourceStatus::new(&config, 3000, false)));
+    assert_eq!(fast.records.recv().await.unwrap().offset, 100);
+}
+
+#[tokio::test]
 async fn replica_restores_no_data_and_applies_cache_and_position_once() {
     let config = config();
     let mut snapshot = Snapshot::empty(&config).unwrap();

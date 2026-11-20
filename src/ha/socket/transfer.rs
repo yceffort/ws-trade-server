@@ -1,0 +1,252 @@
+use super::super::{EVENTS, LogRecord, MAX_STATE_BYTES, Protocol, ReplicaInput, digest, protocol::Resume};
+use super::{Writer, replay, send};
+use crate::hub::Hub;
+use base64::{Engine, engine::general_purpose::STANDARD};
+use serde_json::{Value, json};
+use std::time::Duration;
+use tokio::time::{Instant, interval};
+
+const BYTES: usize = 10 * 1024 * 1024;
+const RESERVE: usize = 16 * 1024;
+
+async fn wait<F: std::future::Future>(
+    writer: &mut Writer,
+    future: F,
+    deadline: Instant,
+) -> Result<F::Output, &'static str> {
+    tokio::pin!(future);
+    let mut heartbeat = interval(Duration::from_secs(1));
+    heartbeat.tick().await;
+    loop {
+        tokio::select! {
+            result = &mut future => return Ok(result),
+            _ = tokio::time::sleep_until(deadline) => return Err("retry-later"),
+            _ = heartbeat.tick() => { send(writer, json!({"type":"heartbeat"}), deadline).await?; },
+        }
+    }
+}
+
+struct Progress<'a> {
+    protocol: &'a Protocol,
+    log_id: &'a str,
+    subject: &'a str,
+    resume: &'a Resume,
+    position: Option<u64>,
+    checkpoint: Option<u64>,
+    events: usize,
+    bytes: usize,
+    total: usize,
+    first: bool,
+    last: Instant,
+}
+
+impl Progress<'_> {
+    async fn checkpoint(&mut self, writer: &mut Writer, deadline: Instant) -> Result<(), &'static str> {
+        if let Some(position) = self.position
+            && self.checkpoint != Some(position)
+        {
+            let cursor = self.protocol.keys.sign(self.log_id, position, &self.resume.topics, self.subject)?;
+            self.total += send(writer, json!({"type":"checkpoint","request_id":self.resume.request_id,"cursor":cursor,"offset":position.to_string()}), deadline).await?;
+            self.checkpoint = Some(position);
+            self.events = 0;
+            self.bytes = 0;
+            self.last = Instant::now();
+        }
+        Ok(())
+    }
+
+    async fn record(
+        &mut self,
+        writer: &mut Writer,
+        offset: u64,
+        record: &LogRecord,
+        deadline: Instant,
+        limited: bool,
+    ) -> Result<(), &'static str> {
+        if self.resume.start.is_some_and(|start| offset < start) {
+            return Ok(());
+        }
+        let value = match record {
+            LogRecord::Trade(event) => {
+                let (topic, body) = event.message();
+                if self.resume.topics.binary_search(&topic).is_ok() {
+                    Some(
+                        json!({"type":"event","request_id":self.resume.request_id,"event_id":event.event_id(),"topic":topic,
+                        "position":{"log_id":self.log_id,"partition":0,"offset":offset.to_string()},
+                        "body":serde_json::from_str::<Value>(&body).map_err(|_| "source-error")?}),
+                    )
+                } else {
+                    None
+                }
+            }
+            LogRecord::Status(status) => Some(json!({"type":"source-status","status":status})),
+        };
+        if let Some(value) = value {
+            let size = serde_json::to_vec(&value).map_err(|_| "source-error")?.len();
+            if limited && self.total + size + RESERVE >= BYTES {
+                return Err("replay-limit");
+            }
+            let bytes = send(writer, value, deadline).await?;
+            self.total += bytes;
+            self.bytes += bytes;
+            if matches!(record, LogRecord::Trade(_)) {
+                self.events += 1;
+            }
+        }
+        self.position = Some(offset);
+        let first = !self.first && self.events > 0;
+        if first || self.events >= 100 || self.bytes >= 256 * 1024 || self.last.elapsed() >= Duration::from_millis(250)
+        {
+            self.checkpoint(writer, deadline).await?;
+            self.first |= first;
+        }
+        Ok(())
+    }
+}
+
+pub(super) async fn run(
+    writer: &mut Writer,
+    hub: &Hub,
+    input: &ReplicaInput,
+    protocol: &Protocol,
+    conn: u64,
+    subject: &str,
+    resume: Resume,
+) -> Result<(), &'static str> {
+    let waiting = protocol.waiting.clone().try_acquire_owned().map_err(|_| "retry-later")?;
+    let permit = wait(writer, protocol.workers.clone().acquire_owned(), Instant::now() + Duration::from_secs(10))
+        .await
+        .map_err(|_| "retry-later")?
+        .map_err(|_| "retry-later")?;
+    drop(waiting);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let data_deadline = deadline - Duration::from_secs(1);
+    let kafka = input.kafka.clone();
+    let start = resume.start;
+    // 취소된 요청도 blocking reader가 끝날 때까지 worker permit을 소유한다.
+    let opened = tokio::task::spawn_blocking(move || {
+        let reader = kafka.reader(EVENTS, start)?;
+        Ok::<_, super::super::Error>((reader, permit))
+    });
+    let (reader, permit) =
+        wait(writer, opened, data_deadline).await?.map_err(|_| "source-error")?.map_err(|error| {
+            if matches!(error, super::super::Error::InvalidState) {
+                if resume.cursor { "cursor-expired" } else { "start-out-of-range" }
+            } else {
+                replay::error(error)
+            }
+        })?;
+    let (low, stable) = reader.bounds();
+    if start.is_some_and(|n| n < low || n > stable) {
+        return Err(if resume.cursor { "cursor-expired" } else { "start-out-of-range" });
+    }
+    wait(
+        writer,
+        async {
+            while start.is_some_and(|start| start > 0) {
+                let view = hub.replica_view().await.map_err(|_| "source-error")?;
+                if start.is_none_or(|start| view.next >= start) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Ok::<_, &'static str>(())
+        },
+        data_deadline,
+    )
+    .await??;
+    let (view, mut live) = hub.follow_replica(conn).await?;
+    let end = view.next.checked_sub(1).ok_or("retry-later")?;
+    let mut progress = Progress {
+        protocol,
+        log_id: &input.source.log_id,
+        subject,
+        resume: &resume,
+        position: start.and_then(|n| n.checked_sub(1)),
+        checkpoint: None,
+        events: 0,
+        bytes: 0,
+        total: 0,
+        first: false,
+        last: Instant::now(),
+    };
+    let mut heartbeat = interval(Duration::from_secs(1));
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    heartbeat.tick().await;
+    if resume.snapshot {
+        let mut topics = std::collections::BTreeMap::new();
+        for topic in &resume.topics {
+            let value = match view.snapshot.topics.get(topic).ok_or("forbidden-scope")? {
+                Some(latest) => Some(json!({"event_id":latest.event.event_id(),"offset":latest.offset,
+                    "received_at_ms":latest.event.received_at_ms().to_string(),"body":serde_json::from_str::<Value>(&latest.event.message().1).map_err(|_| "source-error")?})),
+                None => None,
+            };
+            topics.insert(topic, value);
+        }
+        let snapshot = json!({"schema_version":1,"log_id":input.source.log_id,"through":end.to_string(),"topics":topics,"status":view.snapshot.status});
+        let bytes = serde_json::to_vec(&snapshot).map_err(|_| "snapshot-too-large")?;
+        if bytes.len() > MAX_STATE_BYTES {
+            return Err("snapshot-too-large");
+        }
+        let checksum = digest(&bytes);
+        let id = format!("snapshot-{conn}-{end}");
+        progress.total += send(writer, json!({"type":"snapshot-begin","request_id":resume.request_id,"id":id,"offset":end.to_string(),"total_bytes":bytes.len(),"chunks":bytes.chunks(32768).len()}), data_deadline).await?;
+        for (index, chunk) in bytes.chunks(32768).enumerate() {
+            progress.total += send(
+                writer,
+                json!({"type":"snapshot-chunk","id":id,"index":index,"data":STANDARD.encode(chunk)}),
+                data_deadline,
+            )
+            .await?;
+        }
+        progress.total += send(
+            writer,
+            json!({"type":"snapshot-end","id":id,"offset":end.to_string(),"total_bytes":bytes.len(),"sha256":checksum}),
+            data_deadline,
+        )
+        .await?;
+        progress.position = Some(end);
+        progress.checkpoint(writer, deadline).await?;
+        drop(reader);
+        drop(permit);
+    } else {
+        let mut replay = replay::Replay::spawn(reader, input.source.clone(), end, data_deadline, permit);
+        let mut checkpoint_tick = interval(Duration::from_millis(250));
+        let result = loop {
+            tokio::select! {
+                biased;
+                _ = tokio::time::sleep_until(data_deadline) => break Err("replay-limit"),
+                reason = &mut live.failed => break Err(reason.unwrap_or("source-error")),
+                _ = heartbeat.tick() => { progress.total += send(writer, json!({"type":"heartbeat"}), data_deadline).await?; },
+                _ = checkpoint_tick.tick() => { progress.checkpoint(writer, data_deadline).await?; },
+                item = replay.inbox.recv() => match item {
+                    Some(replay::Item::Record(offset, record)) => {
+                        if let Err(code) = progress.record(writer, offset, &record, data_deadline, true).await { break Err(code); }
+                    }
+                    Some(replay::Item::End(position)) => { progress.position = Some(position); break Ok(()); }
+                    Some(replay::Item::Failed(code)) => break Err(code),
+                    None => break Err("source-error"),
+                },
+            }
+        };
+        progress.checkpoint(writer, deadline).await?;
+        result?;
+    }
+    progress.total +=
+        send(writer, json!({"type":"caught-up","request_id":resume.request_id,"offset":end.to_string()}), deadline)
+            .await?;
+    let mut checkpoint_tick = interval(Duration::from_millis(250));
+    loop {
+        tokio::select! {
+            biased;
+            reason = &mut live.failed => return Err(reason.unwrap_or("source-error")),
+            _ = heartbeat.tick() => { send(writer, json!({"type":"heartbeat"}), Instant::now() + Duration::from_secs(1)).await?; },
+            _ = checkpoint_tick.tick() => { progress.checkpoint(writer, Instant::now() + Duration::from_secs(1)).await?; },
+            item = live.records.recv() => {
+                let item = item.ok_or("source-error")?;
+                progress.record(writer, item.offset, &item.record, Instant::now() + Duration::from_secs(1), false).await?;
+                progress.total = 0;
+            },
+        }
+    }
+}

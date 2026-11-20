@@ -37,6 +37,18 @@ impl Drop for Server {
 
 pub async fn start_managed(config: Config) -> io::Result<Server> {
     #[cfg(feature = "ha")]
+    let config = {
+        let mut config = config;
+        if config.ha_protocol.is_some() && config.limits.connections == 0 {
+            config.limits.connections = 10000;
+        }
+        config
+    };
+    #[cfg(feature = "ha")]
+    if config.ha_protocol.is_some() && (config.ha.is_none() || config.auth.is_none()) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "HA 프로토콜에는 broker 입력과 인증이 필요하다"));
+    }
+    #[cfg(feature = "ha")]
     if config.ha.is_some() && config.ring.is_some() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "HA와 ring 입력은 함께 사용할 수 없다"));
     }
