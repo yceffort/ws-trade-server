@@ -116,7 +116,7 @@ impl Session {
             return Err("auth-invalid");
         }
         if cache.generations.get(&claims.sub).is_none_or(|generation| !Arc::ptr_eq(generation, &self.generation))
-            || cache.policy.revoked.get(&claims.jti).is_some_and(|until| *until > now)
+            || cache.policy.revoked.get(&claims.jti).is_some_and(|revoked| revoked.retain_until > now)
         {
             return Err("auth-revoked");
         }
@@ -125,7 +125,7 @@ impl Session {
             return Err("auth-invalid");
         }
         let allowed = cache.policy.subjects.get(&claims.sub).ok_or("auth-revoked")?;
-        if claims.topics.iter().any(|topic| allowed.binary_search(topic).is_err()) {
+        if claims.topics.iter().any(|topic| allowed.topics.binary_search(topic).is_err()) {
             return Err("forbidden-scope");
         }
         Ok(())

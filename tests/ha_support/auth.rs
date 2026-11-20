@@ -35,7 +35,8 @@ impl Provider {
             },
         };
         let key: Value = serde_json::from_str(include_str!("../fixtures/ha-test-key1.json")).unwrap();
-        let policy = json!({"version":"1","keys":[key],"subjects":{"alice":topics},"revoked":{}});
+        let policy =
+            json!({"version":"1","keys":[key],"subjects":{"alice":{"generation":"1","topics":topics}},"revoked":{}});
         std::fs::write(provider.directory.join("control.json"), serde_json::to_vec(&json!({"policy":policy})).unwrap())
             .unwrap();
         tokio::time::timeout(Duration::from_secs(10), async {

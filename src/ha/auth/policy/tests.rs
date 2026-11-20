@@ -22,7 +22,7 @@ fn key(index: usize) -> Value {
     .unwrap()
 }
 fn policy(version: u64) -> Value {
-    json!({"version":version.to_string(),"keys":[key(1)],"subjects":{"alice":["/topic/v1/a","/topic/v1/b"]},"revoked":{}})
+    json!({"version":version.to_string(),"keys":[key(1)],"subjects":{"alice":{"generation":"1","topics":["/topic/v1/a","/topic/v1/b"]}},"revoked":{}})
 }
 fn install(auth: &SharedAuth, policy: Value) -> Result<(), &'static str> {
     let now = now_ms() / 1000;
@@ -96,13 +96,16 @@ async fn revocation_and_coalesced_scope_changes_close_existing_sessions() {
     let bearer = token(claims(), 1, "RS256");
     let mut session = auth.authorize(&bearer).unwrap();
     let mut reduced = policy(2);
-    reduced["subjects"]["alice"] = json!([]);
+    reduced["subjects"]["alice"] = json!({"generation":"2","topics":[]});
     install(&auth, reduced).unwrap();
-    install(&auth, policy(3)).unwrap();
+    let mut restored = policy(3);
+    restored["subjects"]["alice"]["generation"] = json!("3");
+    install(&auth, restored).unwrap();
     assert_eq!(session.invalidated().await, "auth-revoked");
     let mut fresh = auth.authorize(&bearer).unwrap();
     let mut revoked = policy(4);
-    revoked["revoked"] = json!({"test-token":now_ms()/1000+1000});
+    revoked["subjects"]["alice"]["generation"] = json!("3");
+    revoked["revoked"] = json!({"test-token":{"revoked_at":now_ms()/1000,"retain_until":now_ms()/1000+1000}});
     install(&auth, revoked).unwrap();
     assert_eq!(fresh.invalidated().await, "auth-revoked");
     assert!(auth.authorize(&bearer).is_err());
@@ -117,7 +120,7 @@ async fn policy_expiry_fails_closed_on_old_pods_without_refreshing_old_versions(
     let mut session = auth.authorize(&bearer).unwrap();
     assert_eq!(install(&auth, policy(1)), Err("policy-rollback"));
     let mut conflicting = policy(2);
-    conflicting["subjects"]["alice"] = json!([]);
+    conflicting["subjects"]["alice"]["topics"] = json!([]);
     assert_eq!(install(&auth, conflicting), Err("policy-version-conflict"));
     expire(&auth);
     assert!(!auth.fresh());
@@ -194,7 +197,7 @@ async fn https_policy_revocation_and_provider_outage_obey_the_sixty_second_bound
     let mut first = a.authorize(&bearer).unwrap();
     let mut second = b.authorize(&bearer).unwrap();
     let mut revoked = policy(2);
-    revoked["revoked"] = json!({"test-token":now_ms()/1000+1000});
+    revoked["revoked"] = json!({"test-token":{"revoked_at":now_ms()/1000,"retain_until":now_ms()/1000+1000}});
     std::fs::write(&control, serde_json::to_vec(&json!({"policy":revoked})).unwrap()).unwrap();
     let workers = [a.spawn(), b.spawn()];
     let reasons =
@@ -235,4 +238,35 @@ async fn active_session_expires_without_policy_changes() {
     claims["exp"] = json!(now_ms() / 1000 + 2);
     let mut session = auth.authorize(&token(claims, 1, "RS256")).unwrap();
     assert_eq!(tokio::time::timeout(Duration::from_secs(3), session.invalidated()).await.unwrap(), "auth-expired");
+}
+
+#[tokio::test]
+async fn skipped_policy_versions_still_revoke_restored_subjects() {
+    let auth = auth();
+    install(&auth, policy(1)).unwrap();
+    let bearer = token(claims(), 1, "RS256");
+    let mut session = auth.authorize(&bearer).unwrap();
+    let mut restored = policy(3);
+    restored["subjects"]["alice"]["generation"] = json!("3");
+    install(&auth, restored).unwrap();
+    assert_eq!(session.invalidated().await, "auth-revoked");
+    assert_eq!(install(&auth, policy(4)), Err("subject-generation-invalid"));
+}
+
+#[tokio::test]
+async fn delayed_revocations_and_provider_recovery_use_revocation_time() {
+    let auth = auth();
+    install(&auth, policy(1)).unwrap();
+    let bearer = token(claims(), 1, "RS256");
+    let mut session = auth.authorize(&bearer).unwrap();
+    let now = now_ms() / 1000;
+    let mut delayed = policy(2);
+    delayed["revoked"] = json!({"test-token":{"revoked_at":now-30,"retain_until":now-30+900}});
+    install(&auth, delayed.clone()).unwrap();
+    assert_eq!(session.invalidated().await, "auth-revoked");
+    expire(&auth);
+    install(&auth, delayed).unwrap();
+    assert!(auth.fresh());
+    assert!(auth.authorize(&bearer).is_err());
+    assert_eq!(install(&auth, policy(3)), Err("revocation-retention-required"));
 }

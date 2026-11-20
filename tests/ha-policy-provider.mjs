@@ -1,5 +1,5 @@
 import { createServer } from 'node:https'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 
@@ -26,6 +26,9 @@ try {
   })
   server.headersTimeout = 2000
   server.requestTimeout = 3000
-  server.listen(0,'127.0.0.1',() => writeFileSync(join(directory,'ready.json'),JSON.stringify({url:`https://localhost:${server.address().port}/policy`,ca_file:ca})))
+  server.listen(0,'127.0.0.1',() => {
+    writeFileSync(join(directory,'ready.next'),JSON.stringify({url:`https://localhost:${server.address().port}/policy`,ca_file:ca}))
+    renameSync(join(directory,'ready.next'),join(directory,'ready.json'))
+  })
   process.once('SIGTERM',() => { server.closeAllConnections(); server.close() })
 } catch { console.error('policy fixture failed'); process.exitCode=1 }

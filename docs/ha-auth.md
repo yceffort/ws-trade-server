@@ -10,7 +10,7 @@
 {"url":"https://policy.example.test/policy","issuer":"https://issuer.example.test","audience":"wts-ha","ca_file":null,"credential_file":null,"max_token_seconds":900}
 ```
 
-공급자 credential 파일에는 공급자가 허용한 Bearer 값을 넣으며 로그에 출력하지 않는다. HTTPS만 허용하고 redirect와 환경 HTTP proxy를 사용하지 않는다. 요청은 2초, 응답은 1 MiB, 키는 8개, subject는 10,000개, topic은 subject당 256개, 폐기 목록은 8,192개로 제한한다. 제한을 넘는 운영 규모에는 공급자 계약과 구현을 먼저 확장한다.
+공급자 credential 파일에는 Bearer 접두사 없이 공급자가 허용한 credential 값을 넣으며 로그에 출력하지 않는다. HTTPS만 허용하고 redirect와 환경 HTTP proxy를 사용하지 않는다. 요청은 2초, 응답은 1 MiB, 키는 8개, subject는 10,000개, topic은 subject당 256개, 폐기 목록은 8,192개로 제한한다. 제한을 넘는 운영 규모에는 공급자 계약과 구현을 먼저 확장한다.
 
 connect 프레임의 `token`은 `Bearer <JWT>`다. header는 `alg=RS256`, `typ=at+jwt`, 등록된 `kid`만 허용한다. claims는 문자열 `iss`, 문자열 `aud`, `sub`, `jti`, 초 단위 정수 `iat`, `nbf`, `exp`, 정렬되고 중복 없는 `topics` 배열을 사용한다. 이 제한된 프로파일 밖의 claim/header는 거절한다. RSA 2048~4096 bit, 지수 65537을 사용하며 토큰 수명 상한은 설정의 60~3,600초다. 서명, issuer, audience, 만료, 현재 scope를 모두 검증하고 연결 중에도 exp와 정책을 검사한다. JWT와 전체 cursor를 로그에 남기지 않는다.
 
@@ -21,12 +21,12 @@ cursor는 `issuer + NUL + subject`와 요청 topic 집합에 묶인다. 재접�
 GET 응답은 다음 구조다. `version`은 증가하는 십진 문자열이며 동일 version에는 동일한 policy만 허용한다. `generated_at`은 요청 시점에서 5초 이내, 미래 오차는 최대 1초, `valid_until`은 generated_at 이후 최대 55초다. 공급자는 원본 정책을 확인한 경우에만 새 freshness envelope를 발급해야 한다. 오래된 replica의 정책을 현재 시각으로 포장하면 폐기 보장은 성립하지 않는다. TLS 인증과 공급자 내부의 일관된 version 발급이 필요하다.
 
 ```json
-{"generated_at":1795000000,"valid_until":1795000055,"policy":{"version":"42","keys":[{"kid":"key-2026-11","kty":"RSA","alg":"RS256","use":"sig","n":"<base64url RSA modulus>","e":"AQAB","retain_until":1796000000}],"subjects":{"alice":["/topic/v1/kr/stock/trade/A005930"]},"revoked":{"revoked-token-id":1795000900}}}
+{"generated_at":1795000000,"valid_until":1795000055,"policy":{"version":"42","keys":[{"kid":"key-2026-11","kty":"RSA","alg":"RS256","use":"sig","n":"<base64url RSA modulus>","e":"AQAB","retain_until":1796000000}],"subjects":{"alice":{"generation":"3","topics":["/topic/v1/kr/stock/trade/A005930"]}},"revoked":{"revoked-token-id":{"revoked_at":1795000000,"retain_until":1795000900}}}}
 ```
 
 gateway는 5초마다 갱신한다. 실패 시 마지막 정상 캐시의 남은 수명만 허용하며 wall clock 만료와 요청 시작부터의 monotonic 55초 상한을 함께 확인한다. 활성 세션은 250 ms 간격과 정책 변경 알림으로 검사한다. 공급자 장애로 새 폐기를 받지 못해도 마지막 확인 후 55초가 지나면 새 연결을 거절하고 readiness를 내리며 기존 세션에 `auth-policy-stale`을 보낸다. 이는 60초 내 반영 또는 fail closed 목표의 여유를 포함한다. bootstrap에서 정책을 얻지 못하면 ready가 되지 않는다. 공급자 한 번의 실패만으로 fresh cache를 버리지는 않는다.
 
-`revoked`는 jti에서 보존 종료 시각으로의 매핑이다. 새 폐기는 max_token_seconds 이상 보존하고 기존 폐기의 보존 시간을 줄이거나 아직 유효한 항목을 제거할 수 없다. 만료한 항목만 정리한다. topic 권한 변경 또는 subject 삭제는 기존 세션을 폐기하며 빠르게 삭제 후 복구해도 이전 세션이 살아나지 않는다. 폐기된 세션은 새 토큰으로 다시 연결해야 한다.
+`revoked`는 jti에서 폐기 발생 시각 revoked_at과 보존 종료 retain_until로의 매핑이다. gateway의 최초 수신 시각 대신 revoked_at부터 max_token_seconds 이상 보존하고 기존 폐기의 보존 시간을 줄이거나 아직 유효한 항목을 제거할 수 없다. 만료한 항목만 정리한다. topic 권한 변경 또는 subject 삭제는 기존 세션을 폐기하며 빠르게 삭제 후 복구해도 이전 세션이 살아나지 않는다. 공급자는 subject별 증가하는 generation을 권한 변경 및 삭제/복구 시마다 올리고 중간 version을 건너뛴 gateway도 이를 확인할 수 있도록 보존한다. topic이 같아도 generation이 달라지면 이전 세션을 종료한다. 같은 generation에서 topic을 바꾸거나 generation을 낮추는 정책을 거절한다. 삭제한 subject를 다시 사용할 때 이전보다 큰 generation을 발급해야 한다. 폐기된 세션은 현재 권한으로 다시 인증해야 한다. 토큰 자체를 폐기하려면 jti도 revoked에 기록한다.
 
 ## 키 회전과 배포
 

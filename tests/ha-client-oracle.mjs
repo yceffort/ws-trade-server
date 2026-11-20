@@ -143,7 +143,7 @@ async function verifyRevocation() {
     }))
     const policy = JSON.parse(readFileSync(fixture.policy_control))
     policy.policy.version = '2'
-    policy.policy.revoked = {oracle:Math.floor(Date.now()/1000)+1000}
+    policy.policy.revoked = {oracle:{revoked_at:Math.floor(Date.now()/1000),retain_until:Math.floor(Date.now()/1000)+1000}}
     writeFileSync(`${fixture.policy_control}.next`,JSON.stringify(policy))
     renameSync(`${fixture.policy_control}.next`,fixture.policy_control)
     await Promise.all(revoked)

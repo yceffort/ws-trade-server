@@ -28,8 +28,22 @@ pub struct PolicyConfig {
 pub(super) struct Policy {
     pub version: Number,
     pub keys: Vec<Jwk>,
-    pub subjects: BTreeMap<String, Vec<String>>,
-    pub revoked: BTreeMap<String, u64>,
+    pub subjects: BTreeMap<String, Grant>,
+    pub revoked: BTreeMap<String, Revocation>,
+}
+
+#[derive(Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Grant {
+    pub generation: Number,
+    pub topics: Vec<String>,
+}
+
+#[derive(Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Revocation {
+    pub revoked_at: u64,
+    pub retain_until: u64,
 }
 
 #[derive(Deserialize)]
@@ -142,8 +156,10 @@ impl SharedAuth {
                 return Err("policy-invalid");
             }
         }
-        for (subject, topics) in &policy.subjects {
-            if subject.is_empty()
+        for (subject, grant) in &policy.subjects {
+            let topics = &grant.topics;
+            if grant.generation.0 == 0
+                || subject.is_empty()
                 || subject.len() > 256
                 || subject.chars().any(char::is_control)
                 || topics.len() > 256
@@ -175,18 +191,35 @@ impl SharedAuth {
                     return Err("key-overlap-required");
                 }
             }
-            for (id, until) in &old.policy.revoked {
-                if *until > now && policy.revoked.get(id).is_none_or(|next| next < until) {
+            for (id, revoked) in &old.policy.revoked {
+                if revoked.retain_until > now
+                    && policy.revoked.get(id).is_none_or(|next| {
+                        next.retain_until < revoked.retain_until || next.revoked_at != revoked.revoked_at
+                    })
+                {
                     return Err("revocation-retention-required");
                 }
             }
         }
-        for (id, until) in &policy.revoked {
+        for (id, revoked) in &policy.revoked {
             if !crate::source::identifier(id)
-                || old.as_ref().is_some_and(|old| !old.policy.revoked.contains_key(id))
-                    && *until < now.saturating_add(self.config.max_token_seconds)
+                || revoked.revoked_at > document.generated_at
+                || revoked
+                    .retain_until
+                    .checked_sub(revoked.revoked_at)
+                    .is_none_or(|duration| duration < self.config.max_token_seconds)
             {
                 return Err("policy-invalid");
+            }
+        }
+        if let Some(old) = &old {
+            for (subject, previous) in &old.policy.subjects {
+                if let Some(next) = policy.subjects.get(subject)
+                    && (next.generation < previous.generation
+                        || next.topics != previous.topics && next.generation == previous.generation)
+                {
+                    return Err("subject-generation-invalid");
+                }
             }
         }
         let generations = policy
