@@ -5,6 +5,7 @@ mod external;
 mod lease;
 mod model;
 mod producer;
+mod replica;
 mod synthetic;
 pub use audit::{Audit, audit};
 pub use broker::{Kafka, LogReader, StoredRecord, Writer};
@@ -13,6 +14,8 @@ pub use external::{ExternalSource, pump_external};
 pub use lease::{Lease, LeaseConfig, LeaseGuard};
 pub use model::{Latest, LogRecord, Number, Snapshot, SourceConfig, SourceStatus};
 pub use producer::{Bootstrap, Committed, Publisher};
+pub(crate) use replica::Replica;
+pub use replica::{ReplicaInput, ReplicaTask, ReplicaView};
 pub use synthetic::Synthetic;
 
 pub const MAX_STATE_BYTES: usize = 512 * 1024;
@@ -37,6 +40,7 @@ pub enum Error {
     Fenced,
     LeaseLost,
     RestartRequired,
+    ReplicaFailed,
     Broker(rdkafka::error::KafkaError),
     Io(std::io::Error),
 }
@@ -57,6 +61,7 @@ impl std::fmt::Display for Error {
             Self::Fenced => "producer-fenced",
             Self::LeaseLost => "lease-lost",
             Self::RestartRequired => "producer-restart-required",
+            Self::ReplicaFailed => "replica-failed",
             Self::Broker(_) => "broker-error",
             Self::Io(_) => "ha-io-error",
         })

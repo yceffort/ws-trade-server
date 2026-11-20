@@ -19,6 +19,13 @@ impl Cache {
         }
     }
 
+    #[cfg(feature = "ha")]
+    pub fn restore(&mut self, topic: &str, body: Arc<str>, at_ms: u64) {
+        if let Some(entry) = self.0.get_mut(topic) {
+            *entry = Some((body, u128::from(at_ms)));
+        }
+    }
+
     pub fn json(&self) -> String {
         let entries: BTreeMap<_, _> = self
             .0

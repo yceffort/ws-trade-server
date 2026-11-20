@@ -18,7 +18,7 @@ assert_eq!(applied.envelope.source_seq(), 42);
 assert_eq!(applied.position.offset(), 100);
 ```
 
-이 코드는 호출 형태를 설명하는 조각이다. source sequence는 원본 제공자가 지정한 안정적인 순번이며 `Trade.seq`, broker offset, 연결별 STOMP message-id와 다르다. 호출자는 재시도 때 같은 event를 유지해야 한다. 생성자의 원본 순번과 수신 시각은 SourceSeq와 ReceivedAtMs로 구분한다. producer CLI와 Kafka reader는 [#47 복제 로그](../deploy/ha/README.md)에 구현했다. gateway 입력 선택과 consumer 수명 관리는 #48에서 연결한다.
+이 코드는 호출 형태를 설명하는 조각이다. source sequence는 원본 제공자가 지정한 안정적인 순번이며 `Trade.seq`, broker offset, 연결별 STOMP message-id와 다르다. 호출자는 재시도 때 같은 event를 유지해야 한다. 생성자의 원본 순번과 수신 시각은 SourceSeq와 ReceivedAtMs로 구분한다. producer CLI와 Kafka reader는 [#47 복제 로그](../deploy/ha/README.md)에 구현했다. [gateway 입력 선택과 consumer 수명 관리](ha-gateway.md)는 #48에서 연결했다.
 
 ## 식별자와 직렬화
 
@@ -40,4 +40,4 @@ JSON 숫자로 보낸 sequence/offset, 부호, 앞자리 0, overflow, 지원하�
 
 ## 남은 HA 작업
 
-입력 어댑터만으로 복구를 보장하지 않는다. 복제 로그, transaction/fencing, sequence 공백 및 중복 검증, durable checkpoint는 [#47](../deploy/ha/README.md)에 구현했다. snapshot 복원과 전체 fan-out은 #48, 재접속 cursor는 #49에서 구현한다. 현재 구현만으로 무손실 또는 exactly-once 전송을 주장하지 않는다. 전체 구조와 순서는 [HA 설계](ha-design.md)와 [배포 계획](ha-rollout.md)에 있다.
+입력 어댑터만으로 복구를 보장하지 않는다. 복제 로그, transaction/fencing, sequence 공백 및 중복 검증, durable checkpoint는 [#47](../deploy/ha/README.md)에 구현했다. [snapshot 복원과 전체 fan-out](ha-gateway.md)은 #48에서 연결했다. 재접속 cursor는 #49에서 구현한다. 현재 구현만으로 무손실 또는 exactly-once 전송을 주장하지 않는다. 전체 구조와 순서는 [HA 설계](ha-design.md)와 [배포 계획](ha-rollout.md)에 있다.

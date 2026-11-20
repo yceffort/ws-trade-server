@@ -27,6 +27,8 @@ pub use server::{Server, start_managed};
 
 #[derive(Clone)]
 pub struct Config {
+    #[cfg(feature = "ha")]
+    pub ha: Option<ha::ReplicaInput>,
     pub auth: Option<auth::Auth>,
     pub addr: String,
     pub http_addr: Option<String>,
@@ -43,6 +45,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
+            #[cfg(feature = "ha")]
+            ha: None,
             auth: None,
             addr: "127.0.0.1:8080".to_string(),
             http_addr: None,

@@ -36,6 +36,10 @@ impl Drop for Server {
 }
 
 pub async fn start_managed(config: Config) -> io::Result<Server> {
+    #[cfg(feature = "ha")]
+    if config.ha.is_some() && config.ring.is_some() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "HA와 ring 입력은 함께 사용할 수 없다"));
+    }
     if config.limits.connections > Semaphore::MAX_PERMITS || config.queue_capacity == 0 || config.heartbeat_ms == 0 {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "연결 한도, 큐 크기 또는 heartbeat 설정 오류"));
     }
@@ -47,6 +51,19 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
     };
     let http_addr = http.as_ref().map(TcpListener::local_addr).transpose()?;
     let hub = Hub::configured(config.limits.clone(), config.snapshot_topics.clone());
+    #[cfg(feature = "ha")]
+    let replica = if let Some(input) = config.ha.clone() {
+        let replica = crate::ha::ReplicaTask::spawn(input, hub.clone());
+        if let Err(error) = replica.wait_ready(&hub, std::time::Duration::from_secs(30)).await {
+            replica.stop();
+            hub.stop().await;
+            let _ = replica.join().await;
+            return Err(io::Error::other(error.to_string()));
+        }
+        Some(replica)
+    } else {
+        None
+    };
     let bridge = config
         .ring
         .as_ref()
@@ -108,12 +125,20 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
         if let Some(bridge) = &bridge {
             bridge.stop();
         }
+        #[cfg(feature = "ha")]
+        if let Some(replica) = &replica {
+            replica.stop();
+        }
         shutdown.send_replace(true);
         let drain = async { while connections.join_next().await.is_some() {} };
         if tokio::time::timeout(config.shutdown_timeout, drain).await.is_err() {
             connections.shutdown().await;
         }
         accept_hub.stop().await;
+        #[cfg(feature = "ha")]
+        if let Some(replica) = replica {
+            let _ = replica.join().await;
+        }
         if let Some(bridge) = bridge {
             bridge.join().await;
         }
