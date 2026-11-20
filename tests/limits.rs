@@ -77,3 +77,28 @@ async fn silent_rejected_connections_do_not_delay_new_admission() {
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn subscription_rejection_returns_the_connection_slot() {
+    let addr = server(Limits { connections: 1, subscriptions: 1, ..Limits::default() }).await;
+    let mut first = connect_stomp(&addr, "rejected").await;
+    subscribe(&mut first, "a", KR).await;
+    send(&mut first, "SUBSCRIBE", &[("id", "b"), ("destination", US)]).await;
+    assert_eq!(recv_frame(&mut first).await.header("message"), Some("too-many-subscriptions"));
+    let mut next = timeout(Duration::from_secs(3), async {
+        loop {
+            match open(&addr, "/ws", Some("v12.stomp")).await {
+                Ok((socket, _)) => break socket,
+                Err(Error::Http(response)) if response.status().as_u16() == 503 => {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                result => panic!("unexpected admission result: {result:?}"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+    send(&mut next, "CONNECT", &[("connection-id", "replacement")]).await;
+    assert_eq!(recv_frame(&mut next).await.command, "CONNECTED");
+    subscribe(&mut next, "a", KR).await;
+}

@@ -2,16 +2,18 @@ mod batch;
 mod idle;
 mod read;
 mod rejection;
-use crate::hub::{Hub, Outgoing};
+mod session;
+mod write;
+use crate::Config;
+use crate::hub::Hub;
 use crate::stomp::{self, Incoming};
-use crate::{Config, auth};
-use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::stream::SplitStream;
 use futures_util::{SinkExt, StreamExt};
 pub(crate) use rejection::Rejector;
 use std::time::Duration;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, watch};
-use tokio::time::{Instant, MissedTickBehavior, interval_at, timeout};
+use tokio::sync::watch;
+use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::{self, HeaderValue};
@@ -19,7 +21,6 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::{WebSocketStream, accept_hdr_async_with_config};
 
 type Reader = SplitStream<WebSocketStream<TcpStream>>;
-type Writer = SplitSink<WebSocketStream<TcpStream>, Message>;
 
 fn reject(status: u16) -> ErrorResponse {
     http::Response::builder().status(status).body(None).expect("상태 코드는 유효하다")
@@ -86,20 +87,7 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
     };
     tracing::debug!(event = "connection_opened", conn);
 
-    let mut auth_guard = session.clone();
-    let (outgoing, kicked) = hub.connect(conn, config.queue_capacity).await;
-    let (activity, last_received) = watch::channel(Instant::now());
-    let activity = config.idle_timeout.map(|_| activity);
-    let reason = tokio::select! {
-        // 오류 통지를 보낼 수 없는 느린 소켓도 인증 폐기 후 1초 안에 닫는다.
-        _ = async { auth::invalidated(&mut auth_guard).await; tokio::time::sleep(Duration::from_secs(1)).await; } => "auth_invalidated",
-        _ = idle::wait(last_received, config.idle_timeout) => "idle_timeout",
-        reason = read::run(reader, &hub, conn, activity) => reason,
-        reason = write_loop(writer, outgoing, &connection_id, config.heartbeat_ms, shutdown, session) => reason,
-        _ = kicked => "hub_closed",
-    };
-    hub.disconnect(conn).await;
-    tracing::debug!(event = "connection_closed", conn, reason);
+    session::run((reader, writer), &hub, &config, conn, &connection_id, session, shutdown).await;
 }
 
 async fn read_connect(reader: &mut Reader) -> Option<stomp::Frame> {
@@ -113,50 +101,4 @@ async fn read_connect(reader: &mut Reader) -> Option<stomp::Frame> {
         return None;
     }
     Some(frame)
-}
-
-async fn write_loop(
-    mut writer: Writer,
-    mut outgoing: mpsc::Receiver<Outgoing>,
-    connection_id: &str,
-    heartbeat_ms: u64,
-    mut shutdown: watch::Receiver<bool>,
-    mut session: Option<auth::Session>,
-) -> &'static str {
-    let heart_beat = format!("{heartbeat_ms},{heartbeat_ms}");
-    if writer.send(Message::text(stomp::connected(&heart_beat))).await.is_err() {
-        return "write_error";
-    }
-    let period = Duration::from_millis(heartbeat_ms);
-    let mut beat = interval_at(Instant::now() + period, period);
-    beat.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    // message-id의 seq는 이 연결로 실제 나가는 순서대로 여기서만 매긴다.
-    let mut seq: u64 = 0;
-    loop {
-        let first = tokio::select! {
-            reason = auth::invalidated(&mut session) => {
-                let _ = writer.send(Message::text(stomp::error(reason))).await;
-                let _ = writer.close().await;
-                return reason;
-            }
-            _ = shutdown.changed() => {
-                let _ = writer.send(Message::text(stomp::error("server-shutdown"))).await;
-                let _ = writer.close().await;
-                return "server_shutdown";
-            }
-            first = outgoing.recv() => match first {
-                Some(first) => first,
-                None => return "hub_closed",
-            },
-            _ = beat.tick() => {
-                if writer.send(Message::text("\n")).await.is_err() {
-                    return "write_error";
-                }
-                continue;
-            }
-        };
-        if let Err(reason) = batch::write(&mut writer, first, &mut outgoing, connection_id, &mut seq).await {
-            return reason;
-        }
-    }
 }

@@ -27,7 +27,7 @@ enum Command {
     Connect {
         conn: u64,
         queue: mpsc::Sender<Outgoing>,
-        kick: oneshot::Sender<()>,
+        kick: oneshot::Sender<&'static str>,
     },
     Subscribe {
         conn: u64,
@@ -62,7 +62,7 @@ pub struct Hub {
 struct Client {
     queue: mpsc::Sender<Outgoing>,
     // 이 값을 버리면 연결 쪽 kicked 수신이 풀려서 연결이 끊긴다.
-    _kick: oneshot::Sender<()>,
+    kick: Option<oneshot::Sender<&'static str>>,
     subs: HashMap<Arc<str>, String>,
     rate: Rate,
     closing: bool,
@@ -109,7 +109,13 @@ impl Hub {
                     Command::Connect { conn, queue, kick } => {
                         state.clients.insert(
                             conn,
-                            Client { queue, _kick: kick, subs: HashMap::new(), rate: Rate::default(), closing: false },
+                            Client {
+                                queue,
+                                kick: Some(kick),
+                                subs: HashMap::new(),
+                                rate: Rate::default(),
+                                closing: false,
+                            },
                         );
                     }
                     Command::Subscribe { conn, id, destination, receipt } => {
@@ -136,7 +142,11 @@ impl Hub {
         Hub { commands, bridge, log_drops }
     }
 
-    pub async fn connect(&self, conn: u64, queue_capacity: usize) -> (mpsc::Receiver<Outgoing>, oneshot::Receiver<()>) {
+    pub async fn connect(
+        &self,
+        conn: u64,
+        queue_capacity: usize,
+    ) -> (mpsc::Receiver<Outgoing>, oneshot::Receiver<&'static str>) {
         let (queue, outgoing) = mpsc::channel(queue_capacity);
         let (kick, kicked) = oneshot::channel();
         self.send(Command::Connect { conn, queue, kick }).await;
