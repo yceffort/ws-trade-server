@@ -3,6 +3,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use subtle::ConstantTimeEq;
 use tokio::sync::watch;
 
 #[derive(Clone, Deserialize, PartialEq)]
@@ -32,7 +33,13 @@ pub(crate) struct Session {
 }
 
 fn find<'a>(tokens: &'a [Entry], token: &str) -> Option<&'a Entry> {
-    tokens.iter().find(|entry| entry.token.token == token)
+    // 일치 위치에 따라 비교 시간이 달라지지 않도록 일치해도 멈추지 않고 끝까지 비교하고, 중복이면 첫 항목을 고른다.
+    let mut found = None;
+    for entry in tokens {
+        let matched = entry.token.token.as_bytes().ct_eq(token.as_bytes());
+        found = found.or(bool::from(matched).then_some(entry));
+    }
+    found
 }
 
 fn expiry(tokens: &[Entry], token: &str, now: SystemTime) -> Result<SystemTime, &'static str> {
@@ -239,5 +246,30 @@ mod tests {
         clock.store(1001, Ordering::Relaxed);
         assert_eq!(tokio::time::timeout(Duration::from_secs(2), task).await.unwrap().unwrap(), "auth-expired");
         drop(tokens);
+    }
+
+    fn entry(token: &str, expires_at: u64) -> Entry {
+        Entry { token: Token { token: token.into(), expires_at, principal: None }, generation: Arc::new(()) }
+    }
+
+    #[test]
+    fn same_length_different_token_is_invalid() {
+        let tokens = [entry("demo-aaaa", 1000)];
+        assert_eq!(expiry(&tokens, "demo-aaab", UNIX_EPOCH), Err("auth-invalid"));
+    }
+
+    #[test]
+    fn shorter_prefix_of_token_is_invalid() {
+        let tokens = [entry("demo-valid", 1000)];
+        assert_eq!(expiry(&tokens, "demo", UNIX_EPOCH), Err("auth-invalid"));
+        assert_eq!(expiry(&tokens, "demo-valid-extra", UNIX_EPOCH), Err("auth-invalid"));
+    }
+
+    #[test]
+    fn duplicate_token_uses_first_entry() {
+        let tokens = [entry("demo", 1000), entry("demo", 2000)];
+        assert_eq!(expiry(&tokens, "demo", UNIX_EPOCH), Ok(UNIX_EPOCH + Duration::from_secs(1000)));
+        // 첫 항목이 만료됐으면 뒤의 유효한 항목이 있어도 만료로 판정한다.
+        assert_eq!(expiry(&tokens, "demo", UNIX_EPOCH + Duration::from_secs(1500)), Err("auth-expired"));
     }
 }
