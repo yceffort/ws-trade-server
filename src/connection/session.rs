@@ -20,7 +20,8 @@ where
     W: Sink<Message, Error = Error> + Unpin,
 {
     let mut auth_guard = session.clone();
-    let (outgoing, mut kicked) = hub.connect(conn, config.queue_capacity).await;
+    let principal = session.as_ref().and_then(|session| session.principal.clone());
+    let (outgoing, mut kicked) = hub.connect_as(conn, config.queue_capacity, principal).await;
     let (activity, last_received) = watch::channel(Instant::now());
     let activity = config.idle_timeout.map(|_| activity);
     let mut rejection = None;

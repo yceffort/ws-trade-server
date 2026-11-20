@@ -58,3 +58,54 @@ async fn nothing_for_a_subscription_follows_its_unsubscribe_receipt() {
     };
     assert_eq!(&*subscription, "b");
 }
+
+#[test]
+fn personal_owner_is_the_first_segment_after_the_prefix() {
+    assert_eq!(personal_owner("/experimental/personal/acct-alice/orders"), Some("acct-alice"));
+    assert_eq!(personal_owner("/experimental/personal/acct-alice"), Some("acct-alice"));
+    assert_eq!(personal_owner("/experimental/personal//orders"), Some(""));
+    assert_eq!(personal_owner("/experimental/personal/"), Some(""));
+    assert_eq!(personal_owner("/experimental/personal"), Some(""));
+    assert_eq!(personal_owner("/topic/v1/kr/stock/trade/A005930"), None);
+}
+
+#[tokio::test]
+async fn personal_topic_without_an_owner_is_denied_even_to_a_principal() {
+    let hub = Hub::spawn();
+    let (mut queue, _kicked) = hub.connect_as(1, 8, Some("acct-alice".into())).await;
+    for destination in ["/experimental/personal", "/experimental/personal/", "/experimental/personal//orders"] {
+        hub.subscribe(1, "0".into(), destination.into(), Some("r".into())).await;
+        assert!(matches!(recv(&mut queue).await, Some(Outgoing::Denied { code: "forbidden-topic", .. })));
+    }
+}
+
+#[tokio::test]
+async fn personal_topics_never_enter_the_snapshot() {
+    let personal = "/experimental/personal/acct-alice/orders";
+    let root = "/experimental/personal";
+    let hub = Hub::configured(Limits::default(), vec!["/t".into(), personal.into(), root.into()]);
+    hub.publish(personal.into(), "order".into()).await;
+    hub.publish(root.into(), "private".into()).await;
+    hub.publish("/t".into(), "x".into()).await;
+    let snapshot: serde_json::Value = serde_json::from_str(&hub.snapshot().await.unwrap()).unwrap();
+    assert_eq!(snapshot.as_object().unwrap().keys().collect::<Vec<_>>(), ["/t"]);
+}
+
+#[tokio::test]
+async fn rate_limit_applies_before_the_personal_topic_check() {
+    let hub = Hub::with_limits(Limits { commands_per_second: 1, ..Limits::default() });
+    let (mut queue, _kicked) = hub.connect(1, 8).await;
+    hub.subscribe(1, "a".into(), "/t".into(), None).await;
+    hub.subscribe(1, "b".into(), "/experimental/personal/acct-alice/orders".into(), Some("r".into())).await;
+    assert!(matches!(recv(&mut queue).await, Some(Outgoing::Error("rate-limit-exceeded"))));
+}
+
+#[tokio::test]
+async fn empty_principal_cannot_subscribe_an_empty_owner_topic() {
+    let hub = Hub::spawn();
+    let (mut queue, _kicked) = hub.connect_as(1, 8, Some(String::new())).await;
+    for destination in ["/experimental/personal/", "/experimental/personal//orders"] {
+        hub.subscribe(1, "0".into(), destination.into(), Some("r".into())).await;
+        assert!(matches!(recv(&mut queue).await, Some(Outgoing::Denied { code: "forbidden-topic", .. })));
+    }
+}

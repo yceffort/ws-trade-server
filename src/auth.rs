@@ -8,6 +8,7 @@ use tokio::sync::watch;
 pub struct Token {
     pub token: String,
     pub expires_at: u64,
+    pub principal: Option<String>,
 }
 
 #[derive(Clone)]
@@ -20,10 +21,15 @@ pub struct Auth {
 pub(crate) struct Session {
     tokens: watch::Receiver<Vec<Token>>,
     token: String,
+    pub(crate) principal: Option<String>,
+}
+
+fn find<'a>(tokens: &'a [Token], token: &str) -> Option<&'a Token> {
+    tokens.iter().find(|entry| entry.token == token)
 }
 
 fn expiry(tokens: &[Token], token: &str, now: SystemTime) -> Result<SystemTime, &'static str> {
-    let entry = tokens.iter().find(|entry| entry.token == token).ok_or("auth-invalid")?;
+    let entry = find(tokens, token).ok_or("auth-invalid")?;
     let expires = UNIX_EPOCH.checked_add(Duration::from_secs(entry.expires_at)).ok_or("auth-expired")?;
     if expires <= now {
         return Err("auth-expired");
@@ -60,8 +66,13 @@ impl Auth {
             .filter(|token| !token.is_empty())
             .ok_or("auth-invalid")?;
         let tokens = self.tokens.subscribe();
-        expiry(&tokens.borrow(), token, SystemTime::now())?;
-        Ok(Session { tokens, token: token.into() })
+        let principal = {
+            let current = tokens.borrow();
+            expiry(&current, token, SystemTime::now())?;
+            // 주체를 바꾸려면 기존 연결을 폐기하고 새로 인증해야 한다.
+            find(&current, token).and_then(|entry| entry.principal.clone())
+        };
+        Ok(Session { tokens, token: token.into(), principal })
     }
 
     pub(crate) fn reload(&self) -> Option<tokio::task::JoinHandle<()>> {
@@ -101,10 +112,16 @@ impl Session {
 
     async fn invalidated_at(&mut self, now: impl Fn() -> SystemTime) -> &'static str {
         loop {
-            let until = match expiry(&self.tokens.borrow_and_update(), &self.token, now()) {
-                Ok(until) => until,
-                Err("auth-expired") => return "auth-expired",
-                Err(_) => return "auth-revoked",
+            let until = {
+                let current = self.tokens.borrow_and_update();
+                if find(&current, &self.token).is_none_or(|entry| entry.principal != self.principal) {
+                    return "auth-revoked";
+                }
+                match expiry(&current, &self.token, now()) {
+                    Ok(until) => until,
+                    Err("auth-expired") => return "auth-expired",
+                    Err(_) => return "auth-revoked",
+                }
             };
             // 시스템 시각 변경도 반영하도록 단조 시계의 대기를 짧게 끊는다.
             let remaining = until.duration_since(now()).unwrap_or_default().min(Duration::from_millis(500));
@@ -159,8 +176,9 @@ mod tests {
     #[tokio::test]
     async fn expiration_rechecks_wall_time_without_token_changes() {
         let clock = Arc::new(AtomicU64::new(100));
-        let (tokens, receiver) = watch::channel(vec![Token { token: "demo".into(), expires_at: 1000 }]);
-        let mut session = Session { tokens: receiver, token: "demo".into() };
+        let (tokens, receiver) =
+            watch::channel(vec![Token { token: "demo".into(), expires_at: 1000, principal: None }]);
+        let mut session = Session { tokens: receiver, token: "demo".into(), principal: None };
         let advanced = clock.clone();
         let task = tokio::spawn(async move {
             session.invalidated_at(|| UNIX_EPOCH + Duration::from_secs(advanced.load(Ordering::Relaxed))).await
