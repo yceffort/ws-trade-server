@@ -1,8 +1,8 @@
 mod idle;
 mod rejection;
-use crate::Config;
 use crate::hub::{Hub, Outgoing};
 use crate::stomp::{self, Incoming};
+use crate::{Config, auth};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 pub(crate) use rejection::Rejector;
@@ -57,33 +57,48 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
         WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE_BYTES)).read_buffer_size(READ_BUFFER_BYTES);
     let handshake = async {
         let socket = accept_hdr_async_with_config(stream, negotiate, Some(websocket_config)).await.ok()?;
-        let (writer, mut reader) = socket.split();
-        let connection_id = read_connect(&mut reader).await?;
-        Some((writer, reader, connection_id))
+        let (mut writer, mut reader) = socket.split();
+        let frame = read_connect(&mut reader).await?;
+        let connection_id = frame.header("connection-id")?.to_string();
+        let session = match &config.auth {
+            Some(auth) => match auth.authorize(frame.header("authorization")) {
+                Ok(session) => Some(session),
+                Err(code) => {
+                    let _ = writer.send(Message::text(stomp::error(code))).await;
+                    let _ = writer.close().await;
+                    return None;
+                }
+            },
+            None => None,
+        };
+        Some((writer, reader, connection_id, session))
     };
     let result = tokio::select! {
         result = timeout(HANDSHAKE_DEADLINE, handshake) => result,
         _ = shutdown.changed() => return,
     };
-    let Ok(Some((writer, reader, connection_id))) = result else {
+    let Ok(Some((writer, reader, connection_id, session))) = result else {
         return;
     };
     eprintln!("연결: {connection_id}");
 
+    let mut auth_guard = session.clone();
     let (outgoing, kicked) = hub.connect(conn, config.queue_capacity).await;
     let (activity, last_received) = watch::channel(Instant::now());
     let activity = config.idle_timeout.map(|_| activity);
     tokio::select! {
+        // 오류 통지를 보낼 수 없는 느린 소켓도 인증 폐기 후 1초 안에 닫는다.
+        _ = async { auth::invalidated(&mut auth_guard).await; tokio::time::sleep(Duration::from_secs(1)).await; } => {}
         _ = idle::wait(last_received, config.idle_timeout) => {}
         _ = read_loop(reader, &hub, conn, activity) => {}
-        _ = write_loop(writer, outgoing, &connection_id, config.heartbeat_ms, shutdown) => {}
+        _ = write_loop(writer, outgoing, &connection_id, config.heartbeat_ms, shutdown, session) => {}
         _ = kicked => {}
     }
     hub.disconnect(conn).await;
     eprintln!("종료: {connection_id}");
 }
 
-async fn read_connect(reader: &mut Reader) -> Option<String> {
+async fn read_connect(reader: &mut Reader) -> Option<stomp::Frame> {
     let Message::Text(text) = reader.next().await?.ok()? else {
         return None;
     };
@@ -93,7 +108,7 @@ async fn read_connect(reader: &mut Reader) -> Option<String> {
     if frame.command != "CONNECT" {
         return None;
     }
-    frame.header("connection-id").map(str::to_string)
+    Some(frame)
 }
 
 async fn read_loop(mut reader: Reader, hub: &Hub, conn: u64, activity: Option<watch::Sender<Instant>>) {
@@ -139,6 +154,7 @@ async fn write_loop(
     connection_id: &str,
     heartbeat_ms: u64,
     mut shutdown: watch::Receiver<bool>,
+    mut session: Option<auth::Session>,
 ) {
     let heart_beat = format!("{heartbeat_ms},{heartbeat_ms}");
     if writer.send(Message::text(stomp::connected(&heart_beat))).await.is_err() {
@@ -151,6 +167,11 @@ async fn write_loop(
     let mut seq: u64 = 0;
     loop {
         let text = tokio::select! {
+            reason = auth::invalidated(&mut session) => {
+                let _ = writer.send(Message::text(stomp::error(reason))).await;
+                let _ = writer.close().await;
+                return;
+            }
             _ = shutdown.changed() => {
                 let _ = writer.send(Message::text(stomp::error("server-shutdown"))).await;
                 let _ = writer.close().await;

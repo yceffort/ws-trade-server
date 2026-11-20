@@ -17,6 +17,11 @@ fn parse_args() -> Option<Config> {
             }
             "--http-addr" => config.http_addr = Some(value),
             "--snapshot-topics" => config.snapshot_topics = value.split(',').map(str::to_string).collect(),
+            "--auth-file" => {
+                config.auth = Some(
+                    ws_trade_server::auth::Auth::from_file(value.into()).map_err(|error| eprintln!("{error}")).ok()?,
+                );
+            }
             "--addr" => config.addr = value,
             "--ring" => config.ring = Some(value.into()),
             "--poll-us" => config.poll_us = value.parse().ok()?,
