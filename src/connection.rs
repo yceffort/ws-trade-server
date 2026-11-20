@@ -1,9 +1,11 @@
 mod idle;
+mod rejection;
 use crate::Config;
 use crate::hub::{Hub, Outgoing};
 use crate::stomp::{self, Incoming};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
+pub(crate) use rejection::Rejector;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
@@ -33,6 +35,14 @@ fn negotiate(request: &Request, mut response: Response) -> Result<Response, Erro
     }
     response.headers_mut().insert("sec-websocket-protocol", HeaderValue::from_static("v12.stomp"));
     Ok(response)
+}
+
+// tungstenite의 콜백이 정한 오류 타입을 그대로 반환한다.
+#[allow(clippy::result_large_err)]
+pub async fn reject_overloaded(stream: TcpStream) {
+    // 거절용 태스크는 Rejector가 제한한다. 소켓 하나의 대기도 짧게 끝낸다.
+    let callback = |_: &Request, _: Response| Err(reject(503));
+    let _ = timeout(Duration::from_millis(250), accept_hdr_async_with_config(stream, callback, None)).await;
 }
 
 // 업그레이드와 첫 CONNECT를 이 시간 안에 끝내지 못하면 끊는다. 아무것도 보내지 않는 소켓이 쌓이는 것을 막는다.
@@ -137,6 +147,10 @@ async fn write_loop(
     loop {
         let text = tokio::select! {
             outgoing = outgoing.recv() => match outgoing {
+                Some(Outgoing::Error(code)) => {
+                    let _ = writer.send(Message::text(stomp::error(code))).await;
+                    return;
+                }
                 Some(Outgoing::Receipt { receipt_id, message }) => stomp::receipt(&receipt_id, message),
                 Some(Outgoing::Message { subscription, body }) => {
                     seq += 1;

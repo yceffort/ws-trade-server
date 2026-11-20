@@ -66,6 +66,11 @@ pub fn message(message_id: &str, subscription: &str, body: &str) -> String {
     serialize("MESSAGE", &headers, body)
 }
 
+// 이 오류 코드는 공개 WTS에서 관측한 값이 아니라 선택적 제한 기능의 실험 규약이다.
+pub fn error(code: &str) -> String {
+    serialize("ERROR", &[("message", code)], "")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
