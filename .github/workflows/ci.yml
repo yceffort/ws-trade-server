@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 # 같은 브랜치에 새 커밋이 오면 앞선 실행을 멈춘다.
 concurrency:
@@ -29,9 +30,25 @@ jobs:
           rustup default 1.95.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: node --test capture/extract-contract.test.mjs
+      - run: node --test capture/extract-contract.test.mjs examples/*.test.mjs
+      - run: npm ci --prefix edge
+      - run: npm test --prefix edge
+
+  miri:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Miri
+        run: |
+          rustup toolchain install nightly --profile minimal --component miri,rust-src
+          cargo +nightly miri setup
+      - name: Check the heap ring
+        run: cargo +nightly miri test --locked --test ring_miri
