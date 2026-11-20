@@ -40,18 +40,28 @@ async fn heartbeat_survives_a_full_hub_channel_and_commands_stay_ordered() {
     let (server, mut client) = setup(Some(Duration::from_millis(500))).await;
     let release = server.hub.block_for_test().await;
     subscribe(&mut client, "first").await;
+    client
+        .send(Message::text(stomp::serialize("UNSUBSCRIBE", &[("id", "first"), ("receipt", "removed")], "")))
+        .await
+        .unwrap();
     subscribe(&mut client, "second").await;
     for _ in 0..12 {
         sleep(Duration::from_millis(100)).await;
         client.send(Message::text("\n")).await.unwrap();
     }
     drop(release);
-    for id in ["first", "second"] {
+    for id in ["first", "removed", "second"] {
         let text = timeout(Duration::from_secs(2), client.next()).await.unwrap().unwrap().unwrap();
         let Some(stomp::Incoming::Frame(frame)) = stomp::parse(text.to_text().unwrap()) else { panic!() };
         assert_eq!(frame.command, "RECEIPT");
         assert_eq!(frame.header("receipt-id"), Some(id));
     }
+    assert_eq!(server.hub.metrics().await.unwrap().subscriptions, 1);
+    server.hub.publish("topic".into(), "{}".into()).await;
+    let message = timeout(Duration::from_secs(2), client.next()).await.unwrap().unwrap().unwrap();
+    let Some(stomp::Incoming::Frame(frame)) = stomp::parse(message.to_text().unwrap()) else { panic!() };
+    assert_eq!(frame.command, "MESSAGE");
+    assert_eq!(frame.header("subscription"), Some("second"));
     server.shutdown().await;
 }
 
