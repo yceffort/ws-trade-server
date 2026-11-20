@@ -132,6 +132,19 @@ fn recovery_survives_more_than_4096_aborted_positions() {
         writer.abort().unwrap();
     }
     assert_eq!(kafka.latest(SNAPSHOT, SHARD.as_bytes()).unwrap().unwrap(), saved);
+    let mut large = saved.clone();
+    large.resize(128 * 1024, b' ');
+    for _ in 0..200 {
+        writer.begin().unwrap();
+        writer.send(SNAPSHOT, &[(SHARD.as_bytes().to_vec(), large.clone())]).unwrap();
+        writer.commit().unwrap();
+    }
+    for _ in 0..15 {
+        writer.begin().unwrap();
+        writer.send(SNAPSHOT, &records).unwrap();
+        writer.abort().unwrap();
+    }
+    assert_eq!(kafka.latest(SNAPSHOT, SHARD.as_bytes()).unwrap().unwrap(), large);
     drop(writer);
     let restored = Publisher::open(&kafka, config, Bootstrap::Existing, 8000, &mut || Ok(())).unwrap();
     assert_eq!(restored.checkpoint().to_json().unwrap(), checkpoint);

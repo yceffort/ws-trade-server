@@ -109,6 +109,7 @@ impl Kafka {
             .set("isolation.level", "read_committed")
             .set("auto.offset.reset", "error")
             .set("enable.partition.eof", "true")
+            .set("fetch.wait.max.ms", "50")
             .set("queued.max.messages.kbytes", "1024")
             .set("fetch.message.max.bytes", "1048576")
             .set("fetch.max.bytes", "1048576")
@@ -166,55 +167,59 @@ impl Kafka {
         let mut boundary = u64::try_from(high).map_err(|_| Error::InvalidState)?;
         let mut reader = self.reader_until(topic, None, deadline)?;
         let low = reader.next_offset();
-        // 최신 꼬리부터 확장한다. abort 위치 수가 아니라 시간과 실제 읽은 payload 크기를 제한한다.
-        let mut window = 8;
         let mut bytes = 0;
+        let mut first = |start, end| -> Result<Option<StoredRecord>, Error> {
+            let record = reader.first_before(start, end, deadline)?;
+            if let Some(record) = &record {
+                bytes += record.payload.len();
+                if bytes > 16 * 1024 * 1024 {
+                    return Err(Error::TooLarge);
+                }
+                // checkpoint/snapshot 토픽은 이 logical shard의 값만 담는다.
+                if record.key != key {
+                    return Err(Error::InvalidState);
+                }
+            }
+            Ok(record)
+        };
         loop {
+            let mut upper = boundary;
+            let mut window = 8;
+            let mut latest = None;
+            // 빈 abort 구간은 크게 건너뛰되 처음 발견한 값 하나만 읽는다.
+            while upper > low {
+                let start = upper.saturating_sub(window).max(low);
+                if let Some(record) = first(start, upper)? {
+                    latest = Some(record);
+                    break;
+                }
+                upper = start;
+                window = window.saturating_mul(16);
+            }
+            if let Some(mut latest) = latest {
+                let mut next = latest.offset + 1;
+                // 넓어진 구간 전체를 읽지 않고 마지막 committed 값의 위치를 좁힌다.
+                while next < upper {
+                    let start = if upper - next <= 8 { next } else { next + (upper - next) / 2 };
+                    if let Some(record) = first(start, upper)? {
+                        next = record.offset + 1;
+                        latest = record;
+                    } else {
+                        upper = start;
+                    }
+                }
+                return Ok(Some(latest.payload));
+            }
             if Instant::now() >= deadline {
                 return Err(Error::Deadline);
             }
-            reader.timeout = deadline.saturating_duration_since(Instant::now());
-            let start = boundary.saturating_sub(window).max(low);
-            reader.rewind(start)?;
-            let mut latest = None;
-            loop {
-                if Instant::now() >= deadline {
-                    return Err(Error::Deadline);
-                }
-                if let Some(record) = reader.poll(Duration::from_millis(50))? {
-                    bytes += record.payload.len();
-                    if bytes > 16 * 1024 * 1024 {
-                        return Err(Error::TooLarge);
-                    }
-                    if record.offset < boundary && record.key == key {
-                        latest = Some(record.payload);
-                    }
-                }
-                if reader.next_offset() >= boundary {
-                    break;
-                }
-                if reader.at_end() {
-                    // 이전 EOF보다 뒤의 LSO를 바로 적용하지 않는다. 새 assign 경계부터 다시 읽어 확인한다.
-                    reader.timeout = deadline.saturating_duration_since(Instant::now());
-                    reader.rewind(start)?;
-                    latest = None;
-                }
+            let (_, high) = probe.fetch_watermarks(topic, 0, deadline.saturating_duration_since(Instant::now()))?;
+            let high = u64::try_from(high).map_err(|_| Error::InvalidState)?;
+            if high <= boundary {
+                return Ok(None);
             }
-            if latest.is_some() {
-                return Ok(latest);
-            }
-            if start == low {
-                let (_, high) = probe.fetch_watermarks(topic, 0, deadline.saturating_duration_since(Instant::now()))?;
-                let high = u64::try_from(high).map_err(|_| Error::InvalidState)?;
-                if high <= boundary {
-                    return Ok(None);
-                }
-                // 조회 중 compaction이 이전 값을 지웠다면 새 경계의 대체 값을 확인한다.
-                boundary = high;
-                window = 8;
-            } else {
-                window = window.saturating_mul(16);
-            }
+            // 조회 중 compaction이 이전 값을 지웠다면 새 경계의 대체 값을 확인한다.
+            boundary = high;
         }
     }
 }
@@ -338,6 +343,29 @@ impl LogReader {
         self.end = false;
         Ok(())
     }
+    fn first_before(&mut self, start: u64, end: u64, deadline: Instant) -> Result<Option<StoredRecord>, Error> {
+        if Instant::now() >= deadline {
+            return Err(Error::Deadline);
+        }
+        self.timeout = deadline.saturating_duration_since(Instant::now());
+        self.rewind(start)?;
+        loop {
+            if Instant::now() >= deadline {
+                return Err(Error::Deadline);
+            }
+            if let Some(record) = self.poll(Duration::from_millis(50))? {
+                return Ok((record.offset < end).then_some(record));
+            }
+            if self.next_offset() >= end {
+                return Ok(None);
+            }
+            if self.at_end() {
+                self.timeout = deadline.saturating_duration_since(Instant::now());
+                self.rewind(start)?;
+            }
+        }
+    }
+
     pub fn at_end(&self) -> bool {
         self.end
     }
