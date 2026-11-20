@@ -33,6 +33,8 @@ PDB와 RollingUpdate의 역할은 다르다. Deployment의 rollout은 PDB에 의
 
 현재 관리 HTTP는 이 API를 제공하지 않는다. 신규 endpoint는 loopback에만 바인딩하며 Service와 외부 프록시에 공개하지 않는다. `/metrics`와 `/livez`는 drain 완료까지 유지한다. broker adapter의 종료, 진행 중 HTTP 요청, 출력 큐, 스레드 join은 모두 남은 종료 예산을 공유하고 `select!` 취소로 cursor 적용을 잃지 않게 한다.
 
+HA 이미지에는 container-probe의 별도 HA 모드를 추가한다. startup/liveness는 컨테이너 내부 exec probe로 loopback `/livez`를 호출하고 readiness는 같은 방식으로 `/readyz`를 호출한다. 2xx만 성공, timeout/접속 오류/그 외 상태는 실패로 반환하며 bootstrap 미완료, DEGRADED, DRAINING을 Pod readiness에 반영한다. 초기 readiness는 periodSeconds 2, timeoutSeconds 1, failureThreshold 1, successThreshold 1로 두고 즉각적인 신규 upgrade 거절은 서버의 동일 상태 머신이 담당한다. Pod IP로 요청하는 기본 httpGet probe를 loopback listener에 그대로 붙이지 않는다. edge 자체의 probe도 함께 성공해야 Pod가 ready이며 실제 manifest와 probe 실행은 #50/#52에서 검증한다. [Kubernetes probe 방식](https://kubernetes.io/docs/concepts/workloads/pods/probes/) 참조.
+
 종료 유예는 초기 60초다. preStop 시간도 이 유예에 포함되고 routing 제거가 애플리케이션 signal 처리와 동시에 진행될 수 있다. terminating EndpointSlice를 모든 프록시가 같은 속도로 반영한다고 가정하지 않는다. [Pod 종료 절차](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination-flow) 참조.
 
 1. preStop이 loopback `POST /drain`을 호출한다. 응답은 즉시 반환하고 상태 머신의 시작 시각을 기록한다. READY는 false, 신규 WebSocket upgrade는 HTTP 503과 제한된 Retry-After로 거절한다.
