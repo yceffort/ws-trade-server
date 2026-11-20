@@ -5,10 +5,11 @@ mod common;
 
 use client::*;
 use common::contract;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
+use tokio_tungstenite::tungstenite::Message;
 use ws_trade_server::feed::Market;
 
 #[tokio::test]
@@ -75,4 +76,20 @@ async fn kicked_client_loses_its_backlog_and_is_closed() {
     .await;
     assert!(drained.is_ok(), "서버가 소켓을 닫아야 한다");
     assert!(received < 1024, "끊긴 연결의 밀린 큐는 버려져야 한다: {received}");
+}
+
+// NUL로 끝나지 않는 프레임은 파싱할 수 없는 입력이다. 응답 없이 소켓이 닫혀야 한다.
+#[tokio::test]
+async fn frame_without_nul_closes_the_connection() {
+    let (addr, _hub) = start_server(5000).await;
+    let (mut before_connect, _) = open(&addr, "/ws", Some("v12.stomp")).await.unwrap();
+    before_connect.send(Message::text("CONNECT\nconnection-id:no-nul\n\n")).await.unwrap();
+    let mut after_connect = connect_stomp(&addr, "no-nul").await;
+    let subscribe = format!("SUBSCRIBE\nid:0\nreceipt:r\ndestination:{KR}\n\n");
+    after_connect.send(Message::text(subscribe)).await.unwrap();
+
+    for mut client in [before_connect, after_connect] {
+        let next = timeout(Duration::from_secs(2), client.next()).await.expect("서버가 소켓을 닫아야 한다");
+        assert!(!matches!(next, Some(Ok(_))), "응답이 오면 안 된다: {next:?}");
+    }
 }
