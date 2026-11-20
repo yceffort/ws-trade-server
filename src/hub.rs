@@ -15,6 +15,8 @@ use tokio::sync::{mpsc, oneshot};
 pub enum Outgoing {
     Error(&'static str),
     Receipt { receipt_id: String, message: &'static str },
+    // 연결은 그대로 두고 구독 하나만 거절한다.
+    Denied { receipt_id: String, code: &'static str },
     Message { subscription: Arc<str>, body: Arc<str> },
 }
 
@@ -28,6 +30,7 @@ enum Command {
         conn: u64,
         queue: mpsc::Sender<Outgoing>,
         kick: oneshot::Sender<&'static str>,
+        principal: Option<String>,
     },
     Subscribe {
         conn: u64,
@@ -64,6 +67,7 @@ struct Client {
     // 이 값을 버리면 연결 쪽 kicked 수신이 풀려서 연결이 끊긴다.
     kick: Option<oneshot::Sender<&'static str>>,
     subs: HashMap<Arc<str>, String>,
+    principal: Option<String>,
     rate: Rate,
     closing: bool,
 }
@@ -79,6 +83,15 @@ struct State {
     cache: Cache,
     clients: HashMap<u64, Client>,
     index: HashMap<String, Vec<(u64, Arc<str>)>>,
+}
+
+// 접두사 뒤 첫 구간이 소유자다. 소유자 구간이 비어도 공개 topic으로 새지 않게 개인 topic으로 남긴다.
+fn personal_owner(destination: &str) -> Option<&str> {
+    if destination == "/experimental/personal" {
+        return Some("");
+    }
+    let rest = destination.strip_prefix("/experimental/personal/")?;
+    Some(rest.split_once('/').map_or(rest, |(owner, _)| owner))
 }
 
 impl Hub {
@@ -106,13 +119,14 @@ impl Hub {
                         let _ = entered.send(());
                         let _ = resume.await;
                     }
-                    Command::Connect { conn, queue, kick } => {
+                    Command::Connect { conn, queue, kick, principal } => {
                         state.clients.insert(
                             conn,
                             Client {
                                 queue,
                                 kick: Some(kick),
                                 subs: HashMap::new(),
+                                principal,
                                 rate: Rate::default(),
                                 closing: false,
                             },
@@ -147,9 +161,18 @@ impl Hub {
         conn: u64,
         queue_capacity: usize,
     ) -> (mpsc::Receiver<Outgoing>, oneshot::Receiver<&'static str>) {
+        self.connect_as(conn, queue_capacity, None).await
+    }
+
+    pub(crate) async fn connect_as(
+        &self,
+        conn: u64,
+        queue_capacity: usize,
+        principal: Option<String>,
+    ) -> (mpsc::Receiver<Outgoing>, oneshot::Receiver<&'static str>) {
         let (queue, outgoing) = mpsc::channel(queue_capacity);
         let (kick, kicked) = oneshot::channel();
-        self.send(Command::Connect { conn, queue, kick }).await;
+        self.send(Command::Connect { conn, queue, kick, principal }).await;
         (outgoing, kicked)
     }
 

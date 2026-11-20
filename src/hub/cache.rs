@@ -7,7 +7,9 @@ pub(super) struct Cache(BTreeMap<String, Option<(Arc<str>, u128)>>);
 
 impl Cache {
     pub fn new(topics: Vec<String>) -> Self {
-        Self(topics.into_iter().map(|topic| (topic, None)).collect())
+        // 조회 API는 인증이 없으므로 개인 topic은 지정해도 보관하지 않는다.
+        let public = topics.into_iter().filter(|topic| super::personal_owner(topic).is_none());
+        Self(public.map(|topic| (topic, None)).collect())
     }
 
     pub fn record(&mut self, topic: &str, body: Arc<str>) {

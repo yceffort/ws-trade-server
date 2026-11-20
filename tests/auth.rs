@@ -28,8 +28,8 @@ async fn connect(addr: &str, token: &str) -> Client {
 #[tokio::test]
 async fn invalid_expired_and_revoked_tokens_are_distinguished() {
     let auth = Auth::new(vec![
-        Token { token: "demo-valid".into(), expires_at: now() + 60 },
-        Token { token: "demo-expired".into(), expires_at: now() - 1 },
+        Token { token: "demo-valid".into(), expires_at: now() + 60, principal: None },
+        Token { token: "demo-expired".into(), expires_at: now() - 1, principal: None },
     ]);
     let server = start_managed(Config { addr: "127.0.0.1:0".into(), auth: Some(auth.clone()), ..Config::default() })
         .await
@@ -55,7 +55,7 @@ async fn invalid_expired_and_revoked_tokens_are_distinguished() {
 
 #[tokio::test]
 async fn an_active_session_expires_without_another_request() {
-    let auth = Auth::new(vec![Token { token: "demo-short".into(), expires_at: now() + 2 }]);
+    let auth = Auth::new(vec![Token { token: "demo-short".into(), expires_at: now() + 2, principal: None }]);
     let server =
         start_managed(Config { addr: "127.0.0.1:0".into(), auth: Some(auth), ..Config::default() }).await.unwrap();
     let mut client = connect(&server.addr.to_string(), "Bearer demo-short").await;

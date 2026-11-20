@@ -31,6 +31,7 @@ where
                 return Err(code);
             }
             Outgoing::Receipt { receipt_id, message } => stomp::receipt(&receipt_id, message),
+            Outgoing::Denied { receipt_id, code } => stomp::denied(&receipt_id, code),
             Outgoing::Message { subscription, body } => {
                 *seq += 1;
                 stomp::message(&format!("{connection_id}-{seq}"), &subscription, &body)

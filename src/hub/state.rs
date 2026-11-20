@@ -8,9 +8,17 @@ impl State {
         if client.closing {
             return;
         }
+        let owner = personal_owner(&destination);
         let error = if !client.rate.allow(self.limits.commands_per_second) {
             Some("rate-limit-exceeded")
-        } else if !self.limits.topics.is_empty() && !self.limits.topics.contains(&destination) {
+        } else if owner.is_some_and(|owner| owner.is_empty() || client.principal.as_deref() != Some(owner)) {
+            // 연결을 닫는 reject 대신 이 구독만 버린다. 사유를 하나로 두어 거절 응답으로 다른 주체의 존재를 추측하지 못하게 한다.
+            tracing::debug!(event = "subscription_rejected", conn, reason = "forbidden-topic");
+            if let Some(receipt_id) = receipt {
+                self.deliver(conn, Outgoing::Denied { receipt_id, code: "forbidden-topic" });
+            }
+            return;
+        } else if owner.is_none() && !self.limits.topics.is_empty() && !self.limits.topics.contains(&destination) {
             Some("unknown-topic")
         } else if self.limits.subscriptions > 0
             && client.subs.len() >= self.limits.subscriptions
