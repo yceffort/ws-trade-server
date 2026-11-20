@@ -3,9 +3,12 @@
 현재의 `eprintln!`은 서버가 왜 연결을 닫았는지 구분하지 못하고 클라이언트의 connection-id를 그대로 출력했다. 링 유실과 디코딩 실패가 반복되면 stderr 쓰기도 체결 경로에 쌓였다. [tracing](https://docs.rs/tracing/latest/tracing/) 이벤트와 [별도 출력 스레드](https://docs.rs/tracing-appender/latest/tracing_appender/non_blocking/)로 바꾸고, 원인은 구조화 필드와 누적 메트릭의 증분으로 남긴다.
 
 ```sh
-WTS_LOG_FORMAT=json RUST_LOG=ws_trade_server=info cargo run --bin gateway -- --http-addr 127.0.0.1:8081 2>/tmp/ws-gateway.jsonl
-WTS_LOG_FORMAT=text RUST_LOG=ws_trade_server::connection=debug,ws_trade_server=info cargo run --bin gateway
+cargo build --bin gateway
+WTS_LOG_FORMAT=json RUST_LOG=ws_trade_server=info ./target/debug/gateway --http-addr 127.0.0.1:8081 2>/tmp/ws-gateway.jsonl
+WTS_LOG_FORMAT=text RUST_LOG=ws_trade_server::connection=debug,ws_trade_server=info ./target/debug/gateway
 ```
+
+빌드가 성공한 뒤 바이너리 실행에만 stderr 리디렉션을 적용한다. Cargo의 빌드 메시지와 진단은 JSON 로그 파일에 들어가지 않는다.
 
 기본 형식은 text, 기본 필터는 `ws_trade_server=info`다. JSON은 한 줄에 이벤트 하나이며 timestamp, level, target, fields가 있다. 이벤트 이름은 `fields.event`에 들어간다. 라이브러리는 subscriber를 설치하지 않고 gateway가 한 번 초기화한다. feed와 loadgen의 기존 CLI 출력은 유지한다. 특히 loadgen의 stdout JSON은 바꾸지 않는다.
 
