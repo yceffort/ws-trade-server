@@ -7,7 +7,7 @@ use crate::ring::Writer;
 use client::{Outcome, Role, Shared, run as run_client};
 use prost::Message;
 use serde_json::{Value, json};
-use stats::{Stamp, latency_report};
+use stats::{Stamp, delivery_report, latency_report};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
@@ -139,8 +139,9 @@ pub async fn run(args: Args) -> Result<Value, String> {
     };
     phase("warmup");
     tokio::time::sleep(Duration::from_secs(args.warmup)).await;
-    let start = Instant::now();
+    // phase를 먼저 바꾸고 시각을 잰다. 구간 안에 쓴 체결은 모두 그 뒤에 도착하므로 탐침이 빠짐없이 기록한다.
     shared.phase.store(1, Relaxed);
+    let start = Instant::now();
     phase("measure");
     tokio::time::sleep(Duration::from_secs(args.seconds)).await;
     let stop = Instant::now();
@@ -170,11 +171,9 @@ fn report(
     let sum = |phase: usize| outcomes.iter().map(|(_, o)| o.messages[phase]).sum::<u64>();
     let (warmup, measured, trailing) = (sum(0), sum(1), sum(2));
     let written_measured = stamps.iter().filter(|s| s.written >= window.0 && s.written < window.1).count();
-    // 받는 쪽 클라이언트는 일반과 탐침이다. 멈춘 클라이언트는 읽지 않으므로 기대치에 넣지 않는다.
-    let expected = written_measured as u64 * (normal + probes) as u64;
     let per_sec = |n: u64| n as f64 / args.seconds as f64;
     let probe_outcomes = || outcomes.iter().filter(|(role, _)| *role == Role::Probe).map(|(_, o)| o);
-    let samples = probe_outcomes().flat_map(|o| o.samples.iter());
+    let samples = || probe_outcomes().flat_map(|o| o.samples.iter());
     let unparsed = probe_outcomes().map(|o| o.unparsed).sum();
     json!({
         "config": {
@@ -185,14 +184,13 @@ fn report(
         "connect": {"ready": normal + probes + stalled, "failed": failed, "millis": connect_millis},
         "clients": {"normal": normal, "probes": probes, "stalled": stalled},
         "written": {"total": stamps.len(), "measured": written_measured, "per_sec": per_sec(written_measured as u64)},
-        "messages": {
-            "total": warmup + measured + trailing, "measured": measured, "per_sec": per_sec(measured),
-            "expected": expected, "ratio": (expected > 0).then(|| (measured + trailing) as f64 / expected as f64),
-        },
+        "messages": {"total": warmup + measured + trailing, "measured": measured, "per_sec": per_sec(measured)},
+        // 본문을 읽어 쓴 기록과 짝짓는 것은 탐침뿐이라 전달 비율은 탐침으로 낸다.
+        "delivery": delivery_report(stamps, samples(), probes, window),
         "seq_gap_clients": outcomes.iter().filter(|(_, o)| o.seq_gap).count(),
         "unexpected_disconnects": outcomes.iter().filter(|(_, o)| o.disconnected).count(),
         "stalled_kicked": outcomes.iter().filter(|(_, o)| o.kicked).count(),
-        "latency_us": latency_report(stamps, samples, unparsed, window),
+        "latency_us": latency_report(stamps, samples(), unparsed, window),
     })
 }
 

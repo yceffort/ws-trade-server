@@ -12,7 +12,7 @@ bench/run.sh poll-1000us --poll-us 1000 --connections 200
 
 스크립트는 `ulimit -n`을 올리고, 릴리스 빌드한 `gateway`를 임시 링과 빈 포트로 띄우고, `loadgen`을 돌리면서 1초마다 gateway의 RSS와 CPU를 `ps`로 읽고, 끝나면 결과를 `bench/results/<이름>.json`에 쓴다. gateway와 임시 파일은 어떤 경우에도 남기지 않는다. `jq`가 필요하다. `--url`, `--ring`, `--out`은 스크립트가 정하므로 넘기지 않는다.
 
-`loadgen`을 직접 쓸 때는 gateway를 먼저 띄우고 같은 `--ring`을 준다. 워밍업은 1초 이상으로 둔다. gateway의 링 브리지는 링 파일이 생긴 뒤 최대 0.5초 늦게 열고 열린 시점의 끝에서부터 읽으므로, 워밍업이 짧으면 처음 체결이 전달되지 않아 `messages.ratio`가 1보다 작아진다.
+`loadgen`을 직접 쓸 때는 gateway를 먼저 띄우고 같은 `--ring`을 준다. 워밍업은 1초 이상으로 둔다. gateway의 링 브리지는 링 파일이 생긴 뒤 최대 0.5초 늦게 열고 열린 시점의 끝에서부터 읽으므로, 워밍업이 짧으면 처음 체결이 전달되지 않아 `delivery.ratio`가 1보다 작아진다.
 
 | 인자 | 기본값 | 뜻 |
 | --- | --- | --- |
@@ -37,6 +37,8 @@ bench/run.sh poll-1000us --poll-us 1000 --connections 200
 
 ## 결과 필드
 
+`delivery`가 없는 결과 파일은 이 필드를 넣기 전에 만든 것이다. 거기 있는 `messages.expected`, `messages.ratio`는 받은 시각으로 센 수를 나눈 값이라 빠진 체결이 없어도 1을 넘을 수 있다.
+
 | 필드 | 뜻 |
 | --- | --- |
 | `config` | 실행 조건. loadgen 인자 전부(종목은 topic으로 적는다) |
@@ -45,9 +47,10 @@ bench/run.sh poll-1000us --poll-us 1000 --connections 200
 | `written.total` | 링에 쓴 체결 수(워밍업 포함) |
 | `written.measured`, `written.per_sec` | 측정 구간에 쓴 체결 수와 초당 수 |
 | `messages.total` | 받은 `MESSAGE` 총수(워밍업 포함, 멈춘 클라이언트 제외) |
-| `messages.measured`, `messages.per_sec` | 측정 구간에 받은 수와 초당 수 |
-| `messages.expected` | 기대치. `written.measured` x (일반 + 탐침) |
-| `messages.ratio` | (측정 구간 + 마지막 1초에 받은 수) / 기대치. 1에 가까워야 한다 |
+| `messages.measured`, `messages.per_sec` | 측정 구간에 받은 수와 초당 수. 받은 시각으로 세므로 쓴 수와 견주지 않는다 |
+| `delivery.expected` | 기대치. `written.measured` x 탐침 수 |
+| `delivery.delivered` | 측정 구간에 쓴 체결을 탐침이 받은 수. 쓴 기록과 짝지어 세므로 워밍업 때 쓴 체결과 측정이 끝난 뒤에 쓴 체결은 넣지 않는다 |
+| `delivery.ratio` | `delivered` / `expected`. 빠진 체결이 없으면 1이다. 마지막 1초 안에 도착하지 못한 체결은 빠진 것으로 센다. 탐침이 없으면 null |
 | `seq_gap_clients` | `message-id` 순번이 1부터 빠짐없이 이어지지 않은 클라이언트 수 |
 | `unexpected_disconnects` | 준비된 뒤 서버가 끊은 일반 클라이언트 수(탐침 포함) |
 | `stalled_kicked` | 서버가 끊은 멈춘 클라이언트 수 |
