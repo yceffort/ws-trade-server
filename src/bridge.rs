@@ -13,17 +13,28 @@ use std::time::Duration;
 
 pub struct Bridge {
     stopped: Arc<AtomicBool>,
-    thread: thread::JoinHandle<()>,
+    thread: Option<thread::JoinHandle<()>>,
 }
 
 impl Bridge {
     pub fn stop(&self) {
         self.stopped.store(true, Ordering::Relaxed);
-        self.thread.thread().unpark();
+        if let Some(thread) = &self.thread {
+            thread.thread().unpark();
+        }
     }
 
-    pub async fn join(self) {
-        let _ = tokio::task::spawn_blocking(move || self.thread.join()).await;
+    pub async fn join(mut self) {
+        self.stop();
+        if let Some(thread) = self.thread.take() {
+            let _ = tokio::task::spawn_blocking(move || thread.join()).await;
+        }
+    }
+}
+
+impl Drop for Bridge {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
@@ -59,7 +70,7 @@ pub fn spawn(path: PathBuf, poll: Duration, hub: Hub) -> Bridge {
             }
         }
     });
-    Bridge { stopped, thread }
+    Bridge { stopped, thread: Some(thread) }
 }
 
 // 링 파일이 아직 없거나 만드는 중이면 0.5초마다 다시 연다. feed와 gateway를 어느 순서로 띄워도 된다.

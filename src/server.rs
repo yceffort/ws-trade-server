@@ -71,7 +71,10 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
                 _ = &mut stopped => break,
                 _ = connections.join_next(), if !connections.is_empty() => {},
                 accepted = listener.accept() => {
-                    let Ok((stream, _)) = accepted else { break };
+                    let (stream, _) = match accepted {
+                        Ok(accepted) => accepted,
+                        Err(error) => { eprintln!("accept 실패: {error}"); tokio::time::sleep(std::time::Duration::from_millis(100)).await; continue; }
+                    };
                     let permit = if config.limits.connections == 0 { None } else {
                         match permits.clone().try_acquire_owned() {
                             Ok(permit) => Some(permit),
