@@ -10,12 +10,12 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
     const before = store.load().cursor
     const application = new Application(store)
     const socket = new WebSocket(urls[attempt++ % urls.length], 'wts.ha.v1', { handshakeTimeout: 3000, maxPayload: 48 * 1024 })
-    let lastReceived = performance.now(), queued = 0, chain = Promise.resolve(), reason = 'connection-closed', ready = false
+    let queued = 0, chain = Promise.resolve(), reason = 'connection-closed', ready = false
     const closed = new Promise(resolve => socket.once('close', resolve))
     const stop = () => socket.terminate()
     signal?.addEventListener('abort', stop, { once: true })
+    let receiveTimer = setTimeout(() => { reason = 'receive-deadline'; stop() },3000)
     const timer = setInterval(() => {
-      if (performance.now() - lastReceived > 3000) { reason = 'receive-deadline'; return stop() }
       if (ready && socket.readyState === WebSocket.OPEN) socket.send('{"type":"heartbeat"}')
     }, 1000)
     socket.on('error', () => { reason = 'connection-error' })
@@ -24,7 +24,8 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
       catch { reason = 'auth-invalid'; stop() }
     })
     socket.on('message', (data, binary) => {
-      lastReceived = performance.now()
+      clearTimeout(receiveTimer)
+      receiveTimer = setTimeout(() => { reason = 'receive-deadline'; stop() },3000)
       queued += data.length
       if (binary || queued > 1024 * 1024) { reason = 'client-overflow'; return stop() }
       chain = chain.then(async () => {
@@ -51,6 +52,7 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
     })
     await closed
     clearInterval(timer)
+    clearTimeout(receiveTimer)
     signal?.removeEventListener('abort', stop)
     await chain
     if (signal?.aborted) return store.load()

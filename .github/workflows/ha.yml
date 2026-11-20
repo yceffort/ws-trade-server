@@ -34,7 +34,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm ci --prefix edge --ignore-scripts && npm test --prefix edge && node --test examples/ha-state.test.mjs
+      - run: npm ci --prefix edge --ignore-scripts && npm test --prefix edge && node --test examples/ha-*.test.mjs
   replicated-log:
     runs-on: ubuntu-latest
     timeout-minutes: 30
