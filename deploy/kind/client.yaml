@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ws-trade-check
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 30
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: client
+          image: ws-trade-edge:local
+          imagePullPolicy: IfNotPresent
+          command: [node, /app/check/deploy/check.mjs, 'wss://ws-trade.ws-trade.svc:443/ws', /run/secrets]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          volumeMounts:
+            - {name: check, mountPath: /app/check, readOnly: true}
+            - {name: auth, mountPath: /run/secrets, readOnly: true}
+      volumes:
+        - name: check
+          configMap:
+            name: ws-trade-check
+            items:
+              - {key: check.mjs, path: deploy/check.mjs}
+              - {key: client.mjs, path: bench/soak/client.mjs}
+        - name: auth
+          secret:
+            secretName: ws-trade-credentials
+            defaultMode: 0440
+            items:
+              - {key: tokens.json, path: tokens.json}
+              - {key: cert.pem, path: cert.pem}

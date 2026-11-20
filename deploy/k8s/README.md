@@ -16,7 +16,7 @@ npm ci --prefix edge
 bash deploy/kind-smoke.sh
 ```
 
-검증은 digest로 고정한 Kubernetes 1.35.5 kind 이미지를 사용한다. 별도 클러스터 이름과 임시 KUBECONFIG를 만들기 때문에 기존 kubectl context를 바꾸지 않는다. 로컬 이미지를 적재한 뒤 API 서버 검증, 실제 배포, CA 검증 WSS 연결, 두 topic 수신, 잘못된 토큰 거절, feed 컨테이너 재시작 후 복구, Deployment 교체 때 종료 프레임, 새 Pod 수신을 확인한다. 성공과 실패 모두 테스트 클러스터와 임시 인증 자료를 정리한다. GitHub Actions `Deployment`도 같은 검증을 실행한다.
+검증은 digest로 고정한 Kubernetes 1.35.5 kind 이미지를 사용한다. 별도 클러스터 이름과 임시 KUBECONFIG를 만들기 때문에 기존 kubectl context를 바꾸지 않는다. 로컬 이미지를 적재한 뒤 API 서버 검증, 실제 배포, 클라이언트 Job에서 Service DNS 및 ClusterIP를 경유한 CA 검증 WSS 연결, 두 topic 수신, 잘못된 토큰 거절, feed 컨테이너 재시작 후 복구, Deployment 교체 때 종료 프레임, 새 Pod 수신과 Service 경로 복구를 확인한다. 임시 인증서에는 Service DNS 이름을 SAN으로 추가하고 TLS 호스트 검증을 유지한다. port-forward는 종료 프레임 확인용으로 함께 사용한다. 성공과 실패 모두 테스트 클러스터와 임시 인증 자료를 정리한다. GitHub Actions `Deployment`도 같은 검증을 실행한다.
 
 ## 다른 클러스터에 적용하기
 

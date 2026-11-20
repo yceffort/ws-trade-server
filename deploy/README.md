@@ -35,3 +35,5 @@ context 검증은 합성 파일만 담은 임시 디렉터리에 실제 `.docker
 이 구성은 단일 feed 실험이다. volume을 지우면 링 데이터가 사라지고 gateway를 재시작하면 snapshot과 replay가 초기화된다. 이미지 기본 태그는 `ws-trade-server:local`, `ws-trade-edge:local`이며 `WTS_SERVER_IMAGE`, `WTS_EDGE_IMAGE`로 바꿀 수 있다. 레지스트리 업로드, 인증서 자동 갱신, 부하 분산과 무중단 배포를 제공하지 않는다.
 
 Kubernetes manifest와 임시 kind 클러스터 검증은 [Kubernetes 안내](k8s/README.md)에 있다. feed와 gateway가 같은 Pod의 볼륨을 공유하는 단일 replica 구성이다.
+
+`node deploy/prepare.mjs /새/디렉터리 service.example`처럼 디렉터리 뒤에 DNS 이름을 주면 localhost와 함께 인증서 SAN에 추가한다. kind의 클라이언트 Job은 이 옵션으로 Service DNS에 대한 TLS 호스트 검증을 수행한다.
