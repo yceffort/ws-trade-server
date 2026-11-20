@@ -52,7 +52,7 @@ const MAX_MESSAGE_BYTES: usize = 64 << 10;
 // 기본값 128 KiB는 연결마다 읽기 버퍼를 미리 잡는다. 클라이언트 프레임은 수백 바이트라 4 KiB면 충분하고, 더 큰 메시지는 버퍼가 알아서 늘어난다.
 const READ_BUFFER_BYTES: usize = 4 << 10;
 
-pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64) {
+pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut shutdown: watch::Receiver<bool>) {
     let websocket_config =
         WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE_BYTES)).read_buffer_size(READ_BUFFER_BYTES);
     let handshake = async {
@@ -61,7 +61,11 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64) {
         let connection_id = read_connect(&mut reader).await?;
         Some((writer, reader, connection_id))
     };
-    let Ok(Some((writer, reader, connection_id))) = timeout(HANDSHAKE_DEADLINE, handshake).await else {
+    let result = tokio::select! {
+        result = timeout(HANDSHAKE_DEADLINE, handshake) => result,
+        _ = shutdown.changed() => return,
+    };
+    let Ok(Some((writer, reader, connection_id))) = result else {
         return;
     };
     eprintln!("연결: {connection_id}");
@@ -72,7 +76,7 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64) {
     tokio::select! {
         _ = idle::wait(last_received, config.idle_timeout) => {}
         _ = read_loop(reader, &hub, conn, activity) => {}
-        _ = write_loop(writer, outgoing, &connection_id, config.heartbeat_ms) => {}
+        _ = write_loop(writer, outgoing, &connection_id, config.heartbeat_ms, shutdown) => {}
         _ = kicked => {}
     }
     hub.disconnect(conn).await;
@@ -134,6 +138,7 @@ async fn write_loop(
     mut outgoing: mpsc::Receiver<Outgoing>,
     connection_id: &str,
     heartbeat_ms: u64,
+    mut shutdown: watch::Receiver<bool>,
 ) {
     let heart_beat = format!("{heartbeat_ms},{heartbeat_ms}");
     if writer.send(Message::text(stomp::connected(&heart_beat))).await.is_err() {
@@ -146,6 +151,11 @@ async fn write_loop(
     let mut seq: u64 = 0;
     loop {
         let text = tokio::select! {
+            _ = shutdown.changed() => {
+                let _ = writer.send(Message::text(stomp::error("server-shutdown"))).await;
+                let _ = writer.close().await;
+                return;
+            }
             outgoing = outgoing.recv() => match outgoing {
                 Some(Outgoing::Error(code)) => {
                     let _ = writer.send(Message::text(stomp::error(code))).await;

@@ -18,6 +18,7 @@ enum Command {
     Subscribe { conn: u64, id: String, destination: String, receipt: Option<String> },
     Unsubscribe { conn: u64, id: String, receipt: Option<String> },
     Disconnect { conn: u64 },
+    Stop(oneshot::Sender<()>),
     Snapshot(oneshot::Sender<String>),
     Publish { topic: String, body: Arc<str> },
 }
@@ -70,6 +71,12 @@ impl Hub {
                     }
                     Command::Unsubscribe { conn, id, receipt } => state.unsubscribe(conn, &id, receipt),
                     Command::Disconnect { conn } => state.remove(conn),
+                    Command::Stop(reply) => {
+                        drop(state);
+                        inbox.close();
+                        let _ = reply.send(());
+                        break;
+                    }
                     Command::Snapshot(reply) => {
                         let _ = reply.send(state.cache.json());
                     }
@@ -99,6 +106,12 @@ impl Hub {
         self.send(Command::Disconnect { conn }).await;
     }
 
+    pub(crate) async fn stop(&self) {
+        let (reply, done) = oneshot::channel();
+        self.send(Command::Stop(reply)).await;
+        let _ = done.await;
+    }
+
     pub async fn snapshot(&self) -> Option<String> {
         let (reply, response) = oneshot::channel();
         self.send(Command::Snapshot(reply)).await;
@@ -110,12 +123,12 @@ impl Hub {
     }
 
     // 런타임 밖의 스레드(링 브리지)에서 부른다. 채널이 차면 자리가 날 때까지 막힌다. 실패를 무시하는 이유는 send와 같다.
-    pub fn publish_blocking(&self, topic: String, body: Arc<str>) {
-        let _ = self.commands.blocking_send(Command::Publish { topic, body });
+    pub fn publish_blocking(&self, topic: String, body: Arc<str>) -> bool {
+        self.commands.blocking_send(Command::Publish { topic, body }).is_ok()
     }
 
     async fn send(&self, command: Command) {
-        // hub 태스크는 프로세스와 수명이 같다. 여기서 실패하면 이미 끝난 상태라 할 일이 없다.
+        // 종료된 hub에는 새 명령을 전달하지 않는다.
         let _ = self.commands.send(command).await;
     }
 }

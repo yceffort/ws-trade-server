@@ -12,7 +12,7 @@ pub async fn bind(addr: &str) -> io::Result<TcpListener> {
     Ok(listener)
 }
 
-pub fn spawn(listener: TcpListener, hub: Hub) {
+pub fn spawn(listener: TcpListener, hub: Hub) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             let stream = match listener.accept().await {
@@ -26,7 +26,7 @@ pub fn spawn(listener: TcpListener, hub: Hub) {
             // 로컬 조회를 순차 처리하고 전체 마감을 두어 느린 요청이 태스크를 쌓지 못하게 한다.
             let _ = tokio::time::timeout(Duration::from_secs(2), respond(stream, &hub)).await;
         }
-    });
+    })
 }
 
 async fn respond(mut stream: TcpStream, hub: &Hub) -> io::Result<()> {
