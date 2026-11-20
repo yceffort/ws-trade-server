@@ -9,6 +9,10 @@ fn parse_args() -> Option<Config> {
             "--addr" => config.addr = value,
             "--ring" => config.ring = Some(value.into()),
             "--poll-us" => config.poll_us = value.parse().ok()?,
+            "--idle-ms" => {
+                let millis = value.parse::<u64>().ok()?;
+                config.idle_timeout = (millis > 0).then(|| std::time::Duration::from_millis(millis));
+            }
             _ => return None,
         }
     }
@@ -18,7 +22,7 @@ fn parse_args() -> Option<Config> {
 #[tokio::main]
 async fn main() {
     let Some(config) = parse_args() else {
-        eprintln!("사용법: gateway [--addr 127.0.0.1:8080] [--ring 경로] [--poll-us 200]");
+        eprintln!("사용법: gateway [--addr 127.0.0.1:8080] [--ring 경로] [--poll-us 200] [--idle-ms 0]");
         std::process::exit(2);
     };
     match start(config).await {

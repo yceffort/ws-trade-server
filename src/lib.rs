@@ -21,6 +21,7 @@ pub struct Config {
     pub ring: Option<PathBuf>,
     pub poll_us: u64,
     pub heartbeat_ms: u64,
+    pub idle_timeout: Option<Duration>,
     pub queue_capacity: usize,
 }
 
@@ -31,6 +32,7 @@ impl Default for Config {
             ring: None,
             poll_us: 200,
             heartbeat_ms: 5000,
+            idle_timeout: None,
             queue_capacity: 1024,
         }
     }
@@ -59,8 +61,7 @@ pub async fn start(config: Config) -> std::io::Result<(SocketAddr, Hub)> {
                     conn += 1;
                     // 작은 프레임을 하나씩 flush하므로 Nagle이 켜져 있으면 상대의 지연 ACK를 기다린다. 실패해도 지연만 늘어난다.
                     let _ = stream.set_nodelay(true);
-                    let (heartbeat_ms, queue_capacity) = (config.heartbeat_ms, config.queue_capacity);
-                    tokio::spawn(connection::serve(stream, accept_hub.clone(), heartbeat_ms, queue_capacity, conn));
+                    tokio::spawn(connection::serve(stream, accept_hub.clone(), config.clone(), conn));
                 }
                 Err(error) => {
                     eprintln!("accept 실패: {error}");
