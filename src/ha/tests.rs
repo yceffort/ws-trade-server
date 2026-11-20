@@ -71,7 +71,7 @@ async fn live_registration_captures_snapshot_and_future_records_at_one_boundary(
     snapshot.apply(&LogRecord::Status(SourceStatus::new(&config, replica::now_ms(), false)), 0, &config).unwrap();
     hub.restore_replica(config.clone(), snapshot).await.unwrap();
     hub.apply_replica(2, LogRecord::Status(SourceStatus::new(&config, replica::now_ms(), true))).await.unwrap();
-    hub.replica_boundary(3, 3).await.unwrap();
+    hub.replica_observation(3, 3, std::time::Instant::now()).await.unwrap();
     let (snapshot, mut live) = hub.follow_replica(42).await.unwrap();
     let mut generator = Synthetic::new(&config, 1, 1000).unwrap();
     let event = generator.next(&config, 1, replica::now_ms()).unwrap();
