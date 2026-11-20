@@ -112,6 +112,12 @@ pub(crate) async fn serve_socket(
                 biased;
                 reason = session.invalidated() => reason,
                 _ = shutdown.changed() => "server-shutdown",
+                reason = async {
+                    match &config.ha_lifecycle {
+                        Some(life) => life.close_reason(conn).await,
+                        None => std::future::pending().await,
+                    }
+                } => reason,
                 reason = monitor(hub) => reason,
                 reason = read_heartbeats(&mut reader) => reason,
                 result = transfer::run(&mut writer, hub, input, protocol, conn, &subject, resume) => result.err().unwrap_or("connection-closed"),
@@ -120,7 +126,13 @@ pub(crate) async fn serve_socket(
         Err(reason) => reason,
     };
     hub.unfollow_replica(conn);
-    let _ = send(&mut writer, json!({"type":"error","code":reason}), Instant::now() + Duration::from_secs(1)).await;
+    let frame = if reason == "draining" {
+        json!({"type":"draining","retry_after_ms":0})
+    } else {
+        json!({"type":"error","code":reason})
+    };
+    let _ = send(&mut writer, frame, Instant::now() + Duration::from_secs(1)).await;
+
     let _ = timeout(Duration::from_secs(1), writer.close()).await;
     tracing::debug!(event = "ha_connection_closed", conn, reason);
 }

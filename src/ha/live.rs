@@ -69,6 +69,14 @@ impl LiveSubscribers {
         Ok(LiveStream { records: receiver, failed: failure, progress: observed })
     }
 
+    pub fn fail_all(&mut self, reason: &'static str) {
+        for (_, sub) in self.0.drain() {
+            if let Some(failed) = sub.failed {
+                let _ = failed.send(reason);
+            }
+        }
+    }
+
     pub fn detach(&mut self, id: u64) {
         self.0.remove(&id);
     }

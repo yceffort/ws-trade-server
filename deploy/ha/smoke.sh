@@ -28,6 +28,7 @@ cargo test --locked --features ha --test ha_broker recovery_survives_more_than_4
 cargo test --locked --features ha --lib cancelled_reader_releases_its_permit_after_native_cleanup -- --ignored --nocapture
 cargo test --locked --features ha --test ha_replica -- --ignored --nocapture
 cargo test --locked --features ha --test ha_protocol -- --ignored --nocapture
+cargo test --locked --features ha --test ha_lifecycle -- --ignored --nocapture
 mkdir -p deploy/local/ha/results
 node deploy/ha/producer-failover.mjs | tee deploy/local/ha/results/producer-failover.json
 cargo test --locked --features ha --test ha_broker replicated_log_survives_broker_loss_and_rejects_no_quorum -- --ignored --nocapture

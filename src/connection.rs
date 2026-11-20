@@ -33,6 +33,12 @@ fn reject(status: u16) -> ErrorResponse {
     http::Response::builder().status(status).body(None).expect("상태 코드는 유효하다")
 }
 
+fn unavailable() -> ErrorResponse {
+    let mut response = reject(503);
+    response.headers_mut().insert("retry-after", HeaderValue::from_static("1"));
+    response
+}
+
 // 콜백 시그니처가 tungstenite의 Callback 트레이트로 정해져 있어 Err 크기를 줄일 수 없다.
 #[allow(clippy::result_large_err)]
 fn negotiate(request: &Request, mut response: Response) -> Result<Response, ErrorResponse> {
@@ -51,7 +57,7 @@ fn negotiate(request: &Request, mut response: Response) -> Result<Response, Erro
 #[allow(clippy::result_large_err)]
 pub async fn reject_overloaded(stream: TcpStream) {
     // 거절용 태스크는 Rejector가 제한한다. 소켓 하나의 대기도 짧게 끝낸다.
-    let callback = |_: &Request, _: Response| Err(reject(503));
+    let callback = |_: &Request, _: Response| Err(unavailable());
     let _ = timeout(Duration::from_millis(250), accept_hdr_async_with_config(stream, callback, None)).await;
 }
 
@@ -70,6 +76,10 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
         let mut route_ha = false;
         #[allow(clippy::result_large_err)]
         let callback = |request: &Request, response: Response| {
+            #[cfg(feature = "ha")]
+            if config.ha_lifecycle.as_ref().is_some_and(|life| !life.ready()) {
+                return Err(unavailable());
+            }
             #[cfg(feature = "ha")]
             if config.ha_protocol.is_some() && request.uri().path() == "/experimental/ha/ws" {
                 route_ha = true;

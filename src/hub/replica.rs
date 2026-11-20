@@ -18,7 +18,9 @@ impl State {
         match command {
             Command::Restore(config, snapshot, reply) => {
                 let result = (|| {
-                    if self.replica.is_some() || !self.clients.is_empty() {
+                    if self.replica.as_ref().is_some_and(|replica| !replica.view().failed)
+                        || self.replica.is_none() && !self.clients.is_empty()
+                    {
                         return Err(Error::InvalidState);
                     }
                     let replica = Replica::restore(config.clone(), *snapshot)?;
@@ -87,6 +89,7 @@ impl State {
             }
             Command::Unfollow(id) => self.live.detach(id),
             Command::Fail => {
+                self.live.fail_all("source-stale");
                 if let Some(replica) = &mut self.replica {
                     replica.fail();
                 }

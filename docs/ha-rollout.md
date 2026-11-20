@@ -31,7 +31,7 @@ PDB와 RollingUpdate의 역할은 다르다. Deployment의 rollout은 PDB에 의
 | `GET /readyz` | bootstrap 완료, 허용 schema/config, 인증 정책 신선도, 로그 catch-up과 source 상태가 유효하며 drain 중이 아님 |
 | `POST /drain` | loopback에서만 받는 idempotent 관리 명령. readiness와 새 upgrade 허용을 같은 상태 변경으로 내림 |
 
-현재 관리 HTTP는 이 API를 제공하지 않는다. 신규 endpoint는 loopback에만 바인딩하며 Service와 외부 프록시에 공개하지 않는다. `/metrics`와 `/livez`는 drain 완료까지 유지한다. broker adapter의 종료, 진행 중 HTTP 요청, 출력 큐, 스레드 join은 모두 남은 종료 예산을 공유하고 `select!` 취소로 cursor 적용을 잃지 않게 한다.
+[상태 머신 구현](ha-lifecycle.md)은 HA 모드의 관리 HTTP에 이 API를 제공한다. 신규 endpoint는 loopback에만 바인딩하며 Service와 외부 프록시에 공개하지 않는다. `/metrics`와 `/livez`는 drain 완료까지 유지한다. broker adapter의 종료, 진행 중 HTTP 요청, 출력 큐, 스레드 join은 모두 남은 종료 예산을 공유하고 `select!` 취소로 cursor 적용을 잃지 않게 한다.
 
 HA 이미지에는 container-probe의 별도 HA 모드를 추가한다. startup/liveness는 컨테이너 내부 exec probe로 loopback `/livez`를 호출하고 readiness는 같은 방식으로 `/readyz`를 호출한다. 2xx만 성공, timeout/접속 오류/그 외 상태는 실패로 반환하며 bootstrap 미완료, DEGRADED, DRAINING을 Pod readiness에 반영한다. 초기 readiness는 periodSeconds 2, timeoutSeconds 1, failureThreshold 1, successThreshold 1로 두고 즉각적인 신규 upgrade 거절은 서버의 동일 상태 머신이 담당한다. Pod IP로 요청하는 기본 httpGet probe를 loopback listener에 그대로 붙이지 않는다. edge 자체의 probe도 함께 성공해야 Pod가 ready이며 실제 manifest와 probe 실행은 #50/#52에서 검증한다. [Kubernetes probe 방식](https://kubernetes.io/docs/concepts/workloads/pods/probes/) 참조.
 
@@ -44,7 +44,7 @@ HA 이미지에는 container-probe의 별도 HA 모드를 추가한다. startup/
 
 preStop 없이 SIGTERM만 와도 동일한 drain 상태 머신을 시작한다. 이미 시작된 drain을 다시 호출해 예산을 연장하지 않는다. 훅이 실패하거나 SIGKILL이 오면 통지 프레임이 없어도 client heartbeat/read deadline으로 재접속해야 한다. 새 admission을 거절하는 단계에서 listener를 먼저 없애거나 source 소비를 먼저 끊지 않는다.
 
-현재 edge는 upstream 연결 실패를 일반 502로 바꿀 수 있으므로 HA 구현에서 upstream의 503과 제한된 Retry-After를 보존한다. 임의의 upstream 헤더를 모두 전달하지는 않는다. endpoint 전파 중 옛 Pod로 들어간 요청은 거절될 수 있으므로 개별 handshake 100% 성공을 약속하지 않고 제한된 재시도까지 포함해 접속 성공 시간을 측정한다.
+edge는 upstream의 503과 제한된 Retry-After를 보존한다. 임의의 upstream 헤더를 모두 전달하지는 않는다. endpoint 전파 중 옛 Pod로 들어간 요청은 거절될 수 있으므로 개별 handshake 100% 성공을 약속하지 않고 제한된 재시도까지 포함해 접속 성공 시간을 측정한다.
 
 ## 인증과 설정 일관성
 
