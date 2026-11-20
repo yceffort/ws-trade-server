@@ -1,0 +1,17 @@
+**
+!Cargo.toml
+!Cargo.lock
+!build.rs
+!src/
+!src/**
+!proto/
+!proto/**
+!deploy/
+!deploy/container/
+!deploy/container/**
+!edge/
+!edge/package.json
+!edge/package-lock.json
+!edge/run.mjs
+!edge/proxy.mjs
+!edge/tcp-probe.mjs
