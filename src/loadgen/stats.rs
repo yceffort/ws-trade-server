@@ -121,10 +121,11 @@ mod tests {
         let at = |ms: u64| base + Duration::from_millis(ms);
         let stamp = |cumulative_volume, ms| Stamp { symbol: 0, cumulative_volume, written: at(ms) };
         let sample = |cumulative_volume, ms| Sample { received: at(ms), symbol: 0, cumulative_volume };
-        // 구간은 [100, 200). 1번은 워밍업 때 써서 구간 안에 도착했고, 4번은 구간이 끝난 뒤에 써서 마지막 1초에 도착했다.
-        // 구간 안에 쓴 2번과 3번 중 3번은 전달되지 않았다. 받은 시각으로 세면 3건을 받은 것이 되어 빠진 3번이 가려진다.
-        let stamps = [stamp(1, 90), stamp(2, 110), stamp(3, 150), stamp(4, 200)];
-        let samples = [sample(1, 105), sample(2, 112), sample(4, 201)];
+        // 구간은 [100, 200). 0번과 1번은 워밍업 때 써서 구간 안에 도착했고, 4번은 구간이 끝난 뒤에 써서 마지막 1초에 도착했다.
+        // 구간 안에 쓴 2번과 3번 중 2번은 구간이 끝난 뒤에 도착했고 3번은 전달되지 않았다. 세어야 하는 것은 2번 하나다.
+        // 받은 시각으로 세면 구간 안 2건, 마지막 1초까지 4건이 되어 빠진 3번이 가려진다.
+        let stamps = [stamp(0, 80), stamp(1, 90), stamp(2, 110), stamp(3, 150), stamp(4, 200)];
+        let samples = [sample(0, 101), sample(1, 105), sample(2, 210), sample(4, 201)];
         let report = delivery_report(&stamps, samples.iter(), 1, (at(100), at(200)));
         assert_eq!(report, json!({"expected": 2, "delivered": 1, "ratio": 0.5}));
     }
