@@ -20,6 +20,8 @@ cargo test
 node --test capture/extract-contract.test.mjs
 ```
 
+PR을 열거나 `main`에 푸시하면 `.github/workflows/ci.yml`이 위 명령을 Linux에서 다시 돌린다.
+
 ## Rust 스킬
 
 Rust 코드를 쓰거나 검토할 때 `rust-skills` 스킬을 쓴다. Codex는 `.agents/skills/rust-skills/`, Claude Code는 같은 폴더를 가리키는 `.claude/skills/rust-skills`에서 읽는다. 규칙이 265개라 전부 볼 필요는 없고, 이 저장소에서는 아래 범주를 먼저 본다.
