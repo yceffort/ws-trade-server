@@ -53,11 +53,12 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 - `--http-addr 127.0.0.1:8081 --snapshot-topics topic,...`를 주면 지정한 topic만 최신 본문과 서버 수신 시각을 보관하고 `GET /snapshots`로 조회한다. 기본값은 비활성이다. 전체 체결 재전송이나 원자적인 스트림 전환은 보장하지 않는다. `node examples/reconnect.mjs ws://127.0.0.1:8080/ws http://127.0.0.1:8081/snapshots topic...`는 지수 지연과 jitter로 재접속하고 재구독 후 조회한다. 조회 중 스트림이 갱신된 topic은 스냅샷으로 덮어쓰지 않는다. 이 API는 loopback에서만 열리며, Open API의 초기 REST 조회에서 착안한 실험 설계다.
 - `start_managed`의 종료 핸들과 gateway의 SIGINT/SIGTERM은 새 연결을 막고 실험용 `ERROR message:server-shutdown`을 보낸다. 3초 안에 송신을 끝내지 못한 연결은 취소한다. 조회 소켓, hub, 링 대기 및 발행 스레드도 정리한다. `start`는 기존 테스트용으로 프로세스 수명의 동작을 유지한다. 종료 통지의 기능은 공개 Open API를 참고했고 STOMP 오류 모양은 이 저장소에서 정했다.
 - `--auth-file <경로>`는 실험용 JSON 토큰 배열 `[{"token":"demo-only","expires_at":<UNIX 초>}]`을 읽고 CONNECT의 `authorization:Bearer <토큰>`을 검사한다. Unix에서 일반 파일만 읽고 500ms마다 다시 확인하며 실패하면 목록을 비운다. 파일 열기는 nonblocking으로 처리해 FIFO로 교체돼도 종료를 막지 않는다. 만료도 최대 500ms마다 시스템 시각으로 재검사한다. 활성 세션의 만료와 폐기도 반영하고, 송신이 막혀 오류 통지를 못 보낸 소켓은 1초 안에 닫는다. 잘못된 토큰, 만료, 폐기는 각각 `auth-invalid`, `auth-expired`, `auth-revoked` 오류로 구분한다. 실제 OAuth 검증을 대신하지 않는다. 재접속 예제는 `DEMO_TOKEN` 환경 변수를 사용한다. 조회 HTTP는 로컬 관리용이며 토큰 인증 대상이 아니다.
+- 선택적인 [TLS 프록시](edge/README.md)는 로컬 인증서로 WSS를 제공한다. `/ws`, `v12.stomp`, 메시지 경계와 ping/pong을 gateway까지 전달하고 송신 버퍼가 1 MiB를 넘으면 연결을 끊는다. 기본 gateway는 계속 WS이며 WTS 서버의 내부 TLS 배치를 재현한다고 주장하지 않는다.
 - 연결마다 잡는 읽기 버퍼는 4 KiB(웹소켓 라이브러리 기본값은 128 KiB)
 
 구현하지 않은 것:
 
-- 압축(permessage-deflate), TLS
+- 압축(permessage-deflate)
 - 헤더 이스케이프
 - 메트릭, 설정 파일, 벤치마크
 - 링의 깨우기 장치(futex, eventfd), 읽는 쪽 위치를 링에 기록하는 일, 여러 쓰는 쪽, 링 크기 변경, 레코드 체크섬, 압축

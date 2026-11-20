@@ -1,0 +1,11 @@
+{
+  "name": "ws-trade-edge-experiment",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test *.test.mjs"
+  },
+  "dependencies": {
+    "ws": "8.23.0"
+  }
+}
