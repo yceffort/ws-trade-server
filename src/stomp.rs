@@ -25,7 +25,7 @@ pub fn parse(text: &str) -> Option<Incoming> {
     let headers = lines
         .map(|line| line.split_once(':').map(|(key, value)| (key.to_string(), value.to_string())))
         .collect::<Option<Vec<_>>>()?;
-    let body = body.strip_suffix('\0').unwrap_or(body).to_string();
+    let body = body.strip_suffix('\0')?.to_string();
     Some(Incoming::Frame(Frame { command, headers, body }))
 }
 
@@ -64,4 +64,22 @@ pub fn message(message_id: &str, subscription: &str, body: &str) -> String {
         ("content-type", "application/json"),
     ];
     serialize("MESSAGE", &headers, body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_without_nul_is_rejected() {
+        assert!(parse("CONNECT\nconnection-id:x\n\n").is_none());
+        assert!(parse("SUBSCRIBE\nid:0\ndestination:/topic/x\n\n").is_none());
+    }
+
+    #[test]
+    fn nul_terminated_frame_and_heartbeat_are_accepted() {
+        let Some(Incoming::Frame(frame)) = parse(&serialize("SEND", &[("id", "0")], "body")) else { panic!() };
+        assert_eq!((frame.command.as_str(), frame.header("id"), frame.body.as_str()), ("SEND", Some("0"), "body"));
+        assert!(matches!(parse("\n"), Some(Incoming::Heartbeat)));
+    }
 }
