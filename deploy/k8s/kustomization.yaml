@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ws-trade
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+configMapGenerator:
+  - name: ws-trade-config
+    literals:
+      - WTS_TOPICS=/topic/v1/kr/stock/trade/A005930,/topic/v1/us/stock/trade/US19990122001
+      - WTS_LOG_FORMAT=json
+      - RUST_LOG=ws_trade_server=info
