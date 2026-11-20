@@ -52,7 +52,8 @@ port=""
 for _ in $(seq 50); do
   # gateway는 로그 한 줄을 여러 번에 나눠 쓴다. read는 줄바꿈까지 쓰인 줄만 성공하므로 덜 쓰인 줄에서 잘린 포트를 뽑지 않는다.
   while IFS= read -r line; do
-    case $line in *"수신 대기"*) port=${line##*:} ;; esac
+    # 시작 로그는 `event="gateway_started" addr=127.0.0.1:포트 http_addr=...` 꼴이다. addr 값만 떼어 그 끝의 포트를 읽는다.
+    case $line in *'event="gateway_started"'*) port=${line#* addr=}; port=${port%% *}; port=${port##*:} ;; esac
   done <"$work/gateway.log"
   [ -z "$port" ] || break
   sleep 0.1
