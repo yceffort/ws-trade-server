@@ -70,3 +70,17 @@ async fn stalled_clients_are_dropped_and_the_rest_are_unaffected() {
     assert_eq!(report["unexpected_disconnects"], 0, "{report}");
     assert!(report["messages"]["measured"].as_u64().unwrap() > 0);
 }
+
+// 받은 체결을 종목 코드로 쓴 기록과 짝짓는다. 코드가 겹치면 짝이 어긋나 지연과 전달 비율이 틀어지므로 시작하지 않는다.
+#[test]
+fn duplicate_symbol_codes_are_rejected() {
+    let ring = TempFile::new("loadgen-duplicate-codes");
+    for symbols in ["kr:TEST,kr:TEST", "kr:TEST,us:TEST"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_loadgen"))
+            .args(["--ring", ring.path().to_str().unwrap(), "--symbols", symbols])
+            .args(["--connections", "0", "--probes", "0", "--warmup", "0", "--seconds", "1"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{symbols}");
+    }
+}

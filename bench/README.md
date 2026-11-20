@@ -19,7 +19,7 @@ bench/run.sh poll-1000us --poll-us 1000 --connections 200
 | `--url` | `ws://127.0.0.1:8080/ws` | gateway 주소 |
 | `--ring` | feed와 같은 기본 경로 | 쓸 링 파일 |
 | `--connections` | 100 | 클라이언트 수 |
-| `--symbols` | feed와 같은 3종목 | 쓸 종목. 모든 클라이언트가 전부 구독한다 |
+| `--symbols` | feed와 같은 3종목 | 쓸 종목. 모든 클라이언트가 전부 구독한다. 종목 코드는 서로 달라야 한다(받은 체결을 코드로 쓴 기록과 짝짓는다) |
 | `--rate` | 5 | 종목당 초당 평균 체결 수 |
 | `--stalled` | 0 | 구독만 하고 읽지 않는 클라이언트 수(`--connections`에 포함) |
 | `--probes` | 50 | 지연을 재는 클라이언트 수(`--connections`에 포함) |
