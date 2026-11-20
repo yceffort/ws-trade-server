@@ -2,3 +2,5 @@
 evidence/raw/
 target/
 .DS_Store
+node_modules/
+edge/certs/
