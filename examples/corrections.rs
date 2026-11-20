@@ -10,7 +10,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     request.headers_mut().insert("sec-websocket-protocol", "v12.stomp".parse()?);
     let (mut socket, _) = tokio_tungstenite::connect_async(request).await?;
     socket.send(Message::text(stomp::serialize("CONNECT", &[("connection-id", "synthetic")], ""))).await?;
-    socket.next().await.ok_or("CONNECTED 없음")??;
+    receive(&mut socket, "CONNECTED", None).await?;
     socket
         .send(Message::text(stomp::serialize(
             "SUBSCRIBE",
@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "",
         )))
         .await?;
-    socket.next().await.ok_or("RECEIPT 없음")??;
+    receive(&mut socket, "RECEIPT", Some("ready")).await?;
     let events = [
         Event::Create { event_id: "e1".into(), trade_id: "t1".into(), price_minor: 12300, quantity: 10 },
         Event::Correct { event_id: "e2".into(), target_id: "t1".into(), price_minor: 12500, quantity: 7 },
@@ -27,20 +27,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut ledger = Ledger::new(100);
     for event in events {
         server.hub.publish(TOPIC.into(), serde_json::to_string(&event)?.into()).await;
-        loop {
-            let message =
-                tokio::time::timeout(std::time::Duration::from_secs(2), socket.next()).await?.ok_or("연결 종료")??;
-            let Some(stomp::Incoming::Frame(frame)) = stomp::parse(message.to_text()?) else { continue };
-            if frame.command != "MESSAGE" {
-                continue;
-            }
-            let event: Event = serde_json::from_str(&frame.body)?;
-            ledger.apply(event).map_err(|error| format!("적용 실패: {error:?}"))?;
-            let (quantity, amount) = ledger.totals();
-            println!("quantity={quantity} amount_minor={amount}");
-            break;
-        }
+        let frame = receive(&mut socket, "MESSAGE", None).await?;
+        let event: Event = serde_json::from_str(&frame.body)?;
+        ledger.apply(event).map_err(|error| format!("적용 실패: {error:?}"))?;
+        let (quantity, amount) = ledger.totals();
+        println!("quantity={quantity} amount_minor={amount}");
     }
     server.shutdown().await;
     Ok(())
+}
+
+type Client = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+async fn receive(
+    socket: &mut Client,
+    command: &str,
+    receipt: Option<&str>,
+) -> Result<stomp::Frame, Box<dyn std::error::Error>> {
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let message = socket.next().await.ok_or("연결 종료")??;
+            let Some(stomp::Incoming::Frame(frame)) = stomp::parse(message.to_text()?) else { continue };
+            if frame.command == "ERROR" {
+                return Err("서버 오류".into());
+            }
+            if frame.command == command && receipt.is_none_or(|id| frame.header("receipt-id") == Some(id)) {
+                return Ok(frame);
+            }
+        }
+    })
+    .await?
 }
