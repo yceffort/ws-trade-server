@@ -126,6 +126,28 @@ async fn independent_gateways_restore_and_deliver_the_whole_stream() {
     .unwrap();
     drop(ca);
     drop(cb);
+    tokio::task::spawn_blocking(move || {
+        let readers: Vec<_> = (0..4)
+            .map(|_| {
+                let kafka = reader.clone();
+                std::thread::spawn(move || {
+                    let mut log = kafka.reader(EVENTS, None).unwrap();
+                    let mut previous = log.next_offset();
+                    for _ in 0..100 {
+                        log.refresh_end().unwrap();
+                        log.poll(Duration::from_millis(2)).unwrap();
+                        assert!(log.next_offset() >= previous);
+                        previous = log.next_offset();
+                    }
+                })
+            })
+            .collect();
+        for reader in readers {
+            reader.join().unwrap();
+        }
+    })
+    .await
+    .unwrap();
     tokio::join!(a.shutdown(), b.shutdown(), c.shutdown());
 }
 

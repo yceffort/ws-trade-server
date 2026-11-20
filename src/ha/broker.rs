@@ -350,14 +350,19 @@ impl LogReader {
     }
 
     fn rewind(&mut self, offset: u64) -> Result<(), Error> {
+        let deadline = Instant::now() + self.timeout;
         let (_, stable) = self.consumer.fetch_watermarks(&self.topic, 0, self.timeout)?;
-        let mut assignment = TopicPartitionList::new();
-        assignment.add_partition_offset(
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(Error::Deadline);
+        }
+        // 이미 할당한 partition의 위치만 바꾼다. 반복 assign은 native 해제 작업과 경합한다.
+        self.consumer.seek(
             &self.topic,
             0,
             Offset::Offset(i64::try_from(offset).map_err(|_| Error::InvalidState)?),
+            remaining,
         )?;
-        self.consumer.assign(&assignment)?;
         self.next = offset;
         self.scan_end = u64::try_from(stable).map_err(|_| Error::InvalidState)?;
         self.end = false;
@@ -412,7 +417,7 @@ impl LogReader {
                 {
                     self.next = self.next.max(u64::try_from(offset).map_err(|_| Error::InvalidState)?);
                 }
-                // Rust client는 EOF 위치를 반환하지 않는다. assign 전에 조회한 안정 경계까지만 전진한다.
+                // Rust client는 EOF 위치를 반환하지 않는다. seek 전에 조회한 안정 경계까지만 전진한다.
                 self.next = self.next.max(self.scan_end);
                 self.end = true;
                 Ok(None)

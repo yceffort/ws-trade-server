@@ -18,3 +18,5 @@ snapshot과 EVENTS partition의 commit marker 가시성이 다르면 기존 복�
 Kafka poll과 metadata 호출은 blocking worker 하나에서 실행하고 hub 명령은 용량 제한 채널을 통해 적용 완료까지 기다린다. 느린 gateway가 다른 gateway의 consumer를 막지 않으며 느린 WebSocket 구독자는 기존 hub의 연결별 큐 상한에 따라 종료된다. 정상 종료는 poll 중단, hub 종료와 worker join을 수행한다.
 
 `cargo test --features ha`는 no-data, 중복 적용, 원자적 cache/offset 갱신, source 공백 및 휴장/오래된 상태/미래 시각의 준비 판단을 검증한다. `deploy/ha/smoke.sh`는 실제 Kafka에서 독립 gateway 두 개의 WebSocket으로 같은 40개 체결을 전부 받고, 늦게 시작한 세 번째 gateway의 상태가 일치하는지 확인한다. source heartbeat를 멈추면 준비 상태가 내려가고 재개하면 복구하는지도 검사한다. 단일 호스트 프로세스 시험이며 실제 Pod/LB 및 장애 도메인 시험은 #52와 #53에서 수행한다.
+
+같은 partition의 읽기 위치와 EOF 관측 경계를 갱신할 때는 반복 assign 대신 timeout이 있는 seek를 사용한다. CI에서 native assignment 해제 경합의 assertion을 관측했으며, 네 reader의 반복 경계 갱신 시험으로 확인한다. [rdkafka Consumer::seek](https://docs.rs/rdkafka/0.39.0/rdkafka/consumer/trait.Consumer.html#tymethod.seek)의 기존 할당 유지 규약을 따른다.
