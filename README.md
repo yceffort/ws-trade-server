@@ -61,6 +61,7 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 - `--http-addr`를 켜면 로컬 `GET /metrics`에서 STOMP 연결 수, 구독 수, 송신 큐 점유와 용량, hub 명령 대기, 발행 및 큐 적재 수, 느린 연결 차단 수, 링 덮어쓰기 횟수, seq 누락 건수와 재시작 횟수, 디코딩 및 본문 생성 실패를 읽는다. 링 덮어쓰기 횟수는 유실 체결 건수가 아니며 seq 누락과 합산하지 않는다. 큐 적재 수는 클라이언트 수신 보장이 아니다. 지표에는 종목이나 토큰 label이 없고 팬아웃 집계는 hub 안에서 수행한다. 브리지 카운터만 atomic으로 읽으므로 모든 필드가 같은 순간의 값임을 보장하지 않는다. 특정 증권사의 내부 메트릭을 재현한 것은 아니다.
 - gateway는 [구조화 로그](docs/logging.md)를 stderr로 출력한다. `WTS_LOG_FORMAT=json`과 `RUST_LOG`로 형식과 수준을 고르고 연결 종료 사유는 DEBUG에서 확인한다. 체결별 로그 대신 10초 요약을 남기며, 출력 큐가 차서 버린 로그는 `logs_dropped_total`로 센다. 로깅 정책은 이 저장소의 운영 실험이다.
 - [Docker와 Kubernetes 배포](deploy/README.md)는 합성 feed용 실험 설정이다. 두 topic에 최근 10초 이내 snapshot이 있어야 준비 상태로 판단하며 WTS의 배포 구조나 실거래 휴장 정책을 재현한 것이 아니다.
+- [고가용성 및 재접속 복구 설계](docs/ha-design.md)는 미구현 제안이다. 복제 로그와 여러 gateway, cursor 복구 및 단계별 drain을 별도 HA 구성으로 계획하며 실제 증권사 동작을 관측한 내용이 아니다.
 - 연결마다 잡는 읽기 버퍼는 4 KiB(웹소켓 라이브러리 기본값은 128 KiB)
 - 송신 큐에 이미 쌓인 프레임은 4개까지 모아 소켓에 한 번에 씀. 프레임의 내용과 순서는 그대로임(측정은 `bench/README.md`의 "쓰기 묶음")
 
@@ -123,3 +124,5 @@ diff contract/wts-stomp.json evidence/raw/replay-contract.json
 서비스용 Rust 이미지와 TLS 프록시 이미지, Compose 설정과 종단 검증은 [배포 안내](deploy/README.md)에 있다. 합성 feed를 사용하는 단일 인스턴스 실행 환경이며 실제 증권사 배포를 재현한 것은 아니다.
 
 [Kubernetes 안내](deploy/k8s/README.md)는 공유 링을 같은 Pod의 emptyDir에 두는 Deployment, Secret, probe와 kind 검증을 제공한다. 단일 replica와 Recreate를 사용하므로 교체 중 중단이 있으며 수평 확장이나 고가용성을 제공하지 않는다.
+
+고가용성과 계획된 배포 중 서비스 가용성의 후속 설계는 [HA 구조](docs/ha-design.md)와 [구현 및 검증 계획](docs/ha-rollout.md)에 있다. 현재 배포 설정을 변경하거나 HA 구현이 완료되었다는 뜻은 아니다.
