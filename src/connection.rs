@@ -64,6 +64,7 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
             Some(auth) => match auth.authorize(frame.header("authorization")) {
                 Ok(session) => Some(session),
                 Err(code) => {
+                    tracing::debug!(event = "authentication_rejected", conn, reason = code);
                     let _ = writer.send(Message::text(stomp::error(code))).await;
                     let _ = writer.close().await;
                     return None;
@@ -78,24 +79,25 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
         _ = shutdown.changed() => return,
     };
     let Ok(Some((writer, reader, connection_id, session))) = result else {
+        tracing::debug!(event = "handshake_failed", conn);
         return;
     };
-    eprintln!("연결: {connection_id}");
+    tracing::debug!(event = "connection_opened", conn);
 
     let mut auth_guard = session.clone();
     let (outgoing, kicked) = hub.connect(conn, config.queue_capacity).await;
     let (activity, last_received) = watch::channel(Instant::now());
     let activity = config.idle_timeout.map(|_| activity);
-    tokio::select! {
+    let reason = tokio::select! {
         // 오류 통지를 보낼 수 없는 느린 소켓도 인증 폐기 후 1초 안에 닫는다.
-        _ = async { auth::invalidated(&mut auth_guard).await; tokio::time::sleep(Duration::from_secs(1)).await; } => {}
-        _ = idle::wait(last_received, config.idle_timeout) => {}
-        _ = read_loop(reader, &hub, conn, activity) => {}
-        _ = write_loop(writer, outgoing, &connection_id, config.heartbeat_ms, shutdown, session) => {}
-        _ = kicked => {}
-    }
+        _ = async { auth::invalidated(&mut auth_guard).await; tokio::time::sleep(Duration::from_secs(1)).await; } => "auth_invalidated",
+        _ = idle::wait(last_received, config.idle_timeout) => "idle_timeout",
+        reason = read_loop(reader, &hub, conn, activity) => reason,
+        reason = write_loop(writer, outgoing, &connection_id, config.heartbeat_ms, shutdown, session) => reason,
+        _ = kicked => "hub_closed",
+    };
     hub.disconnect(conn).await;
-    eprintln!("종료: {connection_id}");
+    tracing::debug!(event = "connection_closed", conn, reason);
 }
 
 async fn read_connect(reader: &mut Reader) -> Option<stomp::Frame> {
@@ -111,9 +113,13 @@ async fn read_connect(reader: &mut Reader) -> Option<stomp::Frame> {
     Some(frame)
 }
 
-async fn read_loop(mut reader: Reader, hub: &Hub, conn: u64, activity: Option<watch::Sender<Instant>>) {
+async fn read_loop(mut reader: Reader, hub: &Hub, conn: u64, activity: Option<watch::Sender<Instant>>) -> &'static str {
     loop {
-        let Some(Ok(message)) = reader.next().await else { return };
+        let message = match reader.next().await {
+            Some(Ok(message)) => message,
+            Some(Err(_)) => return "read_error",
+            None => return "peer_closed",
+        };
         // 허브 전송을 기다리는 동안에도 별도 감시자가 이 수신 시각으로 마감을 판단한다.
         if let Some(activity) = &activity {
             activity.send_replace(Instant::now());
@@ -121,10 +127,11 @@ async fn read_loop(mut reader: Reader, hub: &Hub, conn: u64, activity: Option<wa
         let text = match message {
             Message::Text(text) => text,
             Message::Ping(_) | Message::Pong(_) => continue,
-            _ => return,
+            Message::Close(_) => return "peer_closed",
+            _ => return "unsupported_message",
         };
         let Some(incoming) = stomp::parse(&text) else {
-            return;
+            return "invalid_frame";
         };
         let Incoming::Frame(frame) = incoming else {
             continue;
@@ -132,18 +139,19 @@ async fn read_loop(mut reader: Reader, hub: &Hub, conn: u64, activity: Option<wa
         match frame.command.as_str() {
             "SUBSCRIBE" => {
                 let (Some(id), Some(destination)) = (frame.header("id"), frame.header("destination")) else {
-                    return;
+                    return "invalid_frame";
                 };
                 let receipt = frame.header("receipt").map(str::to_string);
                 hub.subscribe(conn, id.to_string(), destination.to_string(), receipt).await;
             }
             "UNSUBSCRIBE" => {
-                let Some(id) = frame.header("id") else { return };
+                let Some(id) = frame.header("id") else { return "invalid_command" };
                 let receipt = frame.header("receipt").map(str::to_string);
                 hub.unsubscribe(conn, id.to_string(), receipt).await;
             }
             // DISCONNECT, 두 번째 CONNECT, 모르는 명령은 모두 연결을 닫는다.
-            _ => return,
+            "DISCONNECT" => return "client_disconnect",
+            _ => return "unsupported_command",
         }
     }
 }
@@ -155,10 +163,10 @@ async fn write_loop(
     heartbeat_ms: u64,
     mut shutdown: watch::Receiver<bool>,
     mut session: Option<auth::Session>,
-) {
+) -> &'static str {
     let heart_beat = format!("{heartbeat_ms},{heartbeat_ms}");
     if writer.send(Message::text(stomp::connected(&heart_beat))).await.is_err() {
-        return;
+        return "write_error";
     }
     let period = Duration::from_millis(heartbeat_ms);
     let mut beat = interval_at(Instant::now() + period, period);
@@ -170,29 +178,29 @@ async fn write_loop(
             reason = auth::invalidated(&mut session) => {
                 let _ = writer.send(Message::text(stomp::error(reason))).await;
                 let _ = writer.close().await;
-                return;
+                return reason;
             }
             _ = shutdown.changed() => {
                 let _ = writer.send(Message::text(stomp::error("server-shutdown"))).await;
                 let _ = writer.close().await;
-                return;
+                return "server_shutdown";
             }
             outgoing = outgoing.recv() => match outgoing {
                 Some(Outgoing::Error(code)) => {
                     let _ = writer.send(Message::text(stomp::error(code))).await;
-                    return;
+                    return code;
                 }
                 Some(Outgoing::Receipt { receipt_id, message }) => stomp::receipt(&receipt_id, message),
                 Some(Outgoing::Message { subscription, body }) => {
                     seq += 1;
                     stomp::message(&format!("{connection_id}-{seq}"), &subscription, &body)
                 }
-                None => return,
+                None => return "hub_closed",
             },
             _ = beat.tick() => "\n".to_string(),
         };
         if writer.send(Message::text(text)).await.is_err() {
-            return;
+            return "write_error";
         }
     }
 }

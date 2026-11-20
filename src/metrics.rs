@@ -20,8 +20,9 @@ impl BridgeCounters {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub struct Metrics {
+    pub logs_dropped_total: u64,
     pub stomp_connections: usize,
     pub subscriptions: usize,
     pub queued_frames: usize,

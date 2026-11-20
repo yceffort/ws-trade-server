@@ -68,14 +68,24 @@ impl Auth {
         let path = self.path.clone()?;
         let auth = self.clone();
         Some(tokio::spawn(async move {
+            let mut failed = false;
             loop {
                 tokio::time::sleep(Duration::from_millis(500)).await;
                 let path = path.clone();
                 let tokens = tokio::task::spawn_blocking(move || read(&path)).await;
                 match tokens {
-                    Ok(Ok(tokens)) => auth.replace(tokens),
+                    Ok(Ok(tokens)) => {
+                        if failed {
+                            tracing::info!(event = "auth_reload_restored");
+                        }
+                        failed = false;
+                        auth.replace(tokens);
+                    }
                     _ => {
-                        eprintln!("인증 파일을 읽지 못해 토큰 목록을 비웠다");
+                        if !failed {
+                            tracing::warn!(event = "auth_reload_failed");
+                        }
+                        failed = true;
                         auth.replace(Vec::new());
                     }
                 }

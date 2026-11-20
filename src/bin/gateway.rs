@@ -1,4 +1,5 @@
-use ws_trade_server::{Config, default_ring_path, start_managed};
+use std::process::ExitCode;
+use ws_trade_server::{Config, default_ring_path, logging, start_managed};
 
 fn parse_args() -> Option<Config> {
     let mut config = Config { ring: Some(default_ring_path()), ..Config::default() };
@@ -19,7 +20,7 @@ fn parse_args() -> Option<Config> {
             "--snapshot-topics" => config.snapshot_topics = value.split(',').map(str::to_string).collect(),
             "--auth-file" => {
                 config.auth = Some(
-                    ws_trade_server::auth::Auth::from_file(value.into()).map_err(|error| eprintln!("{error}")).ok()?,
+                    ws_trade_server::auth::Auth::from_file(value.into()).map_err(|error| tracing::error!(target: "ws_trade_server::gateway", event = "auth_config_rejected", kind = ?error.kind())).ok()?,
                 );
             }
             "--addr" => config.addr = value,
@@ -36,25 +37,31 @@ fn parse_args() -> Option<Config> {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> ExitCode {
+    let logging = match logging::init() {
+        Ok(logging) => logging,
+        Err(error) => {
+            eprintln!("로그 초기화 실패: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let Some(config) = parse_args() else {
-        eprintln!(
-            "사용법: gateway [--addr 127.0.0.1:8080] [--ring 경로] [--poll-us 200] [--idle-ms 0] [--max-connections 0] [--max-subscriptions 0] [--max-commands-per-sec 0] [--allowed-topics topic,...]"
-        );
-        std::process::exit(2);
+        tracing::error!(target: "ws_trade_server::gateway", event = "invalid_arguments", help = "gateway 옵션은 README.md 참고");
+        return ExitCode::from(2);
     };
     match start_managed(config).await {
         Ok(server) => {
-            eprintln!("수신 대기: {}", server.addr);
-            if let Some(addr) = server.http_addr {
-                eprintln!("조회 API: {addr}");
-            }
+            tracing::info!(target: "ws_trade_server::gateway", event = "gateway_started", addr = %server.addr, http_addr = ?server.http_addr);
+            let reporter = logging.reporter(server.hub.clone());
             wait_for_signal().await;
-            server.shutdown().await;
+            tracing::info!(target: "ws_trade_server::gateway", event = "shutdown_requested");
+            tokio::join!(server.shutdown(), reporter.finish());
+            tracing::info!(target: "ws_trade_server::gateway", event = "shutdown_complete");
+            ExitCode::SUCCESS
         }
         Err(error) => {
-            eprintln!("시작 실패: {error}");
-            std::process::exit(1);
+            tracing::error!(target: "ws_trade_server::gateway", event = "gateway_start_failed", kind = ?error.kind());
+            ExitCode::FAILURE
         }
     }
 }

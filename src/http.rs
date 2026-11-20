@@ -18,7 +18,7 @@ pub fn spawn(listener: TcpListener, hub: Hub) -> tokio::task::JoinHandle<()> {
             let stream = match listener.accept().await {
                 Ok((stream, _)) => stream,
                 Err(error) => {
-                    eprintln!("조회 API accept 실패: {error}");
+                    tracing::warn!(event = "http_accept_failed", kind = ?error.kind());
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     continue;
                 }

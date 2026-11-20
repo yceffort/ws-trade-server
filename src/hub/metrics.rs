@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 impl State {
     pub(super) fn metrics(&self, commands_queued: usize) -> Metrics {
         Metrics {
+            logs_dropped_total: self.log_drops.load(Ordering::Relaxed),
             stomp_connections: self.clients.len(),
             subscriptions: self.clients.values().map(|client| client.subs.len()).sum(),
             queued_frames: self
