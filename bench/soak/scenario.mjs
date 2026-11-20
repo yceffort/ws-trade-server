@@ -74,6 +74,11 @@ export async function scenario(env, config, report) {
         await env.stop(env.feed)
         env.feedStart()
         await until(async () => (await env.json('metrics')).sequence_resets_total > before, 'feed restart detection', signal)
+        const resumed = [...clients, rotating].map((client) => ({ client, before: client.messages }))
+        await until(() => resumed.every(({ client, before }) => {
+          client.healthy()
+          return client.messages > before
+        }), 'existing subscriptions after feed restart', signal)
         counters.feedRestarts++
       }
     }
