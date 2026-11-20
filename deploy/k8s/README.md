@@ -67,3 +67,5 @@ kubectl delete -k deploy/k8s
 ```
 
 마지막 명령은 데모 namespace와 그 안의 Secret도 삭제한다. gateway는 JSON 이벤트를 stderr로 출력하고 edge와 feed는 stderr에 기동 및 오류를 기록한다. 로그 수집기는 클러스터의 stdout/stderr 수집 경로에 연결한다. 자원 request/limit는 합성 feed를 위한 시작값이며 부하 테스트로 조정해야 한다. 자동 확장, 무중단 배포, 인증서 자동 발급과 알림 연동까지 갖춘 운영 플랫폼은 아니다.
+
+후속 [HA 설계](../../docs/ha-design.md)는 feed 분리, 복제 로그, 다중 gateway와 재접속 복구를 다룬다. [배포 계획](../../docs/ha-rollout.md)에 drain, RollingUpdate, PDB, 장애 도메인과 구현 이슈를 정리했다. 이 문서의 단일 Pod 구성에는 아직 적용되지 않았다.
