@@ -56,12 +56,13 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 - 선택적인 [TLS 프록시](edge/README.md)는 로컬 인증서로 WSS를 제공한다. `/ws`, `v12.stomp`, 메시지 경계와 ping/pong을 gateway까지 전달하고 송신 버퍼가 1 MiB를 넘으면 연결을 끊는다. 기본 gateway는 계속 WS이며 WTS 서버의 내부 TLS 배치를 재현한다고 주장하지 않는다.
 - TLS 프록시는 명시적인 `deflate` 옵션에서만 permessage-deflate를 협상한다. 양방향 context takeover를 끄고 압축 작업 동시 수를 4로 제한한다. gateway와 프록시 사이는 계속 평문이며 WTS의 압축 파라미터를 재현한 것은 아니다. 같은 합성 데이터의 전송 바이트, CPU, 메모리와 지연 비교는 `node edge/compare.mjs`로 실행한다.
 - `cargo run --example corrections`는 별도 `/experimental/trade-events` topic에서 생성, 정정, 취소를 발행하고 WebSocket 소비자가 누적 수량과 금액을 갱신하는 예제다. `event_id`는 중복 적용을 막고 정정 및 취소의 `target_id`는 기존 체결을 가리킨다. 잘못된 수량, 없는 대상, 이미 취소한 대상과 같은 이벤트 id의 다른 본문은 오류다. 이력 용량을 넘으면 자동 퇴출하지 않고 오류를 반환한다. 금액은 정수 최소 단위다. [Alpaca의 정정 및 취소 기능](https://docs.alpaca.markets/us/docs/real-time-stock-pricing-data)에서 착안했으며 형식과 합성 값은 WTS와 무관하다.
+- `--http-addr`를 켜면 로컬 `GET /metrics`에서 STOMP 연결 수, 구독 수, 송신 큐 점유와 용량, hub 명령 대기, 발행 및 큐 적재 수, 느린 연결 차단 수, 링 덮어쓰기 횟수, seq 누락 건수와 재시작 횟수, 디코딩 및 본문 생성 실패를 읽는다. 링 덮어쓰기 횟수는 유실 체결 건수가 아니며 seq 누락과 합산하지 않는다. 큐 적재 수는 클라이언트 수신 보장이 아니다. 지표에는 종목이나 토큰 label이 없고 팬아웃 집계는 hub 안에서 수행한다. 브리지 카운터만 atomic으로 읽으므로 모든 필드가 같은 순간의 값임을 보장하지 않는다. 특정 증권사의 내부 메트릭을 재현한 것은 아니다.
 - 연결마다 잡는 읽기 버퍼는 4 KiB(웹소켓 라이브러리 기본값은 128 KiB)
 
 구현하지 않은 것:
 
 - 헤더 이스케이프
-- 메트릭, 설정 파일, 벤치마크
+- 설정 파일
 - 링의 깨우기 장치(futex, eventfd), 읽는 쪽 위치를 링에 기록하는 일, 여러 쓰는 쪽, 링 크기 변경, 레코드 체크섬, 압축
 
 ## 부하 실험
