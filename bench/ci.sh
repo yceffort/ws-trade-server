@@ -31,9 +31,9 @@ done
 
 # 한 실행이 한 줄이고, 마지막 줄은 열마다의 중앙값이다.
 rows() {
-  local label=$1
+  local side=$1
   shift
-  jq -rs --arg label "$label" '
+  jq -rs --arg side "$side" '
     def ms: if . == null then "-" else (. / 10 | round / 100 | tostring) end;
     def median: map(select(. != null)) | sort | length as $n
       | if $n == 0 then null elif $n % 2 == 1 then .[($n - 1) / 2] else (.[$n / 2 - 1] + .[$n / 2]) / 2 end;
@@ -44,10 +44,10 @@ rows() {
       cpu: .gateway.cpu_pct_from_time, rss_mb: ((.gateway.rss_kb_max // 0) / 1024 | round),
       per_sec: (.messages.per_sec | round), ratio: .delivery.ratio
     })
-    | (to_entries[] | . as $run | $run.value | row("\($label) \($run.key + 1)")),
+    | (to_entries[] | . as $run | $run.value | row("\($side) \($run.key + 1)")),
       ({p50: (map(.p50) | median), p90: (map(.p90) | median), p99: (map(.p99) | median), cpu: (map(.cpu) | median | rounded(0.1)),
         rss_mb: (map(.rss_mb) | median | rounded(1)), per_sec: (map(.per_sec) | median | rounded(1)),
-        ratio: (map(.ratio) | median | rounded(0.0001))} | row("**\($label) 중앙값**"))
+        ratio: (map(.ratio) | median | rounded(0.0001))} | row("**\($side) 중앙값**"))
   ' "$@"
 }
 
