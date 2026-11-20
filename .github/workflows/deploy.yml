@@ -30,3 +30,15 @@ jobs:
       - run: node deploy/context-smoke.mjs
       - run: docker compose build
       - run: bash deploy/compose-smoke.sh
+      - name: Install kind and kubectl
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl --fail --silent --show-error --location --output kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.32.0/kind-linux-amd64
+          echo '50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54  kind-linux-amd64' | sha256sum --check
+          mv kind-linux-amd64 kind
+          curl --fail --silent --show-error --location --remote-name https://dl.k8s.io/release/v1.35.5/bin/linux/amd64/kubectl
+          curl --fail --silent --show-error --location --remote-name https://dl.k8s.io/release/v1.35.5/bin/linux/amd64/kubectl.sha256
+          echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+          chmod +x kind kubectl
+          echo "$PWD" >> "$GITHUB_PATH"
+      - run: bash deploy/kind-smoke.sh

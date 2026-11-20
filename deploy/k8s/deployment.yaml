@@ -1,0 +1,147 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ws-trade
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ws-trade
+  template:
+    metadata:
+      labels:
+        app: ws-trade
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 15
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      # native sidecar는 본 컨테이너 종료 뒤에 내려가 gateway의 종료 프레임을 전달한다.
+      initContainers:
+        - name: edge
+          image: ws-trade-edge:local
+          imagePullPolicy: IfNotPresent
+          restartPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            - {name: WTS_BACKEND, value: 'ws://127.0.0.1:8080/ws'}
+            - {name: WTS_EDGE_HOST, value: '0.0.0.0'}
+            - {name: WTS_EDGE_PORT, value: '8443'}
+            - {name: WTS_TLS_CERT_FILE, value: /run/secrets/cert.pem}
+            - {name: WTS_TLS_KEY_FILE, value: /run/secrets/key.pem}
+            - {name: WTS_COMPRESSION, value: deflate}
+          ports:
+            - {name: wss, containerPort: 8443}
+          volumeMounts:
+            - {name: tls, mountPath: /run/secrets, readOnly: true}
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {cpu: '1', memory: 256Mi}
+          startupProbe:
+            tcpSocket: {port: wss}
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket: {port: wss}
+            periodSeconds: 2
+          livenessProbe:
+            tcpSocket: {port: wss}
+            periodSeconds: 10
+      containers:
+        - name: feed
+          image: ws-trade-server:local
+          imagePullPolicy: IfNotPresent
+          args: [feed, --ring, /data/feed.ring, --symbols, 'kr:A005930,us:US19990122001', --rate, '50']
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: ring, mountPath: /data}
+          resources:
+            requests: {cpu: 100m, memory: 32Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          readinessProbe:
+            exec: {command: [container-probe, feed]}
+            periodSeconds: 2
+        - name: gateway
+          image: ws-trade-server:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - gateway
+            - --addr
+            - 127.0.0.1:8080
+            - --http-addr
+            - 127.0.0.1:8081
+            - --ring
+            - /data/feed.ring
+            - --auth-file
+            - /run/secrets/tokens.json
+            - --allowed-topics
+            - $(WTS_TOPICS)
+            - --snapshot-topics
+            - $(WTS_TOPICS)
+            - --max-connections
+            - '1000'
+            - --max-subscriptions
+            - '2'
+            - --max-commands-per-sec
+            - '20'
+            - --idle-ms
+            - '15000'
+          envFrom:
+            - configMapRef: {name: ws-trade-config}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: ring, mountPath: /data, readOnly: true}
+            - {name: auth, mountPath: /run/secrets, readOnly: true}
+          resources:
+            requests: {cpu: 250m, memory: 128Mi}
+            limits: {cpu: '2', memory: 512Mi}
+          startupProbe:
+            exec: {command: [container-probe, live]}
+            periodSeconds: 2
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            exec: {command: [container-probe, ready]}
+            periodSeconds: 2
+            timeoutSeconds: 3
+            failureThreshold: 2
+          livenessProbe:
+            exec: {command: [container-probe, live]}
+            periodSeconds: 10
+            timeoutSeconds: 3
+      volumes:
+        - name: ring
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+        - name: auth
+          secret:
+            secretName: ws-trade-credentials
+            defaultMode: 0440
+            items:
+              - {key: tokens.json, path: tokens.json}
+        - name: tls
+          secret:
+            secretName: ws-trade-credentials
+            defaultMode: 0440
+            items:
+              - {key: cert.pem, path: cert.pem}
+              - {key: key.pem, path: key.pem}
