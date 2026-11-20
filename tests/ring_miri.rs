@@ -28,5 +28,6 @@ fn lapped_reader_reports_loss_then_reads_again() {
 #[test]
 fn two_threads_under_load_never_see_a_torn_record() {
     let (writer, reader) = in_memory(CAPACITY).unwrap();
-    stress(writer, reader, 2000);
+    // Miri에서는 500번째 레코드 뒤의 강제 덮어쓰기를 유지하며 해석할 레코드 수를 줄인다.
+    stress(writer, reader, if cfg!(miri) { 800 } else { 2000 });
 }

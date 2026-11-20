@@ -21,6 +21,7 @@ node --test capture/extract-contract.test.mjs
 ```
 
 PR을 열거나 `main`에 푸시하면 `.github/workflows/ci.yml`이 위 명령을 Linux에서 다시 돌린다.
+재접속 예제와 TLS/압축 프록시의 Node 테스트, 힙 링 전용 Miri 테스트도 같은 워크플로에서 실행한다. `edge/package-lock.json`으로 의존성을 설치하며 각 작업의 실행 시간은 20분으로 제한한다.
 
 ## Rust 스킬
 
