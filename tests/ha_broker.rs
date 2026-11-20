@@ -118,6 +118,25 @@ fn synthetic_checkpoint_fencing_and_snapshot_are_atomic() {
     writer.abort().unwrap();
 }
 
+#[test]
+#[ignore = "초기화된 독립 Kafka 시험 클러스터 필요"]
+fn recovery_survives_more_than_4096_aborted_positions() {
+    let (kafka, config, _) = settings();
+    let saved = kafka.latest(SNAPSHOT, SHARD.as_bytes()).unwrap().unwrap();
+    let checkpoint = kafka.latest(CHECKPOINT, SHARD.as_bytes()).unwrap().unwrap();
+    let writer = kafka.writer(&config.log_id).unwrap();
+    let records = vec![(SHARD.as_bytes().to_vec(), saved.clone()); 64];
+    for _ in 0..65 {
+        writer.begin().unwrap();
+        writer.send(SNAPSHOT, &records).unwrap();
+        writer.abort().unwrap();
+    }
+    assert_eq!(kafka.latest(SNAPSHOT, SHARD.as_bytes()).unwrap().unwrap(), saved);
+    drop(writer);
+    let restored = Publisher::open(&kafka, config, Bootstrap::Existing, 8000, &mut || Ok(())).unwrap();
+    assert_eq!(restored.checkpoint().to_json().unwrap(), checkpoint);
+}
+
 fn assert_topic_write_denied(kafka: &Kafka) {
     use rdkafka::client::ClientContext;
     use rdkafka::producer::{BaseRecord, DeliveryResult, ProducerContext, ThreadedProducer};
