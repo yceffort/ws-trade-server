@@ -1,3 +1,4 @@
+use crate::Config;
 use crate::hub::{Hub, Outgoing};
 use crate::stomp::{self, Incoming};
 use futures_util::stream::{SplitSink, SplitStream};
@@ -40,7 +41,7 @@ const MAX_MESSAGE_BYTES: usize = 64 << 10;
 // 기본값 128 KiB는 연결마다 읽기 버퍼를 미리 잡는다. 클라이언트 프레임은 수백 바이트라 4 KiB면 충분하고, 더 큰 메시지는 버퍼가 알아서 늘어난다.
 const READ_BUFFER_BYTES: usize = 4 << 10;
 
-pub async fn serve(stream: TcpStream, hub: Hub, heartbeat_ms: u64, queue_capacity: usize, conn: u64) {
+pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64) {
     let websocket_config =
         WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE_BYTES)).read_buffer_size(READ_BUFFER_BYTES);
     let handshake = async {
@@ -54,10 +55,10 @@ pub async fn serve(stream: TcpStream, hub: Hub, heartbeat_ms: u64, queue_capacit
     };
     eprintln!("연결: {connection_id}");
 
-    let (outgoing, kicked) = hub.connect(conn, queue_capacity).await;
+    let (outgoing, kicked) = hub.connect(conn, config.queue_capacity).await;
     tokio::select! {
-        _ = read_loop(reader, &hub, conn) => {}
-        _ = write_loop(writer, outgoing, &connection_id, heartbeat_ms) => {}
+        _ = read_loop(reader, &hub, conn, config.idle_timeout) => {}
+        _ = write_loop(writer, outgoing, &connection_id, config.heartbeat_ms) => {}
         _ = kicked => {}
     }
     hub.disconnect(conn).await;
@@ -77,8 +78,14 @@ async fn read_connect(reader: &mut Reader) -> Option<String> {
     frame.header("connection-id").map(str::to_string)
 }
 
-async fn read_loop(mut reader: Reader, hub: &Hub, conn: u64) {
-    while let Some(Ok(message)) = reader.next().await {
+async fn read_loop(mut reader: Reader, hub: &Hub, conn: u64, idle: Option<Duration>) {
+    loop {
+        // 송신은 수신 타이머를 갱신하지 않는다. heartbeat와 제어 프레임도 수신 활동이다.
+        let incoming = match idle {
+            Some(limit) => timeout(limit, reader.next()).await.ok().flatten(),
+            None => reader.next().await,
+        };
+        let Some(Ok(message)) = incoming else { return };
         let text = match message {
             Message::Text(text) => text,
             Message::Ping(_) | Message::Pong(_) => continue,
