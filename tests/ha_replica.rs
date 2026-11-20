@@ -80,7 +80,7 @@ async fn independent_gateways_restore_and_deliver_the_whole_stream() {
     let mut bodies_a = Vec::new();
     let mut bodies_b = Vec::new();
     for _ in 0..40 {
-        let (fa, fb) = tokio::join!(client::recv_frame(&mut ca), client::recv_frame(&mut cb));
+        let (fa, fb) = tokio::join!(trade_frame(&mut ca), trade_frame(&mut cb));
         assert_eq!(fa.command, "MESSAGE");
         assert_eq!(fb.command, "MESSAGE");
         bodies_a.push(fa.body);
@@ -127,4 +127,21 @@ async fn independent_gateways_restore_and_deliver_the_whole_stream() {
     drop(ca);
     drop(cb);
     tokio::join!(a.shutdown(), b.shutdown(), c.shutdown());
+}
+
+async fn trade_frame(client: &mut client::Client) -> ws_trade_server::stomp::Frame {
+    use futures_util::StreamExt;
+    use ws_trade_server::stomp::{self, Incoming};
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let text = client.next().await.unwrap().unwrap().into_text().unwrap();
+            match stomp::parse(&text) {
+                Some(Incoming::Frame(frame)) => return frame,
+                Some(Incoming::Heartbeat) => {}
+                _ => panic!("올바른 STOMP 입력이어야 한다"),
+            }
+        }
+    })
+    .await
+    .unwrap()
 }
