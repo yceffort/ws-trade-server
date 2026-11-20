@@ -72,7 +72,7 @@ export class Client {
   async ready() {
     await until(() => { this.healthy(); return this.connected }, 'CONNECTED', this.signal)
     for (const topic of topics) this.send('SUBSCRIBE', { id: topic, destination: topic, receipt: topic })
-    await until(() => { this.healthy(); return this.receipts.size === topics.length && this.messages > 0 }, 'subscriptions and data', this.signal)
+    await until(() => { this.healthy(); return topics.every((topic) => this.receipts.has(topic)) && this.messages > 0 }, 'subscriptions and data', this.signal)
     return this
   }
 
