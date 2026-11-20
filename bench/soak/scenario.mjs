@@ -20,13 +20,13 @@ export async function scenario(env, config, report) {
     const untilTime = Date.now() + seconds * 1000
     while (Date.now() < untilTime) {
       clients.forEach((client) => client.healthy())
-      const before = clients.map((client) => client.messages)
+      const before = clients.map((client) => ({ ...client.topicMessages }))
       await sample()
       const wait = Math.min(1000, Math.max(0, untilTime - Date.now()))
       await sleep(wait, undefined, { signal })
       clients.forEach((client, index) => {
         client.healthy()
-        if (wait >= 250) assert(client.messages > before[index], 'no message progress during holding period')
+        if (wait >= 250) assert(topics.every((topic) => client.topicMessages[topic] > before[index][topic]), 'no topic progress during holding period')
       })
     }
   }
@@ -74,10 +74,10 @@ export async function scenario(env, config, report) {
         await env.stop(env.feed)
         env.feedStart()
         await until(async () => (await env.json('metrics')).sequence_resets_total > before, 'feed restart detection', signal)
-        const resumed = [...clients, rotating].map((client) => ({ client, before: client.messages }))
+        const resumed = [...clients, rotating].map((client) => ({ client, before: { ...client.topicMessages } }))
         await until(() => resumed.every(({ client, before }) => {
           client.healthy()
-          return client.messages > before
+          return topics.every((topic) => client.topicMessages[topic] > before[topic])
         }), 'existing subscriptions after feed restart', signal)
         counters.feedRestarts++
       }

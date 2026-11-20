@@ -20,6 +20,7 @@ export class Client {
     this.id = `soak-${randomUUID()}`
     this.signal = signal
     this.messages = 0
+    this.topicMessages = Object.fromEntries(topics.map((topic) => [topic, 0]))
     this.receipts = new Set()
     this.connected = false
     this.closed = false
@@ -53,6 +54,7 @@ export class Client {
           assert(topics.includes(headers.subscription), 'unknown subscription')
           JSON.parse(body)
           this.messages++
+          this.topicMessages[headers.subscription]++
         } else throw new Error('unexpected command')
       } catch (error) { this.failure ??= error.message }
     })
@@ -72,7 +74,7 @@ export class Client {
   async ready() {
     await until(() => { this.healthy(); return this.connected }, 'CONNECTED', this.signal)
     for (const topic of topics) this.send('SUBSCRIBE', { id: topic, destination: topic, receipt: topic })
-    await until(() => { this.healthy(); return topics.every((topic) => this.receipts.has(topic)) && this.messages > 0 }, 'subscriptions and data', this.signal)
+    await until(() => { this.healthy(); return topics.every((topic) => this.receipts.has(topic) && this.topicMessages[topic] > 0) }, 'subscriptions and data', this.signal)
     return this
   }
 
