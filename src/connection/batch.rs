@@ -25,6 +25,8 @@ where
     while let Some(item) = next.take() {
         let text = match item {
             Outgoing::Error(code) => {
+                // 앞서 쌓은 프레임을 먼저 내보낸다. 여기서 실패하면 통지를 보낼 수 없으므로 쓰기 실패로 끝낸다.
+                writer.flush().await.map_err(|_| "write_error")?;
                 let _ = writer.send(Message::text(stomp::error(code))).await;
                 return Err(code);
             }
@@ -55,6 +57,7 @@ mod tests {
     struct Recorder {
         frames: Vec<String>,
         flushes: usize,
+        broken: bool,
     }
 
     impl Sink<Message> for Recorder {
@@ -71,7 +74,7 @@ mod tests {
 
         fn poll_flush(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), ()>> {
             self.flushes += 1;
-            Poll::Ready(Ok(()))
+            Poll::Ready(if self.broken { Err(()) } else { Ok(()) })
         }
 
         fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), ()>> {
@@ -128,5 +131,16 @@ mod tests {
         assert_eq!(message_ids(&socket), ["conn-1"]);
         assert!(socket.frames[1].starts_with("ERROR\n"), "{:?}", socket.frames);
         assert_eq!(socket.frames.len(), 2);
+    }
+
+    // 묶기 전에는 MESSAGE를 쓰다 실패하면 뒤따르는 오류 통지와 상관없이 write_error로 끝났다.
+    #[tokio::test]
+    async fn write_failure_before_an_error_is_reported_as_write_error() {
+        let mut outgoing = queue_of(vec![message("a"), Outgoing::Error("too-many-subscriptions")]);
+        let (mut socket, mut seq) = (Recorder { broken: true, ..Recorder::default() }, 0);
+        let first = outgoing.recv().await.unwrap();
+        let result = write(&mut socket, first, &mut outgoing, "conn", &mut seq).await;
+        assert_eq!(result, Err("write_error"));
+        assert_eq!(socket.frames.len(), 1, "쓰기가 실패한 소켓에 오류 통지를 더 쌓지 않는다");
     }
 }
