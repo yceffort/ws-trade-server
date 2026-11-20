@@ -116,3 +116,7 @@ node capture/replay-client.mjs ws://127.0.0.1:8080/ws --seconds 25 --out evidenc
 node capture/extract-contract.mjs evidence/raw/replay.jsonl > evidence/raw/replay-contract.json
 diff contract/wts-stomp.json evidence/raw/replay-contract.json
 ```
+
+## Docker 배포
+
+서비스용 Rust 이미지와 TLS 프록시 이미지, Compose 설정과 종단 검증은 [배포 안내](deploy/README.md)에 있다. 합성 feed를 사용하는 단일 인스턴스 실행 환경이며 실제 증권사 배포를 재현한 것은 아니다.

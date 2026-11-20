@@ -19,7 +19,7 @@ node edge/measure.mjs wss://127.0.0.1:8443/ws edge/certs/cert.pem
 
 측정기는 WebSocket 및 CONNECT 완료 시간과 100회의 구독 RECEIPT 왕복 지연 p50, p99를 출력한다. 제한이나 인증을 켜지 않은 gateway에서 실행한다. WS 직결과 WSS 프록시의 차이에는 프록시 한 번을 더 거치는 비용도 포함된다. 같은 경로에서 TLS만 비교하려면 `node edge/run.mjs ws://127.0.0.1:8080/ws 8082`로 평문 프록시를 하나 더 띄우고 `ws://127.0.0.1:8082/ws`를 비교한다. 실행 순서를 바꾸어 반복하고 한 번의 결과를 성능 결론으로 쓰지 않는다.
 
-프록시는 loopback에서만 수신하고 동시 TCP 연결을 기본 1024개로 제한한다. 메시지는 64 KiB, 송신 대기는 1 MiB, 백엔드 연결 대기는 5초까지 허용한다. 키 배포와 인증서 자동 갱신은 다루지 않는다.
+프록시는 기본적으로 loopback에서 수신하고 동시 TCP 연결을 기본 1024개로 제한한다. 메시지는 64 KiB, 송신 대기는 1 MiB, 백엔드 연결 대기는 5초까지 허용한다. 키 배포와 인증서 자동 갱신은 다루지 않는다.
 
 압축은 기본 비활성이다. WSS 프록시 인자 마지막에 `deflate`를 붙이면 클라이언트가 제안할 때만 permessage-deflate를 협상한다.
 
@@ -29,3 +29,5 @@ node edge/compare.mjs 1000
 ```
 
 비교기는 매번 별도 Node 프로세스에서 평문 WS 프록시, echo 백엔드와 클라이언트를 띄우고 동일한 합성 MESSAGE 1000개를 왕복한다. 데이터 SHA-256과 해제된 본문 일치를 확인한다. 소켓의 read/write 바이트는 WebSocket 헤더와 압축된 payload를 포함하고 TCP/IP 헤더는 제외한다. CPU와 최대 RSS는 프록시만의 수치가 아니라 세 역할을 모두 포함한 프로세스 전체 수치다. 이 벤치는 TLS를 제외해 압축 설정만 비교한다. 실제 팬아웃 부하의 성능 결론으로 일반화하지 않는다.
+
+컨테이너에서는 `WTS_BACKEND`, `WTS_EDGE_HOST`, `WTS_EDGE_PORT`, `WTS_TLS_CERT_FILE`, `WTS_TLS_KEY_FILE`, `WTS_COMPRESSION=deflate`로 설정한다. 위치 인자가 있으면 해당 환경 변수보다 우선한다. `WTS_EDGE_HOST=0.0.0.0`은 외부 인터페이스에도 listener를 연다. 서비스용 이미지와 실행 절차는 [배포 안내](../deploy/README.md)에 있다.

@@ -6,3 +6,6 @@ node_modules/
 edge/certs/
 # bench/ci.sh가 남기는 실행별 결과
 bench/results/ci-*.json
+
+# 로컬 배포 실험에서 만든 인증 자료
+deploy/local/

@@ -1,0 +1,103 @@
+x-topics: &topics /topic/v1/kr/stock/trade/A005930,/topic/v1/us/stock/trade/US19990122001
+x-runtime: &runtime
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+  stop_grace_period: 10s
+  pids_limit: 128
+
+services:
+  feed:
+    <<: *runtime
+    image: ${WTS_SERVER_IMAGE:-ws-trade-server:local}
+    build: .
+    command: [feed, --ring, /data/feed.ring, --symbols, "kr:A005930,us:US19990122001", --rate, "50"]
+    network_mode: none
+    volumes: [ring:/data]
+    cpus: 0.5
+    mem_limit: 128m
+    healthcheck:
+      test: [CMD, container-probe, feed]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  edge:
+    <<: *runtime
+    image: ${WTS_EDGE_IMAGE:-ws-trade-edge:local}
+    build:
+      context: .
+      dockerfile: edge/Dockerfile
+    environment:
+      WTS_BACKEND: ws://gateway:8080/ws
+      WTS_EDGE_HOST: 0.0.0.0
+      WTS_EDGE_PORT: "8443"
+      WTS_TLS_CERT_FILE: /run/secrets/cert
+      WTS_TLS_KEY_FILE: /run/secrets/key
+      WTS_COMPRESSION: deflate
+    ports: ["127.0.0.1:${WTS_PORT:-8443}:8443"]
+    secrets: [cert, key]
+    cpus: 1
+    mem_limit: 256m
+
+  gateway:
+    <<: *runtime
+    image: ${WTS_SERVER_IMAGE:-ws-trade-server:local}
+    build: .
+    # 프록시를 먼저 띄워 종료 때 gateway의 종료 통지가 먼저 전달되도록 한다.
+    depends_on:
+      feed:
+        condition: service_healthy
+      edge:
+        condition: service_healthy
+    command:
+      - gateway
+      - --addr
+      - 0.0.0.0:8080
+      - --http-addr
+      - 127.0.0.1:8081
+      - --ring
+      - /data/feed.ring
+      - --auth-file
+      - /run/secrets/tokens
+      - --allowed-topics
+      - *topics
+      - --snapshot-topics
+      - *topics
+      - --max-connections
+      - "1000"
+      - --max-subscriptions
+      - "2"
+      - --max-commands-per-sec
+      - "20"
+      - --idle-ms
+      - "15000"
+    environment:
+      WTS_TOPICS: *topics
+      WTS_LOG_FORMAT: json
+      RUST_LOG: ws_trade_server=info
+    secrets: [tokens]
+    volumes: [ring:/data:ro]
+    cpus: 2
+    mem_limit: 512m
+    ulimits:
+      nofile: {soft: 65536, hard: 65536}
+    healthcheck:
+      test: [CMD, container-probe, ready]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+
+volumes:
+  ring:
+
+secrets:
+  tokens:
+    file: ${WTS_SECRETS_DIR:-./deploy/local}/tokens.json
+  cert:
+    file: ${WTS_SECRETS_DIR:-./deploy/local}/cert.pem
+  key:
+    file: ${WTS_SECRETS_DIR:-./deploy/local}/key.pem
