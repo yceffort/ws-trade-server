@@ -50,6 +50,7 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 - 클라이언트 메시지는 64 KiB까지만 받음
 - `--max-connections`, `--max-subscriptions`, `--max-commands-per-sec`는 0이면 무제한이다. 활성화하면 각각 업그레이드 대기 중인 소켓을 포함한 연결 수, 연결별 구독 id 수, 연결별 1초 고정 구간의 구독 및 해지 명령 수를 제한한다. `--allowed-topics`는 쉼표로 구분한 정확한 topic 허용 목록이다. 초과 연결은 최대 64개의 별도 거절 작업에서 HTTP 503으로 응답하고 거절 작업까지 차면 즉시 소켓을 닫는다. 구독 거절은 실험용 `ERROR`의 `message` 헤더에 사유를 넣고 연결 종료로 알린다. [공개 Open API](https://openapi.tossinvest.com/openapi-docs/latest/asyncapi.json)의 한도 기능에서 착안했으며 수치와 오류 프레임은 WTS 실측값이 아니다.
 - `--idle-ms`를 0보다 크게 주면 마지막 클라이언트 메시지 이후 그 시간 동안 수신이 없을 때 연결과 구독을 정리한다. 서버 송신은 타이머를 갱신하지 않는다. 기본값 0은 비활성이다. 공개 Open API의 유휴 종료에서 착안한 실험이며 WTS에서 관측한 값이나 STOMP heartbeat 협상 결과가 아니다.
+- `--http-addr 127.0.0.1:8081 --snapshot-topics topic,...`를 주면 지정한 topic만 최신 본문과 서버 수신 시각을 보관하고 `GET /snapshots`로 조회한다. 기본값은 비활성이다. 전체 체결 재전송이나 원자적인 스트림 전환은 보장하지 않는다. `node examples/reconnect.mjs ws://127.0.0.1:8080/ws http://127.0.0.1:8081/snapshots topic...`는 지수 지연과 jitter로 재접속하고 재구독 후 조회한다. 조회 중 스트림이 갱신된 topic은 스냅샷으로 덮어쓰지 않는다. 이 API는 loopback에서만 열리며, Open API의 초기 REST 조회에서 착안한 실험 설계다.
 - 연결마다 잡는 읽기 버퍼는 4 KiB(웹소켓 라이브러리 기본값은 128 KiB)
 
 구현하지 않은 것:
