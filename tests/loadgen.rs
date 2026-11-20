@@ -31,6 +31,8 @@ async fn loadgen_measures_delivery_and_latency() {
     assert_eq!(report["seq_gap_clients"], 0);
     assert_eq!(report["unexpected_disconnects"], 0);
     assert!(report["messages"]["total"].as_u64().unwrap() > 0);
+    // 빠진 체결이 없으면 정확히 1이다. 구간 밖에서 쓴 체결이 섞이면 1을 넘는다.
+    assert_eq!(report["delivery"]["ratio"], 1.0, "{report}");
     let latency = &report["latency_us"];
     assert!(latency["samples"].as_u64().unwrap() > 0, "{report}");
     assert_eq!(latency["unmatched"], 0);
