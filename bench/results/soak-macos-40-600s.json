@@ -1,0 +1,170 @@
+{
+  "config": {
+    "seconds": 600,
+    "cycles": 6,
+    "connections": 40,
+    "rssGrowthMiB": 64,
+    "binDir": "../7-heartbeat/target/release"
+  },
+  "startedAt": "2026-11-20T06:54:20.019Z",
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M5",
+    "node": "v25.9.0",
+    "commit": "e31dc25d42a8176831a707bbaebf65acc858a812"
+  },
+  "idle": [
+    {
+      "round": 0,
+      "rssKiB": 9024,
+      "connections": 0,
+      "subscriptions": 0,
+      "queuedFrames": 0
+    },
+    {
+      "round": 1,
+      "rssKiB": 10752,
+      "connections": 0,
+      "subscriptions": 0,
+      "queuedFrames": 0
+    },
+    {
+      "round": 2,
+      "rssKiB": 10880,
+      "connections": 0,
+      "subscriptions": 0,
+      "queuedFrames": 0
+    },
+    {
+      "round": 3,
+      "rssKiB": 10960,
+      "connections": 0,
+      "subscriptions": 0,
+      "queuedFrames": 0
+    },
+    {
+      "round": 4,
+      "rssKiB": 10976,
+      "connections": 0,
+      "subscriptions": 0,
+      "queuedFrames": 0
+    },
+    {
+      "round": 5,
+      "rssKiB": 11024,
+      "connections": 0,
+      "subscriptions": 0,
+      "queuedFrames": 0
+    },
+    {
+      "round": 6,
+      "rssKiB": 11040,
+      "connections": 0,
+      "subscriptions": 0,
+      "queuedFrames": 0
+    }
+  ],
+  "counters": {
+    "sessions": 412,
+    "messages": 2477704,
+    "authRevocations": 6,
+    "reconnects": 126,
+    "rejectedStalls": 6,
+    "feedRestarts": 1
+  },
+  "rss": {
+    "baselineKiB": 9024,
+    "finalKiB": 11040,
+    "peakKiB": 11040,
+    "allowedGrowthMiB": 64
+  },
+  "ok": true,
+  "completedAt": "2026-11-20T07:04:53.229Z",
+  "logEvents": {
+    "ring_waiting": 1,
+    "gateway_started": 1,
+    "ring_opened": 1,
+    "server_summary": 65,
+    "feed_restarted": 1,
+    "shutdown_requested": 1,
+    "shutdown_complete": 1
+  },
+  "invalidLogs": 0,
+  "sampling": {
+    "count": 611,
+    "firstAt": "2026-11-20T06:54:22.013Z",
+    "lastAt": "2026-11-20T07:04:53.225Z",
+    "ranges": {
+      "rssKiB": {
+        "min": 8944,
+        "max": 11040
+      },
+      "logs_dropped_total": {
+        "min": 0,
+        "max": 0
+      },
+      "stomp_connections": {
+        "min": 0,
+        "max": 40
+      },
+      "subscriptions": {
+        "min": 0,
+        "max": 80
+      },
+      "queued_frames": {
+        "min": 0,
+        "max": 40
+      },
+      "queue_capacity": {
+        "min": 0,
+        "max": 40960
+      },
+      "commands_queued": {
+        "min": 0,
+        "max": 0
+      },
+      "published_total": {
+        "min": 164,
+        "max": 62917
+      },
+      "enqueued_frames_total": {
+        "min": 3418,
+        "max": 2478570
+      },
+      "slow_disconnections_total": {
+        "min": 0,
+        "max": 0
+      },
+      "ring_overruns_total": {
+        "min": 0,
+        "max": 0
+      },
+      "sequence_missing_total": {
+        "min": 0,
+        "max": 0
+      },
+      "sequence_resets_total": {
+        "min": 0,
+        "max": 1
+      },
+      "decode_failures_total": {
+        "min": 0,
+        "max": 0
+      },
+      "invalid_trades_total": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  "build": {
+    "sourceCommit": "d7d4fc7bf1f9a92ae7385b1e51d6b3690f28f18e",
+    "profile": "release",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "binaries": {
+      "gateway": "405c9fe1a37618ff69579bb2c384ffd459f4152fe67623f0fac6aa4715cf71f1",
+      "feed": "3ba5126b0b64afdba0682ec36cd74161d068b8cd9d1cd8ea3be6ae7ed5f3d7fd"
+    }
+  }
+}

@@ -38,6 +38,11 @@ jobs:
       - run: node --test capture/extract-contract.test.mjs examples/*.test.mjs
       - run: npm ci --prefix edge
       - run: npm test --prefix edge
+      - name: Exercise combined lifecycle scenarios
+        run: node bench/soak.mjs --seconds 6 --cycles 2 --connections 4 --bin-dir target/debug --out /tmp/soak.json
+      - name: Show lifecycle result
+        if: always()
+        run: test ! -f /tmp/soak.json || cat /tmp/soak.json
 
   miri:
     runs-on: ubuntu-latest
