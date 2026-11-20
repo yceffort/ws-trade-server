@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use ws_trade_server::feed::parse_symbols;
 use ws_trade_server::loadgen::{Args, run};
@@ -23,7 +24,10 @@ fn parse_args() -> Option<(Args, Option<PathBuf>)> {
             _ => return None,
         }
     }
-    (parsed.stalled + parsed.probes <= parsed.connections).then_some((parsed, out))
+    // 받은 체결을 종목 코드로 쓴 기록과 짝지으므로 코드가 겹치면 지연과 전달 비율을 낼 수 없다.
+    let codes: HashSet<&str> = parsed.symbols.iter().map(|symbol| symbol.code.as_str()).collect();
+    let valid = codes.len() == parsed.symbols.len() && parsed.stalled + parsed.probes <= parsed.connections;
+    valid.then_some((parsed, out))
 }
 
 #[tokio::main]
