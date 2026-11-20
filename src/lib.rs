@@ -7,6 +7,7 @@ mod http;
 pub mod hub;
 pub mod limits;
 pub mod loadgen;
+pub mod logging;
 pub mod metrics;
 pub mod pb;
 mod region;

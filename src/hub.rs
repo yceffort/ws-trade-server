@@ -5,7 +5,10 @@ mod state;
 use crate::limits::{Limits, Rate};
 use cache::Cache;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
 
@@ -29,6 +32,7 @@ enum Command {
 #[derive(Clone)]
 pub struct Hub {
     commands: mpsc::Sender<Command>,
+    log_drops: Arc<AtomicU64>,
     pub(crate) bridge: Arc<BridgeCounters>,
 }
 
@@ -44,6 +48,7 @@ struct Client {
 #[derive(Default)]
 struct State {
     limits: Limits,
+    log_drops: Arc<AtomicU64>,
     bridge: Arc<BridgeCounters>,
     published: u64,
     enqueued: u64,
@@ -66,8 +71,11 @@ impl Hub {
         let (commands, mut inbox) = mpsc::channel(1024);
         let bridge = Arc::new(BridgeCounters::default());
         let counters = bridge.clone();
+        let log_drops = Arc::new(AtomicU64::new(0));
+        let drops = log_drops.clone();
         tokio::spawn(async move {
-            let mut state = State { limits, bridge: counters, cache: Cache::new(topics), ..State::default() };
+            let mut state =
+                State { limits, log_drops: drops, bridge: counters, cache: Cache::new(topics), ..State::default() };
             while let Some(command) = inbox.recv().await {
                 match command {
                     Command::Connect { conn, queue, kick } => {
@@ -97,7 +105,7 @@ impl Hub {
                 }
             }
         });
-        Hub { commands, bridge }
+        Hub { commands, bridge, log_drops }
     }
 
     pub async fn connect(&self, conn: u64, queue_capacity: usize) -> (mpsc::Receiver<Outgoing>, oneshot::Receiver<()>) {
@@ -123,6 +131,10 @@ impl Hub {
         let (reply, done) = oneshot::channel();
         self.send(Command::Stop(reply)).await;
         let _ = done.await;
+    }
+
+    pub(crate) fn record_log_drops(&self, dropped: u64) {
+        self.log_drops.store(dropped, Ordering::Relaxed);
     }
 
     pub async fn metrics(&self) -> Option<Metrics> {

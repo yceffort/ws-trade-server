@@ -74,7 +74,7 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
                 accepted = listener.accept() => {
                     let (stream, _) = match accepted {
                         Ok(accepted) => accepted,
-                        Err(error) => { eprintln!("accept 실패: {error}"); tokio::time::sleep(std::time::Duration::from_millis(100)).await; continue; }
+                        Err(error) => { tracing::warn!(event = "websocket_accept_failed", kind = ?error.kind()); tokio::time::sleep(std::time::Duration::from_millis(100)).await; continue; }
                     };
                     let permit = if config.limits.connections == 0 { None } else {
                         match permits.clone().try_acquire_owned() {

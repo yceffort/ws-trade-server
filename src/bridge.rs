@@ -43,6 +43,7 @@ pub fn spawn(path: PathBuf, poll: Duration, hub: Hub) -> Bridge {
     let stopped = Arc::new(AtomicBool::new(false));
     let stop = stopped.clone();
     let thread = thread::spawn(move || {
+        tracing::info!(event = "ring_waiting");
         let Some(mut reader) = open(&path, &stop) else { return };
         let mut last_seq = None;
         while !stop.load(Ordering::Relaxed) {
@@ -68,7 +69,6 @@ fn process(
         Read::Empty => return None,
         Read::Lost => {
             counters.ring_overruns.fetch_add(1, Ordering::Relaxed);
-            eprintln!("링에서 뒤처져 덮어쓰인 체결을 건너뛰었다");
             return None;
         }
         Read::Record(payload) => payload,
@@ -77,19 +77,16 @@ fn process(
         Ok(trade) => trade,
         Err(_) => {
             counters.decode_failures.fetch_add(1, Ordering::Relaxed);
-            eprintln!("Trade로 디코딩하지 못한 레코드를 버렸다");
             return None;
         }
     };
     if let Some(last) = *last_seq {
         counters.observe_seq(last, trade.seq);
-        report_gap(last, trade.seq);
     }
     *last_seq = Some(trade.seq);
     let message = trade::to_message(&trade);
     if message.is_none() {
         counters.invalid_trades.fetch_add(1, Ordering::Relaxed);
-        eprintln!("본문을 만들 수 없는 체결을 버렸다: seq {}", trade.seq);
     }
     message
 }
@@ -99,21 +96,13 @@ fn open(path: &Path, stopped: &AtomicBool) -> Option<Reader> {
     while !stopped.load(Ordering::Relaxed) {
         match Reader::open(path) {
             Ok(reader) => {
-                eprintln!("링 열림: {}", path.display());
+                tracing::info!(event = "ring_opened");
                 return Some(reader);
             }
             Err(_) => thread::park_timeout(Duration::from_millis(500)),
         }
     }
     None
-}
-
-fn report_gap(last: u64, seq: u64) {
-    if seq < last {
-        eprintln!("seq가 {last}에서 {seq}로 작아졌다. feed가 다시 뜬 것으로 본다");
-    } else if seq.saturating_sub(last) > 1 {
-        eprintln!("유실 {}건: seq {last} 다음에 {seq}", seq - last - 1);
-    }
 }
 
 #[cfg(test)]

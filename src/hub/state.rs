@@ -21,6 +21,7 @@ impl State {
             None
         };
         if let Some(code) = error {
+            tracing::debug!(event = "subscription_rejected", conn, reason = code);
             client.closing = true;
             self.deliver(conn, Outgoing::Error(code));
             return;
@@ -45,6 +46,7 @@ impl State {
             return;
         }
         if !client.rate.allow(self.limits.commands_per_second) {
+            tracing::debug!(event = "subscription_rejected", conn, reason = "rate-limit-exceeded");
             client.closing = true;
             self.deliver(conn, Outgoing::Error("rate-limit-exceeded"));
             return;
@@ -97,7 +99,7 @@ impl State {
     pub(super) fn drop_slow(&mut self, conn: u64) {
         if self.clients.contains_key(&conn) {
             self.slow_disconnections += 1;
-            eprintln!("느린 클라이언트 차단: conn {conn}");
+            tracing::debug!(event = "slow_consumer_dropped", conn);
             self.remove(conn);
         }
     }
