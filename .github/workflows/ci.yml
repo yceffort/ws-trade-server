@@ -18,7 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # 이 뒤에 PR의 코드를 빌드하고 실행하므로 토큰을 git 설정에 남기지 않는다.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # clippy가 잡는 경고는 판마다 달라진다. bench/Dockerfile과 같은 판으로 고정한다.
       - name: Install Rust 1.95.0
         run: |
