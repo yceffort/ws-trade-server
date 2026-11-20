@@ -14,7 +14,15 @@ fn trade() -> Trade {
 
 fn event(provider: &str) -> Arc<Envelope> {
     Arc::new(
-        Envelope::new("log-v1".into(), source(provider, "trades"), "epoch-1".into(), u64::MAX, trade(), 1).unwrap(),
+        Envelope::new(
+            "log-v1".into(),
+            source(provider, "trades"),
+            "epoch-1".into(),
+            SourceSeq(u64::MAX),
+            trade(),
+            ReceivedAtMs(1),
+        )
+        .unwrap(),
     )
 }
 
@@ -38,6 +46,41 @@ fn stable_identity_is_independent_of_local_sequence_and_broker_offset() {
     let json = serde_json::to_string(&position).unwrap();
     assert_eq!(serde_json::from_str::<Position>(&json).unwrap(), position);
     assert_eq!(serde_json::from_str::<serde_json::Value>(&json).unwrap()["offset"], i64::MAX.to_string());
+}
+
+#[test]
+fn decoding_preserves_original_protobuf_bytes_including_unknown_fields() {
+    let original = event("demo");
+    let mut wire: serde_json::Value = serde_json::from_slice(&original.to_json().unwrap()).unwrap();
+    let bytes = wire["trade"].as_array_mut().unwrap();
+    bytes.extend([0xa0, 0x06, 0x01].map(serde_json::Value::from));
+    let decoded = Envelope::from_json(&serde_json::to_vec(&wire).unwrap()).unwrap();
+    let restored: serde_json::Value = serde_json::from_slice(&decoded.to_json().unwrap()).unwrap();
+    assert_eq!(restored["trade"], wire["trade"]);
+    assert_eq!(decoded.trade(), original.trade());
+    assert_eq!(decoded.event_id(), original.event_id());
+}
+
+#[test]
+fn trade_codes_and_currencies_keep_the_legacy_acceptance_rules() {
+    for code in ["BRK/B".to_owned(), "합성코드".to_owned(), "X".repeat(97)] {
+        let mut trade = trade();
+        trade.code = code;
+        trade.currency = "USD/test".into();
+        let expected = crate::trade::to_message(&trade).unwrap();
+        let ring = RingAdapter::prepare(&trade).unwrap();
+        assert_eq!((ring.topic, ring.body), expected);
+        let event = Envelope::new(
+            "log-v1".into(),
+            source("demo", "trades"),
+            "epoch-1".into(),
+            SourceSeq(1),
+            trade,
+            ReceivedAtMs(1),
+        )
+        .unwrap();
+        assert_eq!(Envelope::from_json(&event.to_json().unwrap()).unwrap().message(), expected);
+    }
 }
 
 #[test]

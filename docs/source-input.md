@@ -4,13 +4,13 @@
 
 ```rust
 use std::sync::Arc;
-use ws_trade_server::source::{BrokerAdapter, Envelope, Position, SourceId};
+use ws_trade_server::source::{BrokerAdapter, Envelope, Position, ReceivedAtMs, SourceId, SourceSeq};
 
 // hub와 trade는 호출자가 소유한 기존 Hub 및 protobuf Trade다.
 let source = SourceId::new("demo-provider".into(), "trades".into())?;
 let input = BrokerAdapter::new(hub.input(), "demo-log".into(), vec![source.clone()])?;
 let event = Arc::new(Envelope::new(
-    "demo-log".into(), source, "epoch-1".into(), 42, trade, 1_000,
+    "demo-log".into(), source, "epoch-1".into(), SourceSeq(42), trade, ReceivedAtMs(1_000),
 )?);
 let position = Position::new("demo-log".into(), 0, 100)?;
 let applied = input.publish(&event, position).await?;
@@ -18,17 +18,17 @@ assert_eq!(applied.envelope.source_seq(), 42);
 assert_eq!(applied.position.offset(), 100);
 ```
 
-이 코드는 호출 형태를 설명하는 조각이다. source sequence는 원본 제공자가 지정한 안정적인 순번이며 `Trade.seq`, broker offset, 연결별 STOMP message-id와 다르다. 호출자는 재시도 때 같은 event를 유지해야 한다. runtime에서 broker 입력을 선택하는 CLI 및 consumer 수명 관리는 #47의 후속 작업이다.
+이 코드는 호출 형태를 설명하는 조각이다. source sequence는 원본 제공자가 지정한 안정적인 순번이며 `Trade.seq`, broker offset, 연결별 STOMP message-id와 다르다. 호출자는 재시도 때 같은 event를 유지해야 한다. 생성자의 원본 순번과 수신 시각은 SourceSeq와 ReceivedAtMs로 구분한다. runtime에서 broker 입력을 선택하는 CLI 및 consumer 수명 관리는 #47의 후속 작업이다.
 
 ## 식별자와 직렬화
 
 source_id는 provider namespace와 stream ID를 묶는다. log_id, namespace, stream, epoch는 각각 1~96자의 ASCII 영문자, 숫자, 점, 밑줄, 하이픈만 허용한다. event_id는 `provider/stream/epoch/source_seq`이며 구성 요소에 `/`가 없으므로 경계가 모호하지 않다. 다른 제공자의 같은 원본 순번도 서로 다른 이벤트가 된다. 최초 설정은 제공자당 stream 하나이며 BrokerAdapter 생성 시 중복 provider namespace를 거절한다. 설정 객체의 식별자는 생성 후 변경할 수 없다. 영구 namespace 할당 및 checkpoint와의 대조는 producer를 구현하는 #47에서 완성한다.
 
-envelope JSON은 schema_version 1, log_id, source_id, source_epoch, source_seq, event_id, received_at_ms, trade를 가진다. source_seq와 received_at_ms는 십진 문자열이다. trade는 기존 `proto/feed.proto`의 Trade를 인코딩한 byte 배열이므로 원본 숫자를 JSON 부동소수점으로 바꾸지 않는다. 기존 protobuf 스키마와 `/ws` 본문은 바꾸지 않는다. 원본 체결 발생 시각은 Trade.traded_at_ms에 있다.
+envelope JSON은 schema_version 1, log_id, source_id, source_epoch, source_seq, event_id, received_at_ms, trade를 가진다. source_seq와 received_at_ms는 십진 문자열이다. trade는 기존 `proto/feed.proto`의 Trade를 인코딩한 byte 배열이므로 원본 숫자를 JSON 부동소수점으로 바꾸지 않는다. 입력 bytes는 알 수 없는 protobuf 필드까지 그대로 보존하며, 디코딩한 값은 검증과 기존 본문 렌더링에 사용한다. 기존 protobuf 스키마와 `/ws` 본문은 바꾸지 않는다. 원본 체결 발생 시각은 Trade.traded_at_ms에 있다.
 
 Position JSON은 log_id, partition, offset을 가진다. offset도 십진 문자열이며 signed 64비트 broker offset의 비음수 범위만 허용한다. log_id가 envelope나 어댑터 설정과 다르면 발행하지 않는다. 서명 cursor와 클라이언트 replay 규약은 #49의 범위이며 Position 자체는 접근 권한이나 서명 cursor가 아니다.
 
-JSON 숫자로 보낸 sequence/offset, 부호, 앞자리 0, overflow, 지원하지 않는 schema, 위조된 event_id, 등록하지 않은 source는 거절한다. envelope 입력은 128KiB, protobuf Trade는 16KiB로 제한한다. 소수 scale은 렌더링 전에 18 이하인지 확인해 비정상 scale 때문에 큰 문자열을 할당하지 않는다. 잘못된 입력의 오류에는 원본 payload나 식별자 값을 넣지 않는다. 이 한도와 인코딩은 관측한 증권사 형식이 아닌 내부 실험 규약이다.
+JSON 숫자로 보낸 sequence/offset, 부호, 앞자리 0, overflow, 지원하지 않는 schema, 위조된 event_id, 등록하지 않은 source는 거절한다. envelope 입력은 128KiB, protobuf Trade는 16KiB로 제한한다. 소수 scale은 렌더링 전에 18 이하인지 확인해 비정상 scale 때문에 큰 문자열을 할당하지 않는다. 종목 코드와 통화는 기존 Trade 검증처럼 비어 있는지만 검사하며 namespace의 문자 제한을 적용하지 않는다. 잘못된 입력의 오류에는 원본 payload나 식별자 값을 넣지 않는다. 이 한도와 인코딩은 관측한 증권사 형식이 아닌 내부 실험 규약이다.
 
 ## 대기, 취소와 완료
 

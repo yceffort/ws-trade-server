@@ -1,6 +1,6 @@
 mod envelope;
 use crate::{hub::Hub, pb::Trade};
-pub use envelope::{Envelope, MAX_ENVELOPE_BYTES, Position, SourceId};
+pub use envelope::{Envelope, MAX_ENVELOPE_BYTES, Position, ReceivedAtMs, SourceId, SourceSeq};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -7,6 +7,12 @@ use super::InputError;
 
 pub const MAX_ENVELOPE_BYTES: usize = 128 * 1024;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SourceSeq(pub u64);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReceivedAtMs(pub u64);
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "RawSource")]
 pub struct SourceId {
@@ -118,13 +124,15 @@ impl Envelope {
         log_id: String,
         source_id: SourceId,
         source_epoch: String,
-        source_seq: u64,
+        source_seq: SourceSeq,
         trade: Trade,
-        received_at_ms: u64,
+        received_at_ms: ReceivedAtMs,
     ) -> Result<Self, InputError> {
         if !identifier(&log_id) || !identifier(&source_epoch) {
             return Err(InputError::InvalidIdentity);
         }
+        let SourceSeq(source_seq) = source_seq;
+        let ReceivedAtMs(received_at_ms) = received_at_ms;
         let message = prepare_trade(&trade)?;
         // 식별자에는 '/'를 허용하지 않으므로 튜플 경계가 모호해지지 않는다.
         let event_id = format!("{}/{}/{}/{source_seq}", source_id.provider, source_id.stream, source_epoch);
@@ -153,8 +161,17 @@ impl Envelope {
             return Err(InputError::TooLarge);
         }
         let trade = Trade::decode(wire.trade.as_slice()).map_err(|_| InputError::InvalidTrade)?;
-        let envelope =
-            Self::new(wire.log_id, wire.source_id, wire.source_epoch, wire.source_seq, trade, wire.received_at_ms)?;
+        let raw_trade = wire.trade;
+        let mut envelope = Self::new(
+            wire.log_id,
+            wire.source_id,
+            wire.source_epoch,
+            SourceSeq(wire.source_seq),
+            trade,
+            ReceivedAtMs(wire.received_at_ms),
+        )?;
+        // prost가 알 수 없는 필드를 버려도 원본 레코드의 bytes는 재인코딩으로 바꾸지 않는다.
+        envelope.wire.trade = raw_trade;
         if wire.event_id != envelope.event_id() {
             return Err(InputError::InvalidIdentity);
         }
@@ -207,8 +224,7 @@ pub(super) fn prepare_trade(trade: &Trade) -> Result<(String, Arc<str>), InputEr
         krw.and_then(|k| k.base_price.as_ref()),
         krw.and_then(|k| k.cumulative_amount.as_ref()),
     ];
-    if !identifier(&trade.code) || !identifier(&trade.currency) || decimals.into_iter().flatten().any(|d| d.scale > 18)
-    {
+    if decimals.into_iter().flatten().any(|d| d.scale > 18) {
         return Err(InputError::InvalidTrade);
     }
     crate::trade::to_message(trade).ok_or(InputError::InvalidTrade)
