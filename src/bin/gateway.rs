@@ -15,6 +15,8 @@ fn parse_args() -> Option<Config> {
                 }
                 config.limits.topics = value.split(',').map(str::to_string).collect();
             }
+            "--http-addr" => config.http_addr = Some(value),
+            "--snapshot-topics" => config.snapshot_topics = value.split(',').map(str::to_string).collect(),
             "--addr" => config.addr = value,
             "--ring" => config.ring = Some(value.into()),
             "--poll-us" => config.poll_us = value.parse().ok()?,

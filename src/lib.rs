@@ -1,6 +1,7 @@
 mod bridge;
 pub mod connection;
 pub mod feed;
+mod http;
 pub mod hub;
 pub mod limits;
 pub mod loadgen;
@@ -19,6 +20,8 @@ use tokio::net::TcpListener;
 #[derive(Clone)]
 pub struct Config {
     pub addr: String,
+    pub http_addr: Option<String>,
+    pub snapshot_topics: Vec<String>,
     pub limits: limits::Limits,
     pub ring: Option<PathBuf>,
     pub poll_us: u64,
@@ -31,6 +34,8 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             addr: "127.0.0.1:8080".to_string(),
+            http_addr: None,
+            snapshot_topics: Vec::new(),
             limits: limits::Limits::default(),
             ring: None,
             poll_us: 200,
@@ -54,7 +59,14 @@ pub async fn start(config: Config) -> std::io::Result<(SocketAddr, Hub)> {
     let permits = std::sync::Arc::new(tokio::sync::Semaphore::new(config.limits.connections));
     let listener = TcpListener::bind(&config.addr).await?;
     let addr = listener.local_addr()?;
-    let hub = Hub::with_limits(config.limits.clone());
+    let http = match &config.http_addr {
+        Some(addr) => Some(http::bind(addr).await?),
+        None => None,
+    };
+    let hub = Hub::configured(config.limits.clone(), config.snapshot_topics.clone());
+    if let Some(listener) = http {
+        http::spawn(listener, hub.clone());
+    }
     if let Some(ring) = &config.ring {
         bridge::spawn(ring.clone(), Duration::from_micros(config.poll_us), hub.clone());
     }
