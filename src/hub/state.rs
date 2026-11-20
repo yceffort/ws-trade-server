@@ -37,7 +37,9 @@ impl State {
         if let Some(old) = client.subs.insert(id.clone(), destination.clone()) {
             self.unindex(conn, &id, &old);
         }
-        self.index.entry(destination).or_default().push((conn, id));
+        // 같은 id로 다시 구독해도 칸은 새로 만든다. 이전 구독의 표지가 새 구독의 본문을 꺼내면 RECEIPT보다 먼저 나간다.
+        let slot = self.latest_first.contains(&destination).then(Arc::default);
+        self.index.entry(destination).or_default().push(Target { conn, id, slot });
         // 색인에 올린 바로 이 자리에서 RECEIPT를 큐에 넣는다. 이후 발행분은 항상 그 뒤에 쌓인다.
         if let Some(receipt) = receipt {
             self.deliver(conn, Outgoing::Receipt { receipt_id: receipt, message: "subscribe success" });
@@ -72,14 +74,30 @@ impl State {
             return;
         };
         let mut full = Vec::new();
-        for (conn, id) in targets {
+        for Target { conn, id, slot } in targets {
             let Some(client) = self.clients.get(conn) else {
                 continue;
             };
             if client.closing {
                 continue;
             }
-            let message = Outgoing::Message { subscription: id.clone(), body: body.clone() };
+            let message = match slot {
+                None => Outgoing::Message { subscription: id.clone(), body: body.clone() },
+                Some(slot) => {
+                    // 칸이 차 있으면 그 표지가 아직 큐에 있다. 깊이가 K 아래로 내려갔어도 일반 MESSAGE로 넣으면
+                    // 표지가 더 새 값을 먼저 내보내고 그 뒤에 더 오래된 MESSAGE가 나가므로 값만 바꾼다.
+                    if slot.replace(&body) {
+                        self.latest_skipped += 1;
+                        continue;
+                    }
+                    if client.queue.max_capacity() - client.queue.capacity() < self.latest_first_depth {
+                        Outgoing::Message { subscription: id.clone(), body: body.clone() }
+                    } else {
+                        slot.fill(body.clone());
+                        Outgoing::Latest { subscription: id.clone(), slot: slot.clone() }
+                    }
+                }
+            };
             match client.queue.try_send(message) {
                 Ok(()) => self.enqueued += 1,
                 Err(TrySendError::Full(_)) => full.push(*conn),
@@ -133,7 +151,7 @@ impl State {
         let Some(list) = self.index.get_mut(topic) else {
             return;
         };
-        list.retain(|(c, i)| !(*c == conn && &**i == id));
+        list.retain(|target| !(target.conn == conn && &*target.id == id));
         if list.is_empty() {
             self.index.remove(topic);
         }

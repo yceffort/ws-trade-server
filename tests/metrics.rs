@@ -1,5 +1,5 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use ws_trade_server::{Config, hub::Hub, start_managed};
+use ws_trade_server::{Config, hub::Hub, limits::Limits, start_managed};
 
 #[tokio::test]
 async fn queues_and_slow_drops_have_separate_counts_and_cleanup() {
@@ -25,6 +25,20 @@ async fn queues_and_slow_drops_have_separate_counts_and_cleanup() {
 }
 
 #[tokio::test]
+async fn latest_first_skips_are_counted_apart_from_slow_disconnections() {
+    let hub = Hub::with_latest_first(Limits::default(), Vec::new(), vec!["/latest".into()], 0);
+    let (_queue, _kick) = hub.connect(1, 1).await;
+    hub.subscribe(1, "a".into(), "/latest".into(), None).await;
+    for body in ["first", "second", "third"] {
+        hub.publish("/latest".into(), body.into()).await;
+    }
+    let metrics = hub.metrics().await.unwrap();
+    // 표지 하나가 큐 한 칸을 차지하고, 뒤의 두 건은 그 칸의 값만 바꾼다.
+    assert_eq!((metrics.stomp_connections, metrics.queued_frames, metrics.enqueued_frames_total), (1, 1, 1));
+    assert_eq!((metrics.latest_skipped_total, metrics.slow_disconnections_total), (2, 0));
+}
+
+#[tokio::test]
 async fn metrics_are_available_over_the_optional_local_http_listener() {
     let server = start_managed(Config {
         addr: "127.0.0.1:0".into(),
@@ -41,6 +55,7 @@ async fn metrics_are_available_over_the_optional_local_http_listener() {
     assert!(response.starts_with("HTTP/1.1 200"));
     let body: serde_json::Value = serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
     assert_eq!(body["published_total"], 1);
+    assert_eq!(body["latest_skipped_total"], 0);
     assert_eq!(body["stomp_connections"], 0);
     server.shutdown().await;
 }

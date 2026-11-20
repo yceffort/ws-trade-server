@@ -16,6 +16,13 @@ fn parse_args() -> Option<Config> {
                 }
                 config.limits.topics = value.split(',').map(str::to_string).collect();
             }
+            "--latest-first-topics" => {
+                if value.split(',').any(str::is_empty) {
+                    return None;
+                }
+                config.latest_first_topics = value.split(',').map(str::to_string).collect();
+            }
+            "--latest-first-depth" => config.latest_first_depth = value.parse().ok()?,
             "--http-addr" => config.http_addr = Some(value),
             "--snapshot-topics" => config.snapshot_topics = value.split(',').map(str::to_string).collect(),
             "--auth-file" => {

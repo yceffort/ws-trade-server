@@ -39,6 +39,9 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
     if config.limits.connections > Semaphore::MAX_PERMITS || config.queue_capacity == 0 || config.heartbeat_ms == 0 {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "연결 한도, 큐 크기 또는 heartbeat 설정 오류"));
     }
+    if !config.latest_first_topics.is_empty() && config.latest_first_depth >= config.queue_capacity {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "최신 우선 깊이는 송신 큐 크기보다 작아야 한다"));
+    }
     let listener = TcpListener::bind(&config.addr).await?;
     let addr = listener.local_addr()?;
     let http = match &config.http_addr {
@@ -46,7 +49,12 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
         None => None,
     };
     let http_addr = http.as_ref().map(TcpListener::local_addr).transpose()?;
-    let hub = Hub::configured(config.limits.clone(), config.snapshot_topics.clone());
+    let hub = Hub::with_latest_first(
+        config.limits.clone(),
+        config.snapshot_topics.clone(),
+        config.latest_first_topics.clone(),
+        config.latest_first_depth,
+    );
     let bridge = config
         .ring
         .as_ref()

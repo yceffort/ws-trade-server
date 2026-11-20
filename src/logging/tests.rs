@@ -98,6 +98,9 @@ async fn summaries_report_only_new_failures() {
     let output = String::from_utf8(bytes.0.lock().unwrap().clone()).unwrap();
     let rows: Vec<serde_json::Value> = output.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
     let warnings: Vec<_> = rows.iter().filter(|row| row["fields"]["event"] == "server_anomalies").collect();
+    assert!(
+        rows.iter().any(|row| row["fields"]["event"] == "server_summary" && row["fields"]["latest_skipped_total"] == 0)
+    );
     assert_eq!(warnings.len(), 1);
     assert_eq!(warnings[0]["fields"]["decode_failures"], 3);
     assert_eq!(warnings[0]["fields"]["ring_overruns"], 2);
