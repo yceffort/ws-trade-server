@@ -5,7 +5,7 @@ use tokio::sync::oneshot;
 pub(super) enum Command {
     Restore(SourceConfig, Box<Snapshot>, oneshot::Sender<Result<(), Error>>),
     Apply(u64, LogRecord, oneshot::Sender<Result<bool, Error>>),
-    Boundary(u64, bool, oneshot::Sender<Result<(), Error>>),
+    Boundary(u64, u64, oneshot::Sender<Result<(), Error>>),
     View(oneshot::Sender<Result<ReplicaView, Error>>),
     Fail,
 }
@@ -48,12 +48,12 @@ impl State {
                 }
                 let _ = reply.send(result);
             }
-            Command::Boundary(next, caught_up, reply) => {
+            Command::Boundary(next, log_end, reply) => {
                 let result = self
                     .replica
                     .as_mut()
                     .ok_or(Error::InvalidState)
-                    .and_then(|replica| replica.boundary(next, caught_up));
+                    .and_then(|replica| replica.boundary(next, log_end));
                 let _ = reply.send(result);
             }
             Command::View(reply) => {
@@ -85,9 +85,9 @@ impl Hub {
         applied.await.map_err(|_| Error::ReplicaFailed)?
     }
 
-    pub async fn replica_boundary(&self, next: u64, caught_up: bool) -> Result<(), Error> {
+    pub async fn replica_boundary(&self, next: u64, log_end: u64) -> Result<(), Error> {
         let (reply, applied) = oneshot::channel();
-        self.replica_command(Command::Boundary(next, caught_up, reply)).await?;
+        self.replica_command(Command::Boundary(next, log_end, reply)).await?;
         applied.await.map_err(|_| Error::ReplicaFailed)?
     }
 

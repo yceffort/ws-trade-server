@@ -25,6 +25,7 @@ pub struct ReplicaView {
     pub snapshot: Arc<Snapshot>,
     pub next: u64,
     pub caught_up: bool,
+    pub log_end: Option<u64>,
     pub failed: bool,
     broker_seen: Option<Instant>,
     source_seen: Instant,
@@ -74,6 +75,7 @@ impl Replica {
                 snapshot: Arc::new(snapshot),
                 next,
                 caught_up: false,
+                log_end: None,
                 failed: false,
                 broker_seen: None,
                 source_seen: Instant::now(),
@@ -116,6 +118,7 @@ impl Replica {
         }
         self.view.snapshot = Arc::new(snapshot);
         self.view.next = offset.checked_add(1).ok_or(Error::Exhausted)?;
+        self.view.caught_up = self.view.log_end.is_some_and(|end| self.view.next >= end);
         self.view.broker_seen = Some(Instant::now());
         self.seen.push_back((offset, hash));
         if self.seen.len() > 1024 {
@@ -124,7 +127,7 @@ impl Replica {
         Ok(true)
     }
 
-    pub fn boundary(&mut self, next: u64, caught_up: bool) -> Result<(), Error> {
+    pub fn boundary(&mut self, next: u64, log_end: u64) -> Result<(), Error> {
         if next < self.view.next || next > i64::MAX as u64 {
             return Err(Error::InvalidState);
         }
@@ -132,7 +135,8 @@ impl Replica {
             Arc::make_mut(&mut self.view.snapshot).through = Some(Number(next - 1));
             self.view.next = next;
         }
-        self.view.caught_up |= caught_up;
+        self.view.log_end = Some(log_end);
+        self.view.caught_up = next >= log_end;
         Ok(())
     }
 
@@ -157,16 +161,19 @@ impl ReplicaTask {
                 let snapshot = Snapshot::from_json(&snapshot, &input.source)?;
                 let next = snapshot.through.ok_or(Error::InvalidState)?.0.checked_add(1).ok_or(Error::Exhausted)?;
                 let mut reader = input.kafka.reader(EVENTS, Some(next))?;
-                let barrier = reader.initial_high();
+                let mut log_end = reader.initial_high();
+                let mut sampled = Instant::now();
                 runtime.block_on(hub.restore_replica(input.source.clone(), snapshot))?;
                 while !stopped.load(Ordering::Relaxed) {
+                    if sampled.elapsed() >= Duration::from_millis(250) {
+                        log_end = reader.refresh_end()?;
+                        sampled = Instant::now();
+                    }
                     if let Some(stored) = reader.poll(Duration::from_millis(50))? {
                         let record = LogRecord::from_json(&stored.payload, &input.source)?;
                         runtime.block_on(hub.apply_replica(stored.offset, record))?;
                     }
-                    if reader.at_end() || reader.next_offset() >= barrier {
-                        runtime.block_on(hub.replica_boundary(reader.next_offset(), true))?;
-                    }
+                    runtime.block_on(hub.replica_boundary(reader.next_offset(), log_end))?;
                 }
                 Ok(())
             })();

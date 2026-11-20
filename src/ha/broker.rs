@@ -329,6 +329,11 @@ impl LogReader {
         self.initial_high
     }
 
+    pub fn refresh_end(&mut self) -> Result<u64, Error> {
+        self.rewind(self.next)?;
+        Ok(self.scan_end)
+    }
+
     fn rewind(&mut self, offset: u64) -> Result<(), Error> {
         let (_, stable) = self.consumer.fetch_watermarks(&self.topic, 0, self.timeout)?;
         let mut assignment = TopicPartitionList::new();

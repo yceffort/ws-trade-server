@@ -95,6 +95,9 @@ async fn independent_gateways_restore_and_deliver_the_whole_stream() {
             committed.source_seq
         );
     }
+    let (done, committed) = oneshot::channel();
+    feed.commands.send((0, done)).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), committed).await.unwrap().unwrap();
     let c = start_managed(config()).await.unwrap();
     let va = a.hub.replica_view().await.unwrap();
     let vc = c.hub.replica_view().await.unwrap();
