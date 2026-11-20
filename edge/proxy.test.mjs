@@ -29,3 +29,27 @@ test('TLS verifies trust and preserves protocol, message boundaries and close', 
     await assert.rejects(once(bad, 'open'), /404|400/)
   }
 })
+
+test('client close code and reason reach the backend', { timeout: 10000 }, async (t) => {
+  const backend = await echoServer(); t.after(() => backend.close())
+  const proxy = await startProxy({ backend: backend.url }); t.after(() => proxy.close())
+  const connected = once(backend.server, 'connection')
+  const socket = new WebSocket(`ws://127.0.0.1:${proxy.address.port}/ws`, 'v12.stomp')
+  t.after(() => socket.terminate()); await once(socket, 'open')
+  const [upstream] = await connected, closed = once(upstream, 'close')
+  socket.close(1000, 'done')
+  const [code, reason] = await closed
+  assert.equal(code, 1000); assert.equal(reason.toString(), 'done')
+})
+
+test('control frames use the same bounded send budget', { timeout: 10000 }, async (t) => {
+  const backend = await echoServer(); t.after(() => backend.close())
+  const proxy = await startProxy({ backend: backend.url, maxBuffer: 16 }); t.after(() => proxy.close())
+  for (const control of ['ping', 'pong']) {
+    const socket = new WebSocket(`ws://127.0.0.1:${proxy.address.port}/ws`, 'v12.stomp')
+    t.after(() => socket.terminate()); await once(socket, 'open')
+    const closed = once(socket, 'close')
+    socket[control](Buffer.alloc(32))
+    await closed
+  }
+})

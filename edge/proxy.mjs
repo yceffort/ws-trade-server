@@ -21,7 +21,7 @@ export async function startProxy({ backend, tls, host = '127.0.0.1', port = 0, m
     backends.add(upstream)
     let client
     const terminate = () => { client?.terminate(); upstream.terminate(); socket.destroy() }
-    socket.once('close', () => upstream.terminate())
+    socket.once('close', () => { if (!client) upstream.terminate() })
     upstream.on('error', () => { if (client) terminate(); else reject('502 Bad Gateway') })
     upstream.once('close', () => { backends.delete(upstream); if (!client) socket.destroy() })
     upstream.once('open', () => {
@@ -35,8 +35,11 @@ export async function startProxy({ backend, tls, host = '127.0.0.1', port = 0, m
               if (target.bufferedAmount + data.length > maxBuffer) return terminate()
               target.send(data, { binary }, (error) => { if (error) terminate() })
             })
-            source.on('ping', (data) => { if (target.readyState === WebSocket.OPEN) target.ping(data) })
-            source.on('pong', (data) => { if (target.readyState === WebSocket.OPEN) target.pong(data) })
+            for (const control of ['ping', 'pong']) source.on(control, (data) => {
+              if (target.readyState !== WebSocket.OPEN) return
+              if (target.bufferedAmount + data.length + 14 > maxBuffer) return terminate()
+              target[control](data)
+            })
             source.on('close', (code, reason) => {
               if (target.readyState === WebSocket.OPEN) target.close(code === 1005 || code === 1006 ? 1001 : code, reason)
             })
