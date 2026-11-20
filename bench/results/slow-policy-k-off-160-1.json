@@ -1,0 +1,90 @@
+{
+  "clients": {
+    "normal": 950,
+    "probes": 50,
+    "stalled": 0
+  },
+  "config": {
+    "connections": 1000,
+    "probes": 50,
+    "rate": 160.0,
+    "ring": "/var/folders/v5/gcj4wdxs0xs4m813pdmdcwqc0000gn/T/tmp.1gWNL8j7RK/ring",
+    "seconds": 10,
+    "stalled": 0,
+    "symbols": [
+      "/topic/v1/kr/stock/trade/A005930",
+      "/topic/v1/kr/stock/trade/A000660",
+      "/topic/v1/us/stock/trade/US19990122001"
+    ],
+    "url": "ws://127.0.0.1:63009/ws",
+    "warmup": 3
+  },
+  "connect": {
+    "failed": 0,
+    "millis": 62,
+    "ready": 1000
+  },
+  "delivery": {
+    "delivered": 198135,
+    "expected": 239300,
+    "ratio": 0.8279774341830338
+  },
+  "latency_us": {
+    "max": 5959532,
+    "outside_window": 9671,
+    "p50": 97278,
+    "p90": 1420792,
+    "p99": 2580825,
+    "samples": 198135,
+    "unmatched": 0,
+    "unparsed": 0
+  },
+  "messages": {
+    "measured": 4278286,
+    "per_sec": 427828.6,
+    "total": 5631097
+  },
+  "seq_gap_clients": 0,
+  "stalled_kicked": 0,
+  "unexpected_disconnects": 143,
+  "written": {
+    "measured": 4786,
+    "per_sec": 478.6,
+    "total": 6196
+  },
+  "gateway": {
+    "poll_us": 200,
+    "rss_kb_idle": 7168,
+    "rss_kb_max": 39840,
+    "cpu_pct_mean": 277.7,
+    "cpu_pct_max": 298.5,
+    "cpu_pct_from_time": 274.6,
+    "samples": 10,
+    "metrics": {
+      "logs_dropped_total": 0,
+      "stomp_connections": 0,
+      "subscriptions": 0,
+      "queued_frames": 0,
+      "queue_capacity": 0,
+      "commands_queued": 0,
+      "published_total": 6171,
+      "enqueued_frames_total": 5802273,
+      "slow_disconnections_total": 145,
+      "latest_skipped_total": 0,
+      "ring_overruns_total": 0,
+      "sequence_missing_total": 0,
+      "sequence_resets_total": 0,
+      "decode_failures_total": 0,
+      "invalid_trades_total": 0
+    }
+  },
+  "environment": {
+    "os": "Darwin 27.2.0 arm64",
+    "cpu_model": "Apple M5",
+    "cores": 10,
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "commit": "b9f4fe78b3e2c4b96fced351c6c90bc8114eb3d8",
+    "gateway_cpus": null,
+    "loadgen_cpus": null
+  }
+}

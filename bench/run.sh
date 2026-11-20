@@ -3,17 +3,21 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-[ $# -ge 1 ] && [[ "$1" != --* ]] || { echo "사용법: bench/run.sh <이름> [--poll-us N] [loadgen 인자...]" >&2; exit 2; }
+[ $# -ge 1 ] && [[ "$1" != --* ]] || { echo "사용법: bench/run.sh <이름> [--poll-us N] [--latest-first-topics 목록] [--latest-first-depth K] [--metrics] [loadgen 인자...]" >&2; exit 2; }
 name=$1
 shift
 command -v jq >/dev/null || { echo "jq가 필요하다" >&2; exit 1; }
 
 poll_us=200
+gateway_extra=()
+metrics=""
 connections=100
 loadgen_args=()
 while [ $# -gt 0 ]; do
   case $1 in
     --poll-us) poll_us=${2:?}; shift 2 ;;
+    --latest-first-topics | --latest-first-depth) gateway_extra+=("$1" "${2:?}"); shift 2 ;;
+    --metrics) metrics=1; shift ;;
     --connections) connections=${2:?}; loadgen_args+=("$1" "$2"); shift 2 ;;
     --url | --ring | --out) echo "$1은 스크립트가 정한다" >&2; exit 2 ;;
     *) loadgen_args+=("$1"); shift ;;
@@ -46,14 +50,20 @@ loadgen_pin=()
 [ -z "${GATEWAY_CPUS:-}" ] || gateway_pin=(taskset -c "$GATEWAY_CPUS")
 [ -z "${LOADGEN_CPUS:-}" ] || loadgen_pin=(taskset -c "$LOADGEN_CPUS")
 
-${gateway_pin[@]+"${gateway_pin[@]}"} "$target/gateway" --addr 127.0.0.1:0 --ring "$work/ring" --poll-us "$poll_us" 2>"$work/gateway.log" &
+# --metrics를 주면 끝날 때 /metrics를 읽으려고 loopback 조회 포트를 연다.
+${gateway_pin[@]+"${gateway_pin[@]}"} "$target/gateway" --addr 127.0.0.1:0 --ring "$work/ring" --poll-us "$poll_us" \
+  ${gateway_extra[@]+"${gateway_extra[@]}"} ${metrics:+--http-addr 127.0.0.1:0} 2>"$work/gateway.log" &
 gateway_pid=$!
 port=""
+http_port=""
 for _ in $(seq 50); do
   # gateway는 로그 한 줄을 여러 번에 나눠 쓴다. read는 줄바꿈까지 쓰인 줄만 성공하므로 덜 쓰인 줄에서 잘린 포트를 뽑지 않는다.
   while IFS= read -r line; do
-    # 시작 로그는 `event="gateway_started" addr=127.0.0.1:포트 http_addr=...` 꼴이다. addr 값만 떼어 그 끝의 포트를 읽는다.
-    case $line in *'event="gateway_started"'*) port=${line#* addr=}; port=${port%% *}; port=${port##*:} ;; esac
+    # 시작 로그는 `event="gateway_started" addr=127.0.0.1:포트 http_addr=Some(127.0.0.1:포트)` 꼴이다. 각 값의 끝에서 포트를 읽는다.
+    case $line in *'event="gateway_started"'*)
+      port=${line#* addr=}; port=${port%% *}; port=${port##*:}
+      [ -z "$metrics" ] || { http_port=${line#*http_addr=Some(}; http_port=${http_port%%)*}; http_port=${http_port##*:}; } ;;
+    esac
   done <"$work/gateway.log"
   [ -z "$port" ] || break
   sleep 0.1
@@ -88,6 +98,14 @@ wait "$loadgen_pid" || status=$?
 loadgen_pid=""
 if [ "$status" -ne 0 ]; then cat "$work/loadgen.err" >&2; echo "loadgen 실패($status)" >&2; exit "$status"; fi
 
+# 넘긴 정책 인자와 gateway의 누적 지표(src/metrics.rs). 지표는 curl 없이 bash의 /dev/tcp로 읽고 응답 머리를 뗀다.
+extra='{}'
+[ ${#gateway_extra[@]} -eq 0 ] || extra=$(printf '%s\n' "${gateway_extra[@]}" | jq -R . | jq -s '{args: .}')
+if [ -n "$metrics" ]; then
+  body=$(exec 3<>"/dev/tcp/127.0.0.1/$http_port"; printf 'GET /metrics HTTP/1.1\r\nHost: localhost\r\n\r\n' >&3; sed '1,/^\r$/d' <&3)
+  extra=$(jq -n --argjson extra "$extra" --argjson metrics "$body" '$extra + {metrics: $metrics}')
+fi
+
 # ps의 %cpu는 구간 값이 아니다(macOS는 감쇠 평균, Linux는 프로세스 수명 평균). 구간 앞의 부하가 섞이므로 누적 CPU 시간의 증가분도 함께 남긴다.
 gateway=$(awk -v idle="$idle_rss" -v poll="$poll_us" '
   $5 == 1 {
@@ -109,6 +127,7 @@ environment=$(jq -n --arg os "$(uname -srm)" --arg cpu "$cpu" --argjson cores "$
    {os: $os, cpu_model: ($cpu | opt), cores: $cores, rustc: $rustc, commit: ($commit | opt), gateway_cpus: ($gateway_cpus | opt), loadgen_cpus: ($loadgen_cpus | opt)}')
 
 mkdir -p bench/results
-jq --argjson gateway "$gateway" --argjson environment "$environment" '. + {gateway: $gateway, environment: $environment}' \
+jq --argjson gateway "$gateway" --argjson environment "$environment" --argjson extra "$extra" \
+  '. + {gateway: (if $extra == {} then $gateway else $gateway + $extra end), environment: $environment}' \
   "$work/loadgen.json" >"bench/results/$name.json"
 echo "bench/results/$name.json"

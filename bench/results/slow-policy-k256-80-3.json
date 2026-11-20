@@ -1,0 +1,96 @@
+{
+  "clients": {
+    "normal": 950,
+    "probes": 50,
+    "stalled": 0
+  },
+  "config": {
+    "connections": 1000,
+    "probes": 50,
+    "rate": 80.0,
+    "ring": "/var/folders/v5/gcj4wdxs0xs4m813pdmdcwqc0000gn/T/tmp.YAa5gLT26n/ring",
+    "seconds": 10,
+    "stalled": 0,
+    "symbols": [
+      "/topic/v1/kr/stock/trade/A005930",
+      "/topic/v1/kr/stock/trade/A000660",
+      "/topic/v1/us/stock/trade/US19990122001"
+    ],
+    "url": "ws://127.0.0.1:61956/ws",
+    "warmup": 3
+  },
+  "connect": {
+    "failed": 0,
+    "millis": 66,
+    "ready": 1000
+  },
+  "delivery": {
+    "delivered": 118350,
+    "expected": 118350,
+    "ratio": 1.0
+  },
+  "latency_us": {
+    "max": 815534,
+    "outside_window": 195,
+    "p50": 8702,
+    "p90": 55487,
+    "p99": 180486,
+    "samples": 118350,
+    "unmatched": 0,
+    "unparsed": 0
+  },
+  "messages": {
+    "measured": 2368867,
+    "per_sec": 236886.7,
+    "total": 2993000
+  },
+  "seq_gap_clients": 0,
+  "stalled_kicked": 0,
+  "unexpected_disconnects": 0,
+  "written": {
+    "measured": 2367,
+    "per_sec": 236.7,
+    "total": 3041
+  },
+  "gateway": {
+    "poll_us": 200,
+    "rss_kb_idle": 7184,
+    "rss_kb_max": 33648,
+    "cpu_pct_mean": 241.0,
+    "cpu_pct_max": 287.3,
+    "cpu_pct_from_time": 236.3,
+    "samples": 9,
+    "args": [
+      "--latest-first-topics",
+      "/topic/v1/kr/stock/trade/A005930,/topic/v1/kr/stock/trade/A000660,/topic/v1/us/stock/trade/US19990122001",
+      "--latest-first-depth",
+      "256"
+    ],
+    "metrics": {
+      "logs_dropped_total": 0,
+      "stomp_connections": 0,
+      "subscriptions": 0,
+      "queued_frames": 0,
+      "queue_capacity": 0,
+      "commands_queued": 0,
+      "published_total": 2993,
+      "enqueued_frames_total": 2996000,
+      "slow_disconnections_total": 0,
+      "latest_skipped_total": 0,
+      "ring_overruns_total": 0,
+      "sequence_missing_total": 0,
+      "sequence_resets_total": 0,
+      "decode_failures_total": 0,
+      "invalid_trades_total": 0
+    }
+  },
+  "environment": {
+    "os": "Darwin 27.2.0 arm64",
+    "cpu_model": "Apple M5",
+    "cores": 10,
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "commit": "b9f4fe78b3e2c4b96fced351c6c90bc8114eb3d8",
+    "gateway_cpus": null,
+    "loadgen_cpus": null
+  }
+}
