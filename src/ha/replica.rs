@@ -30,6 +30,7 @@ pub struct ReplicaView {
     pub log_end: Option<u64>,
     pub failed: bool,
     broker_seen: Option<Instant>,
+    log_seen: Option<Instant>,
     source_seen: Instant,
 }
 
@@ -40,6 +41,7 @@ impl ReplicaView {
             && self.caught_up
             && policy_fresh
             && self.broker_seen.is_some_and(|seen| seen.elapsed() < FRESHNESS)
+            && self.log_seen.is_some_and(|seen| seen.elapsed() < FRESHNESS)
             && self.source_seen.elapsed() < FRESHNESS
             && self.snapshot.status.as_ref().is_some_and(|status| {
                 status.connected
@@ -82,6 +84,7 @@ impl Replica {
                 log_end: None,
                 failed: false,
                 broker_seen: None,
+                log_seen: None,
                 source_seen: Instant::now(),
             },
         })
@@ -146,6 +149,11 @@ impl Replica {
         Ok(())
     }
 
+    pub fn observed(&mut self, at: Instant) {
+        self.view.broker_seen = Some(at);
+        self.view.log_seen = Some(at);
+    }
+
     pub fn fail(&mut self) {
         self.view.failed = true;
     }
@@ -166,14 +174,26 @@ impl ReplicaTask {
                 let snapshot = input.kafka.latest(SNAPSHOT, SHARD.as_bytes())?.ok_or(Error::MissingCheckpoint)?;
                 let snapshot = Snapshot::from_json(&snapshot, &input.source)?;
                 let next = snapshot.through.ok_or(Error::InvalidState)?.0.checked_add(1).ok_or(Error::Exhausted)?;
-                let mut reader = input.kafka.reader(EVENTS, Some(next))?;
+                let mut reader = input.kafka.reader_catchup(EVENTS, next)?;
                 let mut log_end = reader.initial_high();
                 let mut sampled = Instant::now();
                 runtime.block_on(hub.restore_replica(input.source.clone(), snapshot))?;
+                runtime.block_on(hub.replica_observation(next, log_end, sampled))?;
                 while !stopped.load(Ordering::Relaxed) {
                     if sampled.elapsed() >= Duration::from_millis(250) {
-                        log_end = reader.refresh_end()?;
                         sampled = Instant::now();
+                        match reader.refresh_end() {
+                            Ok(end) => {
+                                log_end = end;
+                                runtime.block_on(hub.replica_observation(
+                                    reader.next_offset(),
+                                    log_end,
+                                    Instant::now(),
+                                ))?;
+                            }
+                            Err(Error::Broker(error)) if super::broker::transient(&error) => {}
+                            Err(error) => return Err(error),
+                        }
                     }
                     if let Some(stored) = reader.poll(Duration::from_millis(50))? {
                         let record = LogRecord::from_json(&stored.payload, &input.source)?;

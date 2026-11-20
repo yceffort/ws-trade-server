@@ -88,8 +88,17 @@ async fn independent_gateways_restore_and_deliver_the_whole_stream() {
     }
     assert_eq!(bodies_a, bodies_b);
     for hub in [&a.hub, &b.hub] {
-        let view = hub.replica_view().await.unwrap();
-        assert!(view.next > committed.through);
+        let view = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let view = hub.replica_view().await.unwrap();
+                if view.next > committed.through {
+                    break view;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .unwrap();
         assert_eq!(
             view.snapshot.topics.values().flatten().map(|latest| latest.event.source_seq()).max(),
             committed.source_seq

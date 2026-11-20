@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::time::{Duration, Instant};
 
-fn transient(error: &KafkaError) -> bool {
+pub(super) fn transient(error: &KafkaError) -> bool {
     matches!(
         error.rdkafka_error_code(),
         Some(
@@ -97,10 +97,20 @@ impl Kafka {
     }
 
     pub fn reader(&self, topic: &str, start: Option<u64>) -> Result<LogReader, Error> {
-        self.reader_until(topic, start, Instant::now() + self.timeout())
+        self.reader_until(topic, start, Instant::now() + self.timeout(), false)
     }
 
-    fn reader_until(&self, topic: &str, start: Option<u64>, deadline: Instant) -> Result<LogReader, Error> {
+    pub fn reader_catchup(&self, topic: &str, start: u64) -> Result<LogReader, Error> {
+        self.reader_until(topic, Some(start), Instant::now() + self.timeout(), true)
+    }
+
+    fn reader_until(
+        &self,
+        topic: &str,
+        start: Option<u64>,
+        deadline: Instant,
+        wait_for_start: bool,
+    ) -> Result<LogReader, Error> {
         let consumer: BaseConsumer<Quiet> = self
             .client()?
             .set("group.id", format!("wts-reader-{SHARD}"))
@@ -124,6 +134,11 @@ impl Kafka {
                 0,
                 deadline.saturating_duration_since(Instant::now()).min(Duration::from_secs(2)),
             ) {
+                Ok((low, high))
+                    if wait_for_start && start.is_some_and(|start| start > high as u64 && start >= low as u64) =>
+                {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
                 Ok(bounds) => break bounds,
                 Err(error) if transient(&error) => std::thread::sleep(Duration::from_millis(50)),
                 Err(error) => return Err(error.into()),
@@ -165,7 +180,7 @@ impl Kafka {
         }
         let (_, high) = probe.fetch_watermarks(topic, 0, deadline.saturating_duration_since(Instant::now()))?;
         let mut boundary = u64::try_from(high).map_err(|_| Error::InvalidState)?;
-        let mut reader = self.reader_until(topic, None, deadline)?;
+        let mut reader = self.reader_until(topic, None, deadline, false)?;
         let low = reader.next_offset();
         let mut bytes = 0;
         let mut first = |start, end| -> Result<Option<StoredRecord>, Error> {

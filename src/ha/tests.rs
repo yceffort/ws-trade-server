@@ -95,6 +95,7 @@ fn replica_readiness_uses_source_status_policy_and_catchup_not_trade_time() {
     replica.apply(2, &status(replica::now_ms())).unwrap();
     assert!(!replica.view().ready(true));
     replica.boundary(4, 4).unwrap();
+    replica.observed(std::time::Instant::now());
     assert!(replica.view().ready(true));
     assert!(!replica.view().ready(false));
     replica.boundary(4, 105).unwrap();
@@ -111,6 +112,21 @@ fn replica_readiness_uses_source_status_policy_and_catchup_not_trade_time() {
     replica.apply(10, &status(replica::now_ms())).unwrap();
     assert!(replica.view().ready(true));
     replica.fail();
+    assert!(!replica.view().ready(true));
+}
+
+#[test]
+fn fresh_snapshot_is_ready_without_new_records_but_expired_observation_is_not() {
+    let config = config();
+    let mut snapshot = Snapshot::empty(&config).unwrap();
+    snapshot.apply(&LogRecord::Status(SourceStatus::new(&config, replica::now_ms(), false)), 0, &config).unwrap();
+    let mut replica = Replica::restore(config, snapshot).unwrap();
+    replica.boundary(2, 2).unwrap();
+    assert!(!replica.view().ready(true));
+    replica.observed(std::time::Instant::now());
+    assert!(replica.view().ready(true));
+    replica.observed(std::time::Instant::now() - std::time::Duration::from_secs(4));
+    replica.boundary(2, 2).unwrap();
     assert!(!replica.view().ready(true));
 }
 

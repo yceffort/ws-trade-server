@@ -6,6 +6,7 @@ pub(super) enum Command {
     Restore(SourceConfig, Box<Snapshot>, oneshot::Sender<Result<(), Error>>),
     Apply(u64, LogRecord, oneshot::Sender<Result<bool, Error>>),
     Boundary(u64, u64, oneshot::Sender<Result<(), Error>>),
+    Observed(u64, u64, std::time::Instant, oneshot::Sender<Result<(), Error>>),
     View(oneshot::Sender<Result<ReplicaView, Error>>),
     Fail,
 }
@@ -56,6 +57,14 @@ impl State {
                     .and_then(|replica| replica.boundary(next, log_end));
                 let _ = reply.send(result);
             }
+            Command::Observed(next, log_end, at, reply) => {
+                let result = self.replica.as_mut().ok_or(Error::InvalidState).and_then(|replica| {
+                    replica.boundary(next, log_end)?;
+                    replica.observed(at);
+                    Ok(())
+                });
+                let _ = reply.send(result);
+            }
             Command::View(reply) => {
                 let _ = reply.send(self.replica.as_ref().map(Replica::view).ok_or(Error::InvalidState));
             }
@@ -88,6 +97,17 @@ impl Hub {
     pub async fn replica_boundary(&self, next: u64, log_end: u64) -> Result<(), Error> {
         let (reply, applied) = oneshot::channel();
         self.replica_command(Command::Boundary(next, log_end, reply)).await?;
+        applied.await.map_err(|_| Error::ReplicaFailed)?
+    }
+
+    pub(crate) async fn replica_observation(
+        &self,
+        next: u64,
+        log_end: u64,
+        at: std::time::Instant,
+    ) -> Result<(), Error> {
+        let (reply, applied) = oneshot::channel();
+        self.replica_command(Command::Observed(next, log_end, at, reply)).await?;
         applied.await.map_err(|_| Error::ReplicaFailed)?
     }
 
