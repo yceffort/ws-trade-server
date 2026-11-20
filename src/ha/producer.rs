@@ -17,7 +17,7 @@ pub struct Committed {
 }
 
 pub struct Publisher {
-    writer: Writer,
+    pub(super) writer: Writer,
     state: Checkpoint,
     poisoned: bool,
 }

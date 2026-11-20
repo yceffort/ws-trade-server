@@ -25,6 +25,7 @@ const server = createServer(async (request, response) => {
     const next = JSON.parse(Buffer.concat(chunks).toString())
     if (next.metadata?.resourceVersion !== String(version)) return reply(409)
     if (!next.spec || typeof next.spec.holderIdentity !== 'string' || !Number.isInteger(next.spec.leaseDurationSeconds)) return reply(400)
+    if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/.test(next.spec.renewTime)) return reply(400)
     document = { ...next, metadata: { ...next.metadata, resourceVersion: String(++version) } }
     reply(200, document)
   } catch { reply(400) }

@@ -81,7 +81,67 @@ fn synthetic_checkpoint_fencing_and_snapshot_are_atomic() {
     let gateway: Kafka = serde_json::from_slice(&std::fs::read(directory.join("gateway.json")).unwrap()).unwrap();
     assert_eq!(events(&gateway, &config).len(), 40);
     assert!(gateway.writer(&config.log_id).is_err());
-    assert!(gateway.latest(CHECKPOINT, SHARD.as_bytes()).is_err());
+    let error = gateway.latest(CHECKPOINT, SHARD.as_bytes()).unwrap_err();
+    assert!(
+        matches!(error, Error::Broker(ref error) if error.rdkafka_error_code() == Some(rdkafka::error::RDKafkaErrorCode::TopicAuthorizationFailed)),
+        "{error:?}"
+    );
+    assert_topic_write_denied(&gateway);
+    let saved = kafka.latest(SNAPSHOT, SHARD.as_bytes()).unwrap().unwrap();
+    let writer = kafka.writer(&config.log_id).unwrap();
+    let records = vec![(SHARD.as_bytes().to_vec(), saved.clone()); 64];
+    for _ in 0..65 {
+        writer.begin().unwrap();
+        writer.send(SNAPSHOT, &records).unwrap();
+        writer.commit().unwrap();
+    }
+    assert_eq!(kafka.latest(SNAPSHOT, SHARD.as_bytes()).unwrap().unwrap(), saved);
+    let stable = kafka.reader(EVENTS, None).unwrap().initial_high();
+    writer.begin().unwrap();
+    writer
+        .send(
+            EVENTS,
+            &[(
+                b"source-status".to_vec(),
+                LogRecord::Status(SourceStatus::new(&config, 7000, false)).to_json().unwrap(),
+            )],
+        )
+        .unwrap();
+    let mut tail = kafka.reader(EVENTS, Some(stable)).unwrap();
+    assert_eq!(tail.initial_high(), stable);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !tail.at_end() && Instant::now() < deadline {
+        assert!(tail.poll(Duration::from_millis(50)).unwrap().is_none());
+    }
+    assert!(tail.at_end());
+    assert_eq!(tail.next_offset(), stable);
+    writer.abort().unwrap();
+}
+
+fn assert_topic_write_denied(kafka: &Kafka) {
+    use rdkafka::client::ClientContext;
+    use rdkafka::producer::{BaseRecord, DeliveryResult, ProducerContext, ThreadedProducer};
+    struct Probe(std::sync::mpsc::SyncSender<Result<(), rdkafka::error::KafkaError>>);
+    impl ClientContext for Probe {
+        fn log(&self, _: rdkafka::config::RDKafkaLogLevel, _: &str, _: &str) {}
+        fn error(&self, _: rdkafka::error::KafkaError, _: &str) {}
+    }
+    impl ProducerContext for Probe {
+        type DeliveryOpaque = ();
+        fn delivery(&self, result: &DeliveryResult<'_>, _: ()) {
+            let _ = self.0.try_send(result.as_ref().map(|_| ()).map_err(|(error, _)| error.clone()));
+        }
+    }
+    let mut settings = rdkafka::ClientConfig::new();
+    for (key, value) in &kafka.properties {
+        settings.set(key, value);
+    }
+    settings.set("message.timeout.ms", "5000").set("enable.idempotence", "false");
+    let (reply, received) = std::sync::mpsc::sync_channel(1);
+    let writer: ThreadedProducer<Probe> = settings.create_with_context(Probe(reply)).unwrap();
+    writer.send(BaseRecord::to(EVENTS).partition(0).key("acl-probe").payload("denied")).unwrap();
+    let error = received.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err();
+    assert_eq!(error.rdkafka_error_code(), Some(rdkafka::error::RDKafkaErrorCode::TopicAuthorizationFailed));
 }
 
 struct Replay {
@@ -117,6 +177,33 @@ fn external_replay_gap_and_lost_ack_use_committed_input_window() {
     let mut publisher = Publisher::open(&kafka, config.clone(), Bootstrap::Initialize(None), 1000, &mut guard).unwrap();
     let mut generator = Synthetic::new(&config, 1, 1000).unwrap();
     let batch = (1..=1025).map(|seq| generator.next(&config, seq, 1000).unwrap()).collect::<Vec<_>>();
+    struct Gap {
+        records: Vec<Envelope>,
+        empty: bool,
+        reads: usize,
+        acks: usize,
+    }
+    impl ExternalSource for Gap {
+        fn read_from(&mut self, _: u64, _: usize, _: Instant) -> Result<Vec<Envelope>, Error> {
+            self.reads += 1;
+            if self.empty && self.reads > 1 { Ok(Vec::new()) } else { Ok(self.records.clone()) }
+        }
+        fn acknowledge(&mut self, _: u64) -> Result<(), Error> {
+            self.acks += 1;
+            Ok(())
+        }
+    }
+    for empty in [false, true] {
+        let before = publisher.checkpoint().to_json().unwrap();
+        let mut gap = Gap { records: vec![batch[0].clone(), batch[2].clone()], empty, reads: 0, acks: 0 };
+        let result =
+            pump_external(&mut publisher, &mut gap, 2000, true, Instant::now() + Duration::from_millis(50), &mut guard);
+        assert!(matches!(result, Err(Error::SourceGap)));
+        assert!(gap.reads > 1);
+        assert_eq!(gap.acks, 0);
+        assert_eq!(publisher.checkpoint().to_json().unwrap(), before);
+        assert_eq!(kafka.latest(CHECKPOINT, SHARD.as_bytes()).unwrap().unwrap(), before);
+    }
     let mut source = Replay { batch: batch[..3].to_vec(), acknowledged: Vec::new(), first_gap: true, lose_ack: true };
     assert!(matches!(
         pump_external(&mut publisher, &mut source, 2000, true, Instant::now() + Duration::from_secs(15), &mut guard),
@@ -150,7 +237,7 @@ fn external_replay_gap_and_lost_ack_use_committed_input_window() {
 
 struct Faults {
     project: String,
-    disconnected: Option<String>,
+    disconnected: Option<(String, String, String)>,
 }
 
 impl Faults {
@@ -166,12 +253,22 @@ impl Faults {
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     }
     fn restore(&mut self) {
-        if let Some(container) = self.disconnected.take() {
+        if let Some((container, service, ip)) = &self.disconnected {
             let status = std::process::Command::new("docker")
-                .args(["network", "connect", &format!("{}_default", self.project), &container])
+                .args([
+                    "network",
+                    "connect",
+                    "--alias",
+                    service,
+                    "--ip",
+                    ip,
+                    &format!("{}_default", self.project),
+                    container,
+                ])
                 .status()
                 .unwrap();
             assert!(status.success());
+            self.disconnected = None;
         }
         self.run(&["up", "-d", "--wait", "--wait-timeout", "120"]);
     }
@@ -179,9 +276,18 @@ impl Faults {
 
 impl Drop for Faults {
     fn drop(&mut self) {
-        if let Some(container) = self.disconnected.take() {
+        if let Some((container, service, ip)) = self.disconnected.take() {
             let _ = std::process::Command::new("docker")
-                .args(["network", "connect", &format!("{}_default", self.project), &container])
+                .args([
+                    "network",
+                    "connect",
+                    "--alias",
+                    &service,
+                    "--ip",
+                    &ip,
+                    &format!("{}_default", self.project),
+                    &container,
+                ])
                 .output();
         }
         let _ = self.compose(&["start"]);
@@ -212,6 +318,14 @@ fn replicated_log_survives_broker_loss_and_rejects_no_quorum() {
     let container = String::from_utf8(faults.compose(&["ps", "-q", "kafka2"]).stdout).unwrap().trim().to_owned();
     assert!(!container.is_empty());
     let network = format!("{}_default", faults.project);
+    let inspected = std::process::Command::new("docker")
+        .args(["inspect", "--format", "{{json .NetworkSettings.Networks}}", &container])
+        .output()
+        .unwrap();
+    assert!(inspected.status.success());
+    let networks: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
+    let ip = networks[&network]["IPAddress"].as_str().unwrap().to_owned();
+    assert!(ip.parse::<std::net::Ipv4Addr>().is_ok());
     assert!(
         std::process::Command::new("docker")
             .args(["network", "disconnect", &network, &container])
@@ -219,17 +333,22 @@ fn replicated_log_survives_broker_loss_and_rejects_no_quorum() {
             .unwrap()
             .success()
     );
-    faults.disconnected = Some(container);
+    // 같은 IP로 복원해 다른 broker의 DNS cache가 다른 인증서를 가진 피어를 가리키지 않게 한다.
+    faults.disconnected = Some((container, "kafka2".into(), ip));
     assert!(publisher.synthetic(5, 8000, true, &mut guard).is_err());
     assert_eq!(publisher.checkpoint().last_seq(), before);
     drop(publisher);
     faults.restore();
-    let resumed = Publisher::open(&kafka, config.clone(), Bootstrap::Existing, 9000, &mut guard).unwrap();
+    let mut resumed = Publisher::open(&kafka, config.clone(), Bootstrap::Existing, 9000, &mut guard).unwrap();
     assert_eq!(resumed.checkpoint().last_seq(), before);
+    resumed.synthetic(5, 9000, true, &mut guard).unwrap();
+    assert_eq!(resumed.checkpoint().last_seq(), before.map(|seq| seq + 5));
+    let before = resumed.checkpoint().last_seq();
     drop(resumed);
     assert_eq!(audit(&kafka, &config).unwrap().source_seq, before.map(Number));
     faults.run(&["stop", "-t", "3"]);
-    faults.restore();
+    // 수동 network reconnect의 IP 지정은 지우고, 같은 volume으로 broker 컨테이너를 새로 시작한다.
+    faults.run(&["up", "-d", "--force-recreate", "--wait", "--wait-timeout", "120"]);
     let restored = Publisher::open(&kafka, config.clone(), Bootstrap::Existing, 10000, &mut guard).unwrap();
     assert_eq!(restored.checkpoint().last_seq(), before);
     assert_eq!(audit(&kafka, &config).unwrap().source_seq, before.map(Number));

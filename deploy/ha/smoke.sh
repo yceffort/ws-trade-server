@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-export COMPOSE_PROJECT_NAME="wts-ha-test-$(node -e 'process.stdout.write(require("node:crypto").randomBytes(6).toString("hex"))')"
+suffix=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(6).toString("hex"))')
+[[ "$suffix" =~ ^[0-9a-f]{12}$ ]]
+export COMPOSE_PROJECT_NAME="wts-ha-test-$suffix"
 export WTS_HA_TEST_CONFIG="$PWD/deploy/local/ha"
 export WTS_HA_ALLOW_FAULTS=owned-test-cluster
 compose=(docker compose -f deploy/ha/compose.yaml)
@@ -9,7 +11,10 @@ cleanup() {
   status=$?
   trap - EXIT
   if ((status != 0)); then node deploy/ha/diagnose.mjs || true; fi
-  "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  if ! "${compose[@]}" down --volumes --remove-orphans; then
+    echo "Compose 정리 실패: $COMPOSE_PROJECT_NAME" >&2
+    if ((status == 0)); then status=1; fi
+  fi
   exit "$status"
 }
 trap cleanup EXIT
@@ -26,3 +31,4 @@ cargo test --locked --features ha --test ha_broker replicated_log_survives_broke
 "${compose[@]}" up -d --wait --wait-timeout 180
 deploy/ha/bootstrap.sh
 cargo test --locked --features ha --test ha_broker external_replay_gap_and_lost_ack_use_committed_input_window -- --ignored --nocapture
+cargo test --locked --features ha --lib unclear_commit_result_restores_committed_input -- --ignored --nocapture

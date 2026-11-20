@@ -7,7 +7,7 @@ topic() { "${compose[@]}" exec -T kafka1 /opt/kafka/bin/kafka-topics.sh "${admin
 acl() { "${compose[@]}" exec -T kafka1 /opt/kafka/bin/kafka-acls.sh "${admin[@]}" --add "$@" >/dev/null; }
 topic --create --if-not-exists --topic wts.events.v1 --partitions 1 --replication-factor 3 --config min.insync.replicas=2 --config cleanup.policy=delete --config retention.ms=86400000 --config retention.bytes=1073741824 --config max.message.bytes=1048576
 for name in wts.checkpoint.v1 wts.snapshot.v1; do
-  topic --create --if-not-exists --topic "$name" --partitions 1 --replication-factor 3 --config min.insync.replicas=2 --config cleanup.policy=compact --config max.message.bytes=1048576 --config segment.bytes=16777216 --config min.cleanable.dirty.ratio=0.1
+  topic --create --if-not-exists --topic "$name" --partitions 1 --replication-factor 3 --config min.insync.replicas=2 --config cleanup.policy=compact --config max.message.bytes=1048576 --config segment.bytes=16777216 --config segment.ms=60000 --config min.cleanable.dirty.ratio=0.1 --config max.compaction.lag.ms=120000
 done
 for name in wts.events.v1 wts.checkpoint.v1 wts.snapshot.v1; do
   acl --allow-principal User:feed --topic "$name" --operation Write --operation Read --operation Describe

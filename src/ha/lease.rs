@@ -149,7 +149,8 @@ impl Lease {
         document["spec"]["holderIdentity"] = Value::from(self.config.identity.clone());
         document["spec"]["leaseDurationSeconds"] = Value::from(self.config.duration_seconds);
         document["spec"]["renewTime"] =
-            Value::from(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+            Value::from(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true));
+        let sent = Instant::now();
         let response = self
             .client
             .put(&self.config.url)
@@ -165,8 +166,17 @@ impl Lease {
         if current["spec"]["holderIdentity"].as_str() != Some(&self.config.identity) {
             return Err(Error::LeaseLost);
         }
-        self.renewed = Some(Instant::now());
+        self.record_renewal(sent)?;
         Ok(true)
+    }
+
+    fn record_renewal(&mut self, sent: Instant) -> Result<(), Error> {
+        if sent.elapsed() >= Duration::from_secs(self.config.duration_seconds / 2) {
+            self.renewed = None;
+            return Err(Error::LeaseLost);
+        }
+        self.renewed = Some(sent);
+        Ok(())
     }
 
     pub fn acquire(&mut self) -> Result<bool, Error> {
@@ -212,5 +222,31 @@ impl Lease {
             return Err(Error::LeaseLost);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delayed_first_claim_cannot_refresh_its_credit_on_receipt() {
+        let mut lease = Lease::new(LeaseConfig {
+            url: "https://127.0.0.1/lease".into(),
+            token_file: "unused".into(),
+            ca_file: None,
+            identity: "test".into(),
+            duration_seconds: 6,
+            development_loopback_http: false,
+        })
+        .unwrap();
+        let sent = Instant::now() - Duration::from_secs(1);
+        lease.record_renewal(sent).unwrap();
+        assert_eq!(lease.renewed, Some(sent));
+        assert!(matches!(lease.record_renewal(Instant::now() - Duration::from_secs(4)), Err(Error::LeaseLost)));
+        assert!(lease.renewed.is_none());
+        let value = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+        assert_eq!(value.split_once('.').unwrap().1.len(), 7);
+        assert!(value.ends_with('Z'));
     }
 }

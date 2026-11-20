@@ -11,6 +11,50 @@ fn config() -> SourceConfig {
     }
 }
 
+#[test]
+#[ignore = "외부 입력 시험 뒤의 실제 broker 필요: deploy/ha/smoke.sh"]
+fn unclear_commit_result_restores_committed_input() {
+    let directory = std::path::PathBuf::from(std::env::var("WTS_HA_TEST_CONFIG").unwrap());
+    let kafka: Kafka = serde_json::from_slice(&std::fs::read(directory.join("feed.json")).unwrap()).unwrap();
+    let config: SourceConfig = serde_json::from_slice(&std::fs::read(directory.join("source.json")).unwrap()).unwrap();
+    let mut guard = || Ok(());
+    let mut publisher = Publisher::open(&kafka, config.clone(), Bootstrap::Existing, 2000, &mut guard).unwrap();
+    let before = publisher.checkpoint().to_json().unwrap();
+    let next = publisher.checkpoint().next_seq().unwrap();
+    let offset = publisher.checkpoint().snapshot.through.unwrap().0 + 1;
+    let mut generator = Synthetic::new(&config, 5, 1000).unwrap();
+    let input = (next..next + 5).map(|seq| generator.next(&config, seq, 2000).unwrap()).collect::<Vec<_>>();
+    publisher.writer.lose_commit_result = true;
+    assert!(matches!(publisher.external(&input, 2000, true, &mut guard), Err(Error::Deadline)));
+    assert_eq!(publisher.checkpoint().to_json().unwrap(), before);
+    assert!(matches!(publisher.external(&input, 2000, true, &mut guard), Err(Error::RestartRequired)));
+    drop(publisher);
+    let mut restored = Publisher::open(&kafka, config.clone(), Bootstrap::Existing, 3000, &mut guard).unwrap();
+    assert_eq!(restored.checkpoint().last_seq(), Some(next + 4));
+    let replay = restored.external(&input, 3000, true, &mut guard).unwrap();
+    assert_eq!((replay.new_events, replay.replays), (0, 5));
+    assert_eq!(audit(&kafka, &config).unwrap().source_seq, Some(Number(next + 4)));
+    let mut reader = kafka.reader(EVENTS, Some(offset)).unwrap();
+    let mut records = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        if let Some(record) = reader.poll(std::time::Duration::from_millis(50)).unwrap()
+            && let LogRecord::Trade(event) = LogRecord::from_json(&record.payload, &config).unwrap()
+        {
+            records.push(event);
+        }
+        if reader.at_end() {
+            break;
+        }
+    }
+    assert!(reader.at_end());
+    assert_eq!(records.len(), input.len());
+    for (record, expected) in records.iter().zip(input) {
+        assert_eq!(record.event_id(), expected.event_id());
+        assert_eq!(record.to_json().unwrap(), expected.to_json().unwrap());
+    }
+}
+
 fn applied(state: &mut Checkpoint, event: &Envelope, offset: u64) {
     assert_eq!(state.stage(event).unwrap(), Disposition::New);
     state.snapshot.apply(&LogRecord::Trade(Box::new(event.clone())), offset, &state.config).unwrap();

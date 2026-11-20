@@ -15,10 +15,15 @@ pub fn pump_external(
     deadline: Instant,
     guard: &mut impl FnMut() -> Result<(), Error>,
 ) -> Result<Committed, Error> {
+    let mut recovering = false;
     while Instant::now() < deadline {
         guard()?;
         let next = publisher.checkpoint().next_seq()?;
         let batch = source.read_from(next, 100, deadline)?;
+        if recovering && batch.is_empty() {
+            std::thread::sleep(Duration::from_millis(1).min(deadline.saturating_duration_since(Instant::now())));
+            continue;
+        }
         match publisher.external(&batch, now_ms, market_open, guard) {
             Ok(committed) => {
                 if let Some(seq) = committed.source_seq {
@@ -27,6 +32,7 @@ pub fn pump_external(
                 return Ok(committed);
             }
             Err(Error::SourceGap) => {
+                recovering = true;
                 // 미확정 prefix도 버리고 마지막 committed 다음부터 다시 요청한다.
                 std::thread::sleep(Duration::from_millis(1).min(deadline.saturating_duration_since(Instant::now())));
             }

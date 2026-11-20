@@ -39,7 +39,7 @@ target/debug/ha-feed run --kafka deploy/local/ha/feed.json --source deploy/local
 
 Lease는 후보 간 인계를 조정하고 별도 스레드에서 갱신한다. 실패나 갱신 기한 초과 시 쓰기를 멈춘다. Kafka의 고정 `wts-{log_id}-trade-0` transaction ID가 stale producer를 fence하는 최종 경계다. commit 응답이 불명확하면 해당 Publisher를 다시 사용하지 않고 새 프로세스에서 fencing 이후 `read_committed` checkpoint를 읽는다. 같은 프로세스가 재초기화를 반복하며 새 leader를 fence하지 않는다. [rdkafka transaction API](https://docs.rs/rdkafka/0.39.0/rdkafka/producer/trait.Producer.html)와 [Kubernetes Lease API](https://kubernetes.io/docs/reference/kubernetes-api/coordination/lease-v1/)를 따른다.
 
-개발 체결 로그는 `retention.ms=86400000`과 `retention.bytes=1073741824`를 함께 사용한다. byte 한도에 먼저 도달할 수 있어 24시간 보관을 보장하지 않는다. snapshot/checkpoint는 compact 토픽이며 tombstone을 쓰지 않는다. 범위 밖 offset, 잘못된 schema와 identity는 자동으로 latest로 이동하지 않고 오류로 처리한다.
+개발 체결 로그는 `retention.ms=86400000`과 `retention.bytes=1073741824`를 함께 사용한다. byte 한도에 먼저 도달할 수 있어 24시간 보관을 보장하지 않는다. snapshot/checkpoint는 compact 토픽이며 tombstone을 쓰지 않는다. segment는 16MiB 또는 60초에 roll하고 dirty 비율 0.1, 최대 compaction lag 120초를 설정한다. 기본 최대 10 transaction/초와 checkpoint 512KiB 상한에서 cleaner 비용을 제한하는 개발 설정이며 운영 디스크 용량은 별도로 산정한다. 복원은 전체 이력을 읽지 않고 tail 8개 위치부터 최대 4,096개 위치까지 넓혀 최신 shard 값을 찾으며 조회 bytes는 16MiB로 제한한다. 이 범위 안에 유효한 상태가 없으면 빈 shard로 간주하지 않고 실패한다. commit marker의 전파 지연을 빈 checkpoint로 오인하지 않도록 물리적 경계를 고정하고 read-committed 가시화를 확인한다. 범위 밖 offset, 잘못된 schema와 identity는 자동으로 latest로 이동하지 않고 오류로 처리한다.
 
 ## 검증
 
@@ -52,6 +52,6 @@ cargo test --features ha
 deploy/ha/smoke.sh
 ```
 
-`smoke.sh`는 고유 이름의 자체 Compose 프로젝트를 만들고 종료할 때 그 프로젝트의 volume만 제거한다. 동일 host port를 쓰는 수동 개발 클러스터는 먼저 내려야 한다. 합성 상태 복원, producer fencing, commit 전 Lease 상실 시 abort, read-only ACL, SIGSTOP 후 standby 인계와 stale writer 재개, API 단절, broker 1대 중단, 과반수 네트워크 단절, 전체 broker 재시작을 검사한다. 별도 빈 데이터셋에서 외부 입력 공백, commit 뒤 ACK 유실, 재전송과 1,024건 창 만료를 검사한다. CI의 `HA` workflow도 같은 시험을 실행한다. 출력과 artifact에는 수치 결과만 저장하고 인증 자료는 올리지 않는다.
+`smoke.sh`는 고유 이름의 자체 Compose 프로젝트를 만들고 종료할 때 그 프로젝트의 volume만 제거한다. 동일 host port를 쓰는 수동 개발 클러스터는 먼저 내려야 한다. 합성 상태 복원, producer fencing, commit 전 Lease 상실 시 abort, read-only ACL, SIGSTOP 후 standby 인계와 stale writer 재개, API 단절, broker 1대 중단, 과반수 네트워크 단절, 전체 broker 재시작을 검사한다. 별도 빈 데이터셋에서 외부 입력 공백, commit 뒤 ACK 유실, 재전송과 1,024건 창 만료를 검사한다. 실제 broker commit 성공 직후 응답을 잃는 경우는 시험 빌드의 Writer 경계에서 오류를 주입해 검증한다. Publisher의 메모리가 전진하지 않은 상태에서 재시작하고, committed checkpoint 복원과 동일 ID 재전송 결과를 실제 로그와 대조한다. 네트워크 패킷을 유실시키는 시험과는 구분한다. CI의 `HA` workflow도 같은 시험을 실행한다. 출력과 artifact에는 수치 결과만 저장하고 인증 자료는 올리지 않는다.
 
 이 시험의 Kafka는 실제 복제와 transaction을 사용하지만 하나의 Docker 호스트에서 동작한다. 실제 장애 도메인, LoadBalancer, gateway 재접속 및 부하 SLO는 후속 이슈 #48~#53의 별도 검증 대상이다.

@@ -88,7 +88,12 @@ impl Kafka {
             .set("linger.ms", "0")
             .create_with_context(Quiet)?;
         producer.init_transactions(self.timeout())?;
-        Ok(Writer { producer, timeout: self.timeout() })
+        Ok(Writer {
+            producer,
+            timeout: self.timeout(),
+            #[cfg(test)]
+            lose_commit_result: false,
+        })
     }
 
     pub fn reader(&self, topic: &str, start: Option<u64>) -> Result<LogReader, Error> {
@@ -130,29 +135,74 @@ impl Kafka {
         let mut assignment = TopicPartitionList::new();
         assignment.add_partition_offset(topic, 0, Offset::Offset(start))?;
         consumer.assign(&assignment)?;
-        Ok(LogReader { consumer, topic: topic.into(), next: start as u64, initial_high: high as u64, end: false })
+        Ok(LogReader {
+            consumer,
+            topic: topic.into(),
+            next: start as u64,
+            initial_high: high as u64,
+            scan_end: high as u64,
+            timeout: self.timeout(),
+            end: false,
+        })
     }
 
     pub fn latest(&self, topic: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+        let deadline = Instant::now() + self.timeout();
+        // commit 응답 직후에도 marker 전파로 LSO가 늦을 수 있다. 물리적 끝을 먼저 고정하고 가시화를 기다린다.
+        let probe: BaseConsumer<Quiet> =
+            self.client()?.set("isolation.level", "read_uncommitted").create_with_context(Quiet)?;
+        let metadata = probe.fetch_metadata(Some(topic), self.timeout())?;
+        let topic_metadata = metadata.topics().iter().find(|item| item.name() == topic).ok_or(Error::InvalidState)?;
+        if let Some(error) = topic_metadata.error() {
+            return Err(KafkaError::MetadataFetch(error.into()).into());
+        }
+        if topic_metadata.partitions().len() != 1 {
+            return Err(Error::InvalidConfig);
+        }
+        let (_, high) = probe.fetch_watermarks(topic, 0, self.timeout())?;
+        let boundary = u64::try_from(high).map_err(|_| Error::InvalidState)?;
         let mut reader = self.reader(topic, None)?;
-        // 계속 쓰이는 compact 토픽의 움직이는 EOF를 쫓지 않고 조회 시작 때의 상한까지 읽는다.
-        let boundary = reader.initial_high;
-        if reader.next_offset() >= boundary {
+        let low = reader.next_offset();
+        if low >= boundary {
             return Ok(None);
         }
-        let deadline = Instant::now() + self.timeout();
-        let mut latest = None;
-        while Instant::now() < deadline {
-            if let Some(record) = reader.poll(Duration::from_millis(50))?
-                && record.key == key
-            {
-                latest = Some(record.payload);
+        // 단일 shard의 최신 값부터 찾는다. 오래된 compact 이력과 무관하게 tail 4,096개 위치만 검사한다.
+        let mut window = 8;
+        let mut bytes = 0;
+        loop {
+            let start = boundary.saturating_sub(window).max(low);
+            reader.rewind(start)?;
+            let mut latest = None;
+            loop {
+                if Instant::now() >= deadline {
+                    return Err(Error::Deadline);
+                }
+                if let Some(record) = reader.poll(Duration::from_millis(50))? {
+                    bytes += record.payload.len();
+                    if bytes > 16 * 1024 * 1024 {
+                        return Err(Error::TooLarge);
+                    }
+                    if record.offset < boundary && record.key == key {
+                        latest = Some(record.payload);
+                    }
+                }
+                if reader.next_offset() >= boundary {
+                    break;
+                }
+                if reader.at_end() {
+                    // 이전 EOF보다 뒤의 LSO를 바로 적용하지 않는다. 새 assign 경계부터 다시 읽어 확인한다.
+                    reader.rewind(start)?;
+                    latest = None;
+                }
             }
-            if reader.at_end() || reader.next_offset() >= boundary {
+            if latest.is_some() || start == low {
                 return Ok(latest);
             }
+            if window >= 4096 {
+                return Err(Error::Deadline);
+            }
+            window *= 2;
         }
-        Err(Error::Deadline)
     }
 }
 
@@ -186,6 +236,8 @@ impl ProducerContext for Quiet {
 pub struct Writer {
     producer: ThreadedProducer<Quiet>,
     timeout: Duration,
+    #[cfg(test)]
+    pub(super) lose_commit_result: bool,
 }
 
 impl Writer {
@@ -193,7 +245,13 @@ impl Writer {
         self.producer.begin_transaction().map_err(Error::from)
     }
     pub fn commit(&self) -> Result<(), Error> {
-        self.producer.commit_transaction(self.timeout).map_err(Error::from)
+        self.producer.commit_transaction(self.timeout).map_err(Error::from)?;
+        // 라이브러리 시험에서만 commit 성공 응답을 잃어 Publisher가 결과를 모르는 경계를 만든다.
+        #[cfg(test)]
+        if self.lose_commit_result {
+            return Err(Error::Deadline);
+        }
+        Ok(())
     }
     pub fn abort(&self) -> Result<(), Error> {
         self.producer.abort_transaction(self.timeout).map_err(Error::from)
@@ -243,10 +301,30 @@ pub struct LogReader {
     topic: String,
     next: u64,
     initial_high: u64,
+    scan_end: u64,
+    timeout: Duration,
     end: bool,
 }
 
 impl LogReader {
+    pub fn initial_high(&self) -> u64 {
+        self.initial_high
+    }
+
+    fn rewind(&mut self, offset: u64) -> Result<(), Error> {
+        let (_, stable) = self.consumer.fetch_watermarks(&self.topic, 0, self.timeout)?;
+        let mut assignment = TopicPartitionList::new();
+        assignment.add_partition_offset(
+            &self.topic,
+            0,
+            Offset::Offset(i64::try_from(offset).map_err(|_| Error::InvalidState)?),
+        )?;
+        self.consumer.assign(&assignment)?;
+        self.next = offset;
+        self.scan_end = u64::try_from(stable).map_err(|_| Error::InvalidState)?;
+        self.end = false;
+        Ok(())
+    }
     pub fn at_end(&self) -> bool {
         self.end
     }
@@ -273,6 +351,8 @@ impl LogReader {
                 {
                     self.next = self.next.max(u64::try_from(offset).map_err(|_| Error::InvalidState)?);
                 }
+                // Rust client는 EOF 위치를 반환하지 않는다. assign 전에 조회한 안정 경계까지만 전진한다.
+                self.next = self.next.max(self.scan_end);
                 self.end = true;
                 Ok(None)
             }
