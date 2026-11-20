@@ -1177,62 +1177,62 @@
       {
         "destination": "/topic/v1/kr/stock/trade/{code}",
         "subscriptions": 2,
-        "deliveredToEach": false
+        "deliveredToEach": null
       },
       {
         "destination": "/topic/v1/kr/stock/trade/{code}",
         "subscriptions": 2,
-        "deliveredToEach": false
+        "deliveredToEach": null
       },
       {
         "destination": "/topic/v1/kr/stock/trade/{code}",
         "subscriptions": 2,
-        "deliveredToEach": false
+        "deliveredToEach": null
       },
       {
         "destination": "/topic/v1/kr/stock/trade/{code}",
         "subscriptions": 2,
-        "deliveredToEach": false
+        "deliveredToEach": null
       },
       {
         "destination": "/topic/v1/kr/stock/trade/{code}",
         "subscriptions": 2,
-        "deliveredToEach": false
+        "deliveredToEach": null
       },
       {
         "destination": "/topic/v1/us/stock/trade/{code}",
         "subscriptions": 2,
-        "deliveredToEach": false
+        "deliveredToEach": null
       },
       {
         "destination": "/topic/v1/us/stock/trade/{code}",
         "subscriptions": 2,
-        "deliveredToEach": true
+        "deliveredToEach": null
       },
       {
         "destination": "/topic/v1/kr/stock/trade/{code}",
         "subscriptions": 2,
-        "deliveredToEach": false
+        "deliveredToEach": null
       },
       {
         "destination": "/topic/v1/kr/stock/trade/{code}",
         "subscriptions": 2,
-        "deliveredToEach": false
+        "deliveredToEach": null
       },
       {
         "destination": "/topic/v1/us/stock/trade/{code}",
         "subscriptions": 2,
-        "deliveredToEach": false
+        "deliveredToEach": null
       },
       {
         "destination": "/topic/v1/kr/stock/status/{code}",
         "subscriptions": 2,
-        "deliveredToEach": true
+        "deliveredToEach": null
       },
       {
         "destination": "/topic/v1/kr/stock/trade/{code}",
         "subscriptions": 2,
-        "deliveredToEach": true
+        "deliveredToEach": null
       }
     ]
   },
