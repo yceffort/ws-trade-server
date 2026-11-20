@@ -2,6 +2,8 @@
 mod client;
 #[allow(dead_code)]
 mod common;
+mod temp_file;
+use temp_file::TempFile;
 
 use client::*;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -63,7 +65,8 @@ async fn an_active_session_expires_without_another_request() {
 
 #[tokio::test]
 async fn unreadable_token_file_revokes_existing_sessions() {
-    let path = std::env::temp_dir().join(format!("ws-demo-auth-{}.json", std::process::id()));
+    let file = TempFile::new("auth");
+    let path = file.path().to_path_buf();
     std::fs::write(&path, format!(r#"[{{"token":"demo-file","expires_at":{}}}]"#, now() + 60)).unwrap();
     let auth = Auth::from_file(path.clone()).unwrap();
     let server =
@@ -73,4 +76,17 @@ async fn unreadable_token_file_revokes_existing_sessions() {
     std::fs::remove_file(path).unwrap();
     assert_eq!(recv_frame(&mut client).await.header("message"), Some("auth-revoked"));
     server.shutdown().await;
+}
+
+#[cfg(unix)]
+#[test]
+fn token_file_rejects_a_fifo_without_a_writer() {
+    let file = TempFile::new("auth-fifo");
+    assert!(std::process::Command::new("mkfifo").arg(file.path()).status().unwrap().success());
+    let (done, result) = std::sync::mpsc::channel();
+    let path = file.path().to_path_buf();
+    std::thread::spawn(move || {
+        let _ = done.send(Auth::from_file(path).is_err());
+    });
+    assert!(result.recv_timeout(Duration::from_secs(2)).unwrap());
 }

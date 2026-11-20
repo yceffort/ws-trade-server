@@ -23,3 +23,6 @@ protox = "0.10.0"
 
 [lints.rust]
 unsafe_code = "deny"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.191"

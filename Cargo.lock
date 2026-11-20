@@ -1027,6 +1027,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures-util",
+ "libc",
  "memmap2",
  "prost",
  "prost-build",
