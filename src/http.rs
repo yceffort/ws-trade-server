@@ -14,7 +14,15 @@ pub async fn bind(addr: &str) -> io::Result<TcpListener> {
 
 pub fn spawn(listener: TcpListener, hub: Hub) {
     tokio::spawn(async move {
-        while let Ok((stream, _)) = listener.accept().await {
+        loop {
+            let stream = match listener.accept().await {
+                Ok((stream, _)) => stream,
+                Err(error) => {
+                    eprintln!("조회 API accept 실패: {error}");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
+            };
             // 로컬 조회를 순차 처리하고 전체 마감을 두어 느린 요청이 태스크를 쌓지 못하게 한다.
             let _ = tokio::time::timeout(Duration::from_secs(2), respond(stream, &hub)).await;
         }

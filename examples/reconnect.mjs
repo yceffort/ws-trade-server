@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { LatestState } from './latest-state.mjs'
+import { recover } from './recover.mjs'
 
 const [url = 'ws://127.0.0.1:8080/ws', http = 'http://127.0.0.1:8081/snapshots', ...topics] = process.argv.slice(2)
 if (!topics.length) throw new Error('하나 이상의 topic이 필요하다')
@@ -23,10 +24,7 @@ for (;;) {
         heartbeat = setInterval(() => { if (socket.readyState === WebSocket.OPEN) socket.send('\n') }, 5000)
       }
       if (command === 'RECEIPT' && headers['receipt-id'] === String(topics.length - 1)) {
-        const before = state.begin()
-        fetch(http, { signal: abort.signal }).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-          .then((entries) => { state.snapshot(entries, before); console.log(Object.fromEntries(state.values)) })
-          .catch((error) => { if (!abort.signal.aborted) console.error(error.message) })
+        recover(state, http, abort.signal).then((restored) => { if (restored) console.log(Object.fromEntries(state.values)) })
       }
       if (command === 'MESSAGE') {
         const topic = topics[Number(headers.subscription)]
