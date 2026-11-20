@@ -7,7 +7,7 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
   const { default: WebSocket } = await import('../edge/node_modules/ws/wrapper.mjs')
   let failures = 0, noProgress = 0, attempt = 0
   while (!signal?.aborted) {
-    const before = store.load().cursor
+    const before = store.load()
     const application = new Application(store)
     const socket = new WebSocket(urls[attempt++ % urls.length], 'wts.ha.v1', { handshakeTimeout: 3000, maxPayload: 48 * 1024 })
     let queued = 0, chain = Promise.resolve(), reason = 'connection-closed', ready = false
@@ -56,12 +56,13 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
     signal?.removeEventListener('abort', stop)
     await chain
     if (signal?.aborted) return store.load()
-    const after = store.load().cursor
+    const after = store.load()
+    const progressed = after.offset !== null && (before.offset === null || BigInt(after.offset) > BigInt(before.offset))
     if (terminal.has(reason) || reason === 'client-apply-failed') throw new Error(reason)
-    if (after === before && (!after || reason === 'replay-limit')) {
+    if (!progressed && (!after.cursor || reason === 'replay-limit')) {
       if (++noProgress >= 3) throw new Error('no-checkpoint-progress')
     } else noProgress = 0
-    failures = after === before ? Math.min(failures + 1, 6) : 0
+    failures = progressed ? 0 : Math.min(failures + 1, 6)
     const delay = attempt === 1 ? Math.random() * 500 : Math.random() * Math.min(30000, 500 * 2 ** failures)
     await new Promise(resolve => {
       const done = () => { clearTimeout(timeout); signal?.removeEventListener('abort', done); resolve() }

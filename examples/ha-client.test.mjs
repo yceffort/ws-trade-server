@@ -50,3 +50,24 @@ test('a silent server is detected at the receive deadline despite outgoing heart
     assert.ok(heartbeats >= 2)
   } finally { Math.random = random; close(mock) }
 })
+
+test('newly signed cursors at the same offset still count as no progress',async () => {
+  const mock = await server()
+  let attempts = 0
+  mock.on('connection',socket => {
+    attempts++
+    socket.on('message',bytes => {
+      const frame = JSON.parse(bytes)
+      if (frame.type === 'connect') socket.send('{"type":"connected"}')
+      if (frame.type === 'resume') {
+        socket.send(JSON.stringify({type:'checkpoint',offset:'5',cursor:`new-signature-${attempts}`}))
+        socket.send('{"type":"error","code":"replay-limit"}')
+      }
+    })
+  })
+  const args=options(mock), saved=args.store.load()
+  saved.offset='5'; saved.cursor='previous-signature'; args.store.commit(saved)
+  const random=Math.random; Math.random=()=>0
+  try { await assert.rejects(runClient(args),/no-checkpoint-progress/); assert.equal(attempts,3); assert.equal(args.store.load().offset,'5') }
+  finally { Math.random=random; close(mock) }
+})

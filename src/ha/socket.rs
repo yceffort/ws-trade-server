@@ -49,11 +49,15 @@ pub(crate) fn negotiate(request: &Upgrade, mut response: Response) -> Result<Res
 }
 
 async fn request(reader: &mut Reader) -> Result<Request, &'static str> {
-    match timeout(Duration::from_secs(10), reader.next()).await {
-        Ok(Some(Ok(Message::Text(text)))) if text.len() <= FRAME => {
-            serde_json::from_str(&text).map_err(|_| "invalid-request")
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match tokio::time::timeout_at(deadline, reader.next()).await {
+            Ok(Some(Ok(Message::Text(text)))) if text.len() <= FRAME => {
+                return serde_json::from_str(&text).map_err(|_| "invalid-request");
+            }
+            Ok(Some(Ok(Message::Ping(_) | Message::Pong(_)))) => {}
+            _ => return Err("invalid-request"),
         }
-        _ => Err("invalid-request"),
     }
 }
 
@@ -115,21 +119,23 @@ pub(crate) async fn serve_socket(
         }
         Err(reason) => reason,
     };
-    hub.unfollow_replica(conn).await;
+    hub.unfollow_replica(conn);
     let _ = send(&mut writer, json!({"type":"error","code":reason}), Instant::now() + Duration::from_secs(1)).await;
     let _ = timeout(Duration::from_secs(1), writer.close()).await;
     tracing::debug!(event = "ha_connection_closed", conn, reason);
 }
 
 async fn read_heartbeats(reader: &mut Reader) -> &'static str {
+    let mut deadline = Instant::now() + Duration::from_secs(3);
     loop {
-        match timeout(Duration::from_secs(3), reader.next()).await {
+        match tokio::time::timeout_at(deadline, reader.next()).await {
             Ok(Some(Ok(Message::Text(text)))) if text.len() <= FRAME => {
                 if !matches!(serde_json::from_str::<Request>(&text), Ok(Request::Heartbeat)) {
                     return "invalid-request";
                 }
+                deadline = Instant::now() + Duration::from_secs(3);
             }
-            Ok(Some(Ok(Message::Pong(_)))) => {}
+            Ok(Some(Ok(Message::Ping(_) | Message::Pong(_)))) => {}
             Ok(_) => return "connection-closed",
             Err(_) => return "heartbeat-timeout",
         }

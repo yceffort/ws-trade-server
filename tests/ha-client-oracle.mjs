@@ -25,22 +25,23 @@ async function request(resume, expected) {
   const { default: WebSocket } = await import('../edge/node_modules/ws/wrapper.mjs')
   const socket = new WebSocket(fixture.urls[2], 'wts.ha.v1', { handshakeTimeout: 3000 })
   const frames = []
+  const ping = setInterval(() => { if (socket.readyState === WebSocket.OPEN) socket.ping() },100)
   try {
     await new Promise((resolve,reject) => {
       const timer = setTimeout(() => reject(new Error('request timed out')),5000)
       const done = fn => value => { clearTimeout(timer); fn(value) }
       socket.on('error',done(reject))
-      socket.on('open', () => socket.send(JSON.stringify({type:'connect',token:token()})))
+      socket.on('open', () => { socket.ping(); socket.send(JSON.stringify({type:'connect',token:token()})) })
       socket.on('message', data => {
         const frame = JSON.parse(data)
         frames.push(frame)
         if (frame.type === 'connected') socket.send(JSON.stringify({type:'resume',request_id:'bounds',topics:fixture.topics,mode:'events',...resume}))
-        else if (frame.type === 'heartbeat') socket.send('{"type":"heartbeat"}')
-        else if (frame.type === 'error' || frame.type === 'caught-up') done(resolve)(frame)
+        else if (frame.type === 'heartbeat' && expected !== 'heartbeat-timeout') socket.send('{"type":"heartbeat"}')
+        else if (frame.type === 'error' || frame.type === 'caught-up' && expected === 'caught-up') done(resolve)(frame)
       })
     }).then(frame => assert.equal(frame.type === 'error' ? frame.code : frame.type,expected))
     return frames
-  } finally { socket.terminate() }
+  } finally { clearInterval(ping); socket.terminate() }
 }
 const directory = mkdtempSync(join(tmpdir(), 'wts-ha-oracle-'))
 async function crash(mode, path) {
@@ -97,6 +98,7 @@ try {
   await request({cursor:saved.cursor,start_at:startAt},'invalid-resume')
   const tail = await request({start_at:{...startAt,offset:fixture.tail}},'caught-up')
   assert.equal(tail.filter(frame => frame.type === 'event').length,0)
+  await request({start_at:{...startAt,offset:fixture.tail}},'heartbeat-timeout')
   const statePath = join(directory,'state.json')
   await crash('state',statePath)
   const stateController = new AbortController()

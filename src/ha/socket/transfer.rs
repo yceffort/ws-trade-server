@@ -41,6 +41,12 @@ struct Progress<'a> {
 }
 
 impl Progress<'_> {
+    fn advance_live(&mut self, position: Option<u64>) {
+        if let Some(position) = position.filter(|offset| self.resume.start.is_none_or(|start| *offset >= start)) {
+            self.position = Some(self.position.map_or(position, |old| old.max(position)));
+        }
+    }
+
     async fn checkpoint(&mut self, writer: &mut Writer, deadline: Instant) -> Result<(), &'static str> {
         if let Some(position) = self.position
             && self.checkpoint != Some(position)
@@ -155,7 +161,7 @@ pub(super) async fn run(
         data_deadline,
     )
     .await??;
-    let (view, mut live) = hub.follow_replica(conn).await?;
+    let (view, mut live) = wait(writer, hub.follow_replica(conn, resume.topics.clone()), data_deadline).await??;
     let end = view.next.checked_sub(1).ok_or("retry-later")?;
     let mut progress = Progress {
         protocol,
@@ -190,21 +196,29 @@ pub(super) async fn run(
         }
         let checksum = digest(&bytes);
         let id = format!("snapshot-{conn}-{end}");
-        progress.total += send(writer, json!({"type":"snapshot-begin","request_id":resume.request_id,"id":id,"offset":end.to_string(),"total_bytes":bytes.len(),"chunks":bytes.chunks(32768).len()}), data_deadline).await?;
-        for (index, chunk) in bytes.chunks(32768).enumerate() {
+        let transmission = async {
+            progress.total += send(writer, json!({"type":"snapshot-begin","request_id":resume.request_id,"id":id,"offset":end.to_string(),"total_bytes":bytes.len(),"chunks":bytes.chunks(32768).len()}), data_deadline).await?;
+            for (index, chunk) in bytes.chunks(32768).enumerate() {
+                progress.total += send(
+                    writer,
+                    json!({"type":"snapshot-chunk","id":id,"index":index,"data":STANDARD.encode(chunk)}),
+                    data_deadline,
+                )
+                .await?;
+            }
             progress.total += send(
-                writer,
-                json!({"type":"snapshot-chunk","id":id,"index":index,"data":STANDARD.encode(chunk)}),
-                data_deadline,
-            )
-            .await?;
-        }
-        progress.total += send(
             writer,
             json!({"type":"snapshot-end","id":id,"offset":end.to_string(),"total_bytes":bytes.len(),"sha256":checksum}),
             data_deadline,
         )
         .await?;
+            Ok::<_, &'static str>(())
+        };
+        tokio::select! {
+            biased;
+            reason = &mut live.failed => return Err(reason.unwrap_or("source-error")),
+            result = transmission => result?,
+        }
         progress.position = Some(end);
         progress.checkpoint(writer, deadline).await?;
         drop(reader);
@@ -232,10 +246,16 @@ pub(super) async fn run(
         progress.checkpoint(writer, deadline).await?;
         result?;
     }
+    match live.failed.try_recv() {
+        Ok(reason) => return Err(reason),
+        Err(tokio::sync::oneshot::error::TryRecvError::Closed) => return Err("source-error"),
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+    }
     progress.total +=
         send(writer, json!({"type":"caught-up","request_id":resume.request_id,"offset":end.to_string()}), deadline)
             .await?;
     let mut checkpoint_tick = interval(Duration::from_millis(250));
+    let mut applied = 0;
     loop {
         tokio::select! {
             biased;
@@ -245,7 +265,13 @@ pub(super) async fn run(
             item = live.records.recv() => {
                 let item = item.ok_or("source-error")?;
                 progress.record(writer, item.offset, &item.record, Instant::now() + Duration::from_secs(1), false).await?;
+                applied = item.sequence;
+                progress.advance_live(live.progress.borrow_and_update().through(applied));
                 progress.total = 0;
+            },
+            observed = live.progress.changed() => {
+                observed.map_err(|_| "source-error")?;
+                progress.advance_live(live.progress.borrow_and_update().through(applied));
             },
         }
     }
