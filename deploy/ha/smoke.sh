@@ -8,6 +8,7 @@ compose=(docker compose -f deploy/ha/compose.yaml)
 cleanup() {
   status=$?
   trap - EXIT
+  if ((status != 0)); then node deploy/ha/diagnose.mjs || true; fi
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   exit "$status"
 }
