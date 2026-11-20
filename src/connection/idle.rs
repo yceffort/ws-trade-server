@@ -5,7 +5,8 @@ use tokio::time::{Instant, timeout_at};
 pub(super) async fn wait(mut activity: watch::Receiver<Instant>, limit: Option<Duration>) {
     let Some(limit) = limit else { return std::future::pending().await };
     loop {
-        let deadline = *activity.borrow_and_update() + limit;
+        // 표현할 수 없는 마감은 즉시 종료로 처리해 구독 정리를 건너뛰는 panic을 막는다.
+        let Some(deadline) = activity.borrow_and_update().checked_add(limit) else { return };
         match timeout_at(deadline, activity.changed()).await {
             Ok(Ok(())) => {}
             _ => return,
@@ -16,6 +17,12 @@ pub(super) async fn wait(mut activity: watch::Receiver<Instant>, limit: Option<D
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn unrepresentable_deadline_finishes_without_panicking() {
+        let (_activity, receiver) = watch::channel(Instant::now());
+        tokio::time::timeout(Duration::from_secs(1), wait(receiver, Some(Duration::MAX))).await.unwrap();
+    }
 
     #[tokio::test]
     async fn expires_while_command_handler_is_still_waiting() {
