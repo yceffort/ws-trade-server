@@ -8,6 +8,8 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::task::JoinHandle;
 
+pub const MAX_LAG: u64 = 100;
+
 pub const FRESHNESS: Duration = Duration::from_secs(3);
 
 pub fn now_ms() -> u64 {
@@ -51,6 +53,7 @@ pub(crate) struct Replica {
     config: SourceConfig,
     view: ReplicaView,
     last_seq: Option<u64>,
+    initialized: bool,
     seen: VecDeque<(u64, String)>,
 }
 
@@ -70,6 +73,7 @@ impl Replica {
         Ok(Self {
             config,
             last_seq,
+            initialized: false,
             seen,
             view: ReplicaView {
                 snapshot: Arc::new(snapshot),
@@ -118,7 +122,8 @@ impl Replica {
         }
         self.view.snapshot = Arc::new(snapshot);
         self.view.next = offset.checked_add(1).ok_or(Error::Exhausted)?;
-        self.view.caught_up = self.view.log_end.is_some_and(|end| self.view.next >= end);
+        self.view.caught_up =
+            self.initialized && self.view.log_end.is_some_and(|end| end.saturating_sub(self.view.next) <= MAX_LAG);
         self.view.broker_seen = Some(Instant::now());
         self.seen.push_back((offset, hash));
         if self.seen.len() > 1024 {
@@ -136,7 +141,8 @@ impl Replica {
             self.view.next = next;
         }
         self.view.log_end = Some(log_end);
-        self.view.caught_up = next >= log_end;
+        self.initialized |= next >= log_end;
+        self.view.caught_up = self.initialized && log_end.saturating_sub(next) <= MAX_LAG;
         Ok(())
     }
 

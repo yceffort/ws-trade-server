@@ -97,8 +97,10 @@ fn replica_readiness_uses_source_status_policy_and_catchup_not_trade_time() {
     replica.boundary(4, 4).unwrap();
     assert!(replica.view().ready(true));
     assert!(!replica.view().ready(false));
-    replica.boundary(4, 8).unwrap();
+    replica.boundary(4, 105).unwrap();
     assert!(!replica.view().ready(true));
+    replica.boundary(4, 104).unwrap();
+    assert!(replica.view().ready(true));
     replica.boundary(8, 8).unwrap();
     assert!(replica.view().ready(true));
     assert!(replica.view().snapshot.topics.values().all(Option::is_none));
