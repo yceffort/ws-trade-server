@@ -1,3 +1,4 @@
+pub mod auth;
 mod bridge;
 pub mod connection;
 pub mod feed;
@@ -20,6 +21,7 @@ pub use server::{Server, start_managed};
 
 #[derive(Clone)]
 pub struct Config {
+    pub auth: Option<auth::Auth>,
     pub addr: String,
     pub http_addr: Option<String>,
     pub snapshot_topics: Vec<String>,
@@ -35,6 +37,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
+            auth: None,
             addr: "127.0.0.1:8080".to_string(),
             http_addr: None,
             snapshot_topics: Vec::new(),

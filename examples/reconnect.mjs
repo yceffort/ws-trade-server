@@ -14,7 +14,7 @@ for (;;) {
     const socket = new WebSocket(url, 'v12.stomp')
     const abort = new AbortController()
     let heartbeat
-    socket.onopen = () => socket.send(frame('CONNECT', { 'connection-id': randomUUID() }))
+    socket.onopen = () => socket.send(frame('CONNECT', { 'connection-id': randomUUID(), ...(process.env.DEMO_TOKEN ? { authorization: `Bearer ${process.env.DEMO_TOKEN}` } : {}) }))
     socket.onmessage = ({ data }) => {
       const [head, body = ''] = String(data).split('\n\n')
       const [command, ...lines] = head.split('\n')

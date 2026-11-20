@@ -52,6 +52,7 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
         .as_ref()
         .map(|path| bridge::spawn(path.clone(), std::time::Duration::from_micros(config.poll_us), hub.clone()));
     let http = http.map(|listener| http::spawn(listener, hub.clone()));
+    let auth_reload = config.auth.as_ref().and_then(crate::auth::Auth::reload);
     let (stop, stopped) = oneshot::channel();
     let accept_hub = hub.clone();
     let task = tokio::spawn(async move {
@@ -96,6 +97,10 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
         }
         drop(listener);
         rejects.shutdown().await;
+        if let Some(task) = auth_reload {
+            task.abort();
+            let _ = task.await;
+        }
         if let Some(http) = http {
             http.abort();
             let _ = http.await;
