@@ -20,8 +20,14 @@ export async function scenario(env, config, report) {
     const untilTime = Date.now() + seconds * 1000
     while (Date.now() < untilTime) {
       clients.forEach((client) => client.healthy())
+      const before = clients.map((client) => client.messages)
       await sample()
-      await sleep(Math.min(1000, Math.max(0, untilTime - Date.now())), undefined, { signal })
+      const wait = Math.min(1000, Math.max(0, untilTime - Date.now()))
+      await sleep(wait, undefined, { signal })
+      clients.forEach((client, index) => {
+        client.healthy()
+        if (wait >= 250) assert(client.messages > before[index], 'no message progress during holding period')
+      })
     }
   }
   for (let round = 0; round <= config.cycles; round++) {
@@ -32,9 +38,9 @@ export async function scenario(env, config, report) {
     const duration = round === 0 ? 1 : config.seconds / config.cycles
     await hold([...clients, rotating], duration / 2)
     if (round > 0) {
-      rotating.expectedClose = true
       await env.auth(false)
       await until(() => rotating.closed, 'auth revocation', signal)
+      rotating.valid()
       assert.equal(rotating.serverError, 'auth-revoked')
       counters.authRevocations++; counters.messages += rotating.messages
       clients.forEach((client) => client.healthy())
@@ -55,12 +61,12 @@ export async function scenario(env, config, report) {
       const stalled = await env.open(env.stable, true)
       counters.sessions++
       await until(async () => (await env.json('metrics')).stomp_connections === config.connections + 1, 'stalled admission', signal)
-      stalled.expectedClose = true
       stalled.ws.pause()
       stalled.send('SUBSCRIBE', { id: 'excess', destination: topics[0] })
       await until(async () => (await env.json('metrics')).stomp_connections === config.connections, 'stalled rejection cleanup', signal, 3000)
       stalled.ws.resume()
       await until(() => stalled.closed, 'stalled socket close', signal)
+      stalled.valid()
       assert.equal(stalled.serverError, 'too-many-subscriptions')
       counters.rejectedStalls++; counters.messages += stalled.messages
       if (round === Math.ceil(config.cycles / 2)) {

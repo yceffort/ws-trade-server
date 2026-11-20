@@ -25,7 +25,6 @@ export class Client {
     this.closed = false
     this.failure = null
     this.serverError = null
-    this.expectedClose = false
     this.ws = new WebSocket(url, 'v12.stomp', {
       ca, handshakeTimeout: 3000, maxPayload: 65536,
       perMessageDeflate: { clientNoContextTakeover: true, serverNoContextTakeover: true },
@@ -77,17 +76,20 @@ export class Client {
     return this
   }
 
+  valid() { assert(!this.failure, this.failure ?? 'client failed') }
+
   healthy() {
-    assert(!this.failure, this.failure ?? 'client failed')
+    this.valid()
     assert(!this.serverError, `server error: ${this.serverError}`)
     assert(!this.closed, 'unexpected disconnect')
   }
 
   async close() {
     this.healthy()
-    this.expectedClose = true
     this.ws.close(1000, 'soak')
     await until(() => this.closed, 'client close', this.signal)
+    this.valid()
+    assert(!this.serverError, `server error: ${this.serverError}`)
   }
 
   terminate() { clearInterval(this.heartbeat); this.ws.terminate() }
