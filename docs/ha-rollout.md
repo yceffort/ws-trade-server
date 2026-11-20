@@ -6,14 +6,16 @@
 
 | 단위 | 초기 설정 |
 | --- | --- |
-| gateway Deployment | gateway와 native TLS sidecar, replicas 3, RollingUpdate, maxUnavailable 0, maxSurge 1 |
+| gateway Deployment | zone별 slot 3개에 각각 gateway와 native TLS sidecar, replicas 1. 각 slot은 RollingUpdate, maxUnavailable 0, maxSurge 1이며 배포 드라이버가 한 slot씩 갱신 |
 | readiness 안정화 | minReadySeconds 15, progressDeadlineSeconds 600, bootstrap 실패 시 rollout 중단 |
 | gateway PDB | minAvailable 2. 자발적 eviction을 제어하며 rollout이나 노드 손실을 막지 않음 |
 | producer | active/standby 2개, 별도 노드, 고정 logical shard와 Lease. broker fencing을 함께 적용 |
 | broker 및 controller | 복제 3 및 quorum, PVC, 장애 도메인 분산, transaction 관련 내부 토픽 포함 |
 | 네트워크 진입 | HA L4 LoadBalancer에서 WSS Service로 전달. TLS와 압축은 Pod의 edge에서 처리 |
 
-gateway는 서로 다른 hostname에 배치하고 zone 간 topology spread를 설정한다. 최소 3개 장애 도메인과 N-1 처리 용량을 운영 전제로 한다. surge Pod 하나를 더 띄울 자원도 예약한다. 필요한 분산 조건을 만족하지 못하면 조용히 한 노드에 몰아넣지 말고 rollout을 멈춘다. 노드 또는 zone 장애 처리 중에는 추가 rollout을 중지하고 남은 Pod의 부하를 확인한다.
+gateway slot은 각각 다른 zone에 고정하고 전체 slot을 선택하는 required hostname anti-affinity를 적용한다. 최소 3개 장애 도메인과 N-1 처리 용량을 운영 전제로 한다. 갱신할 zone 안에서도 기존 Pod와 surge Pod가 다른 노드에 배치되어야 하므로 각 zone에 적격 hostname을 2개 이상, 전체 최소 6개 확보한다. 동시에 동작하는 gateway는 정상 3개, 계획 배포 중 최대 4개이며 각 zone에는 한 gateway의 surge 자원을 예약한다. 단순히 3개 노드에 CPU 여유만 확보해서는 이 배치를 충족하지 못한다. 필요한 분산 조건을 만족하지 못하면 조용히 한 노드에 몰아넣지 말고 rollout을 멈춘다. 노드 또는 zone 장애 처리 중에는 추가 rollout을 중지하고 남은 Pod의 부하를 확인한다.
+
+일반적인 replicas 3 Deployment는 Pod 하나의 교체 후 운영 검증을 기다려 주지 않는다. 첫 구현은 별도 Kubernetes controller 대신 위의 replicas 1 Deployment 세 개와 직렬 배포 드라이버를 사용한다. Service와 PDB는 세 slot의 공통 label을 선택한다. 드라이버는 환경당 하나의 배포 잠금을 잡고 현재 slot의 검증 성공을 영속 기록한 뒤에만 다음 slot의 image/config를 patch한다. 세 Deployment를 한 번에 수정하는 apply/GitOps 동기화는 이 배포 경로에서 허용하지 않는다. 중단된 드라이버는 클러스터 revision과 이전 단계 결과를 재확인하며 실패나 결과 유실 시 다음 patch를 수행하지 않는다. 관리자 수동 변경은 이 보장 범위 밖이며 배포 계정의 권한과 파이프라인으로 단일 변경 경로를 운영한다.
 
 PDB와 RollingUpdate의 역할은 다르다. Deployment의 rollout은 PDB에 의해 제한되지 않고 `maxUnavailable`과 `maxSurge` 설정을 따른다. 강제 Pod 삭제, OOM, 노드 전원 손실에도 PDB가 가용성을 보장하지 않는다. [Kubernetes disruption 문서](https://kubernetes.io/docs/concepts/workloads/pods/disruptions/)와 [Deployment 문서](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)를 기준으로 검증한다.
 
@@ -21,7 +23,7 @@ PDB와 RollingUpdate의 역할은 다르다. Deployment의 rollout은 PDB에 의
 
 ## readiness와 종료 상태 머신
 
-`BOOTSTRAPPING -> READY -> DRAINING -> STOPPED`를 사용한다. source 장애로 freshness가 깨지면 READY에서 준비되지 않은 상태로 내려가고, 복구 및 catch-up을 확인한 뒤 다시 READY가 될 수 있다. DRAINING은 되돌리지 않는다. `src/server.rs`, `src/http.rs`, `src/bridge.rs`, 연결 종료 경로가 같은 상태와 monotonic deadline을 공유해야 한다.
+`BOOTSTRAPPING -> READY`, `READY <-> DEGRADED`, `READY/DEGRADED -> DRAINING -> STOPPED`를 사용한다. source 장애로 freshness가 깨지면 DEGRADED로 내려가고, 복구 및 catch-up을 확인한 뒤 다시 READY가 될 수 있다. DEGRADED에서 기존 HA 연결에도 source-stale을 알리고 닫는다. BOOTSTRAPPING 중 종료 요청은 복원을 취소하고 종료하며 DRAINING은 되돌리지 않는다. `src/server.rs`, `src/http.rs`, `src/bridge.rs`, 연결 종료 경로가 같은 상태와 monotonic deadline을 공유해야 한다.
 
 | endpoint | 의미 |
 | --- | --- |
@@ -59,7 +61,7 @@ broker 접속은 TLS와 최소 ACL을 사용한다. producer만 write 권한, ga
 1. 복제 로그, TLS/ACL, 상태 토픽, retention과 용량부터 준비한다. producer failover를 단독으로 검증한다.
 2. 기존 배포와 분리한 Service에서 새 gateway가 같은 committed 데이터로 bootstrap하는지 비교한다. ring 데이터와 broker 데이터가 같다고 가정하지 않고 합성 oracle로 대조한다.
 3. 기존 `/ws` 계약과 신규 복구 클라이언트 검증을 통과한 뒤 제한된 트래픽으로 시작한다. 프로토콜 선택은 클라이언트의 명시적 opt-in이다.
-4. 신규 Pod를 만들고 준비 및 15초 안정화를 확인한다. 오래된 Pod 하나를 drain하고 재접속, replay, ready replica 수와 지연을 확인한 뒤 다음 Pod로 진행한다.
+4. 직렬 배포 드라이버가 첫 slot만 갱신한다. 해당 Deployment가 신규 Pod의 준비 및 15초 안정화 뒤 이전 Pod 하나를 drain한다. 드라이버는 새 revision의 available replica 1개, 이전 Pod의 완전 종료, 전체 ready replica 3개 및 클라이언트 재접속/replay 검증 성공을 모두 확인한 뒤 다음 slot을 patch한다. 검증 대기 중 나머지 slot의 template은 그대로여서 다음 교체가 시작되지 않는다. 자동 검증과 실패 시 중단, 드라이버 재시작 시험을 #52와 #53의 완료 조건으로 둔다.
 5. 준비 실패, quorum 저하, 복구 실패, 오류 예산 초과가 있으면 rollout을 중지한다. 자동 rollback이 데이터나 cursor 형식까지 복구해 준다고 가정하지 않는다.
 6. 이전 gateway가 현재 envelope/schema/config를 읽을 수 있을 때만 이전 이미지로 되돌린다. N/N-1 혼합 버전을 먼저 시험하고 파괴적인 schema 변경은 새 log_id와 명시적 client 전환으로 분리한다.
 
@@ -78,7 +80,7 @@ broker 접속은 TLS와 최소 ACL을 사용한다. producer만 write 권한, ga
 | broker quorum 손실 | 신규 commit을 성공으로 세지 않음, 오래된 데이터를 정상 상태로 표시하지 않음 |
 | 인증 폐기 | 모든 gateway와 활성 세션에 60초 안에 반영 또는 fail closed |
 
-source의 event ID와 broker transaction commit 목록을 oracle로 사용한다. 각 client가 적용한 ID 집합, 순서, 최종 상태와 cursor를 비교한다. 재전송 중 wire 중복은 허용하지만 적용 중복과 조용한 누락은 허용하지 않는다. MESSAGE 개수나 연속 Kafka offset만으로 성공 판정하지 않는다. broker가 기록하지 못한 외부 source 구간은 별도로 집계해 제외 사실을 숨기지 않는다.
+source의 event ID와 broker transaction commit 목록을 oracle로 사용한다. events 모드 client가 요청한 시작 cursor 이후 또는 start_at 포함 위치부터 최종 검증 경계까지 권한이 있는 topic의 ID 집합, 순서, 최종 상태와 cursor를 비교한다. state 모드의 의도적인 snapshot 재설정 이전 이력은 전체 수신 oracle에 포함하지 않고 경계 시점의 상태 일치를 별도로 검사한다. 재전송 중 wire 중복은 허용하지만 적용 중복과 조용한 누락은 허용하지 않는다. MESSAGE 개수나 연속 Kafka offset만으로 성공 판정하지 않는다. broker가 기록하지 못한 외부 source 구간은 별도로 집계해 제외 사실을 숨기지 않는다.
 
 | 필수 장애 시험 | 확인할 결과 |
 | --- | --- |

@@ -68,11 +68,13 @@ HA의 데이터 경로는 broker adapter에서 bounded hub 입력으로 직접 �
 | --- | --- |
 | `log_id` | 데이터셋과 partition 배치의 세대. Pod 재시작에는 유지, 데이터셋 초기화에는 변경 |
 | `event_id` | `(source_id, source_epoch, source_seq)`에서 결정. 같은 source 이벤트를 다시 보내도 같음 |
-| `source_seq` | producer checkpoint에 저장하는 논리 순서. 현재 `Trade.seq`의 프로세스 재시작 값과 구분 |
+| `source_seq` | 합성 source는 checkpoint의 논리 순서, 외부 source는 안정적인 원본 순번. 현재 `Trade.seq`의 프로세스 재시작 값과 구분 |
 | broker 위치 | `(log_id, partition, offset)`. 재전송을 시작할 위치이며 event ID와 별개 |
 | STOMP `message-id` | 기존 연결 내 전달 순서. 장애 복구 cursor로 사용하지 않음 |
 
 HA envelope는 별도 schema로 만들고 기존 `proto/feed.proto`와 캡처 계약을 유지한다. envelope에 schema version, 위 식별자, source 발생 시각, 수신 시각, 기존 Trade를 담는다. JSON의 64비트 seq와 offset은 십진 문자열로 보낸다. timestamp나 가격, 누적 거래량을 event ID로 대체하지 않는다. 같은 event ID에 다른 payload가 오면 정상 중복으로 숨기지 않고 source 오류로 격리한다.
+
+외부 source 어댑터의 최초 지원 조건은 `(원본 stream ID, 원본 epoch, 단조 증가 원본 순번)`이 재전송에도 유지되는 것이다. 이를 각각 source_id, source_epoch, source_seq로 그대로 매핑하며 event_id는 이 튜플의 모호하지 않은 정규 인코딩으로 정한다. 순번은 topic 필터링 전에 전체 stream에서 비교한다. committed checkpoint에 원본 입력 위치를 저장하고, 같은 stream/epoch에서 그 위치 이하의 재전송은 새 순번이나 ID 없이 버린 뒤 ACK만 재확인한다. 아직 commit되지 않은 입력을 다시 받아도 같은 튜플이 된다. 순서가 뒤바뀐 입력이나 안정적인 순번 없이 opaque ID만 제공하는 source는 첫 구현에서 지원하지 않으며, durable ID 매핑과 중복 판정 범위를 별도로 설계한 뒤 추가한다.
 
 | 토픽 | 내용과 보관 |
 | --- | --- |
@@ -109,7 +111,7 @@ snapshot은 topic별 compacted 레코드를 임의 시점에 모은 결과가 �
 
 gateway의 cache는 재생성 가능한 최신 상태이며 durable replay 저장소는 broker다. 초기 snapshot 크기는 512KiB, 허용 topic은 최대 256개로 제한해 단일 레코드 복원을 유지한다. 한도를 넘으면 명시적으로 준비 실패로 처리한다. broker에 snapshot을 여러 레코드로 나누거나 외부 object storage를 쓰는 방식은 버전이 있는 manifest와 원자적 공개가 필요한 후속 확장이다. 처음부터 체결이 없는 topic은 명시적인 no-data 상태로 표현하며 가짜 체결을 만들지 않는다.
 
-거래가 없는 topic도 마지막 상태와 그 상태의 event 위치를 보존한다. source는 최소 1초마다 연결 상태와 시장 상태를 별도 레코드로 보낸다. readiness는 마지막 거래 시각이 아니라 bootstrap 완료, 로그 지연, source heartbeat와 정책 신선도로 판단한다. 합성 feed의 현재 10초 snapshot probe를 그대로 운영 HA probe로 사용하지 않는다.
+거래가 없는 topic도 마지막 상태와 그 상태의 event 위치를 보존한다. source는 최소 1초마다 연결 상태와 시장 상태를 별도 레코드로 보낸다. readiness는 마지막 거래 시각이 아니라 bootstrap 완료, 로그 지연, source heartbeat와 정책 신선도로 판단한다. 합성 feed의 현재 10초 snapshot probe를 그대로 운영 HA probe로 사용하지 않는다. HA snapshot과 source-status에는 마지막 상태의 기준 시각 및 source 상태를 포함한다. source/broker 신선도 상한을 넘기면 기존 HA 연결에도 source-stale 오류를 알리고 닫아, 서버 heartbeat만 살아 있는 것을 정상 체결 공급으로 오해하지 않게 한다.
 
 ## 재접속 계약
 
@@ -118,11 +120,11 @@ gateway의 cache는 재생성 가능한 최신 상태이며 durable replay 저�
 | 프레임 | 의미 |
 | --- | --- |
 | `connect`, `connected` | 토큰 검증과 세션 수립. 이후 모든 요청에서 허용 topic scope 유지 |
-| `resume` | request ID, 정렬한 topic 집합, `state` 또는 `events` 모드, 선택적 cursor |
+| `resume` | request ID, 정렬한 topic 집합, `state` 또는 `events` 모드, 선택적 cursor 또는 `start_at` |
 | `snapshot-begin`, `snapshot-chunk`, `snapshot-end` | 요청한 topic의 상태와 경계 B를 bounded 조각으로 전달. `state` 모드에서만 허용 |
 | `event` | event ID, topic, broker 위치, 기존 JSON 본문 |
 | `checkpoint` | 이 프레임 이전에 해당 구독으로 전달한 이벤트를 모두 적용하면 저장할 수 있는 서명 cursor |
-| `caught-up`, `draining`, `error` | 복구 완료, 재접속 유도, 범위/권한/자원 오류 |
+| `caught-up`, `source-status`, `draining`, `error` | 복구 완료, source 상태, 재접속 유도, 범위/권한/자원 오류 |
 
 cursor는 version, log_id, partition 위치, topic 집합과 인증 scope의 hash, 발급 시각을 포함해 서명한다. 어느 gateway에서도 검증할 수 있어야 하고 서명 키는 보관 기간 동안 검증 가능해야 한다. 서명 cursor 자체가 접근 권한은 아니며 매번 현재 인증과 권한을 검사한다. scope나 log_id가 달라지면 기존 cursor를 거절한다. 최초 버전은 연결마다 하나의 고정 topic 집합을 사용하며 topic 변경은 새 연결에서 시작한다. 다른 topic을 추가하면서 이전 scope의 cursor를 그대로 적용하지 않는다.
 
@@ -147,9 +149,9 @@ broker의 원자적 snapshot 레코드와 WebSocket 전송 단위를 구분한�
 
 클라이언트는 event ID로 중복을 제거하고 상태와 마지막 적용 cursor를 같은 로컬 transaction으로 저장한다. 수신 콜백 진입이나 소켓 write 완료 시점의 cursor를 저장하지 않는다. 앞선 해당 구독 이벤트를 다 적용한 뒤 checkpoint를 저장하면 구독하지 않은 topic 및 Kafka 제어 레코드의 위치도 안전하게 넘길 수 있다. 서버는 WebSocket이 끊긴 뒤 클라이언트가 어디까지 적용했는지 추측하지 않는다.
 
-`events` 모드에서 cursor가 없으면 명시적인 시작 위치를 요구한다. cursor가 만료되면 `cursor-expired`와 현재 복구 가능 범위를 알려 주며 snapshot으로 조용히 대체하지 않는다. 최신 화면 상태만 필요한 클라이언트는 별도로 `state` 모드를 선택해 snapshot부터 시작할 수 있다. 가짜 새 데이터로 retention 공백을 채우지 않는다.
+`events` 모드에서 cursor가 없으면 `start_at: {log_id, partition, offset}`을 요구한다. offset은 십진 문자열이며 해당 위치를 포함해 첫 read-committed 이벤트부터 보낸다. cursor는 이미 적용한 경계를 뜻하므로 그 위치를 제외하고 재개한다. 두 필드를 함께 보내거나 events 모드에서 둘 다 생략하면 invalid-resume으로 거절한다. start_at은 서명 없는 시작 요청일 뿐 접근 권한이 아니며 현재 scope, log_id, partition 및 보관 범위를 검증한다. 보관 시작 이전이나 현재 읽기 경계보다 미래인 위치는 start-out-of-range로 거절하고, aborted transaction이나 제어 레코드 위치는 다음 보이는 이벤트부터 읽는다. cursor가 만료되면 `cursor-expired`와 현재 복구 가능 범위를 알려 주며 snapshot으로 조용히 대체하지 않는다. 최신 화면 상태만 필요한 클라이언트는 별도로 `state` 모드를 선택해 snapshot부터 시작할 수 있다. state 모드는 start_at을 허용하지 않으며 유효한 cursor가 있으면 이어서 복구하고, cursor가 없을 때만 새 snapshot을 요청한 것으로 본다. 가짜 새 데이터로 retention 공백을 채우지 않는다.
 
-대기 요청은 worker가 허용되기 전 live buffer를 만들지 않는다. 초기 제한은 Pod당 replay worker 32개, 대기 요청 128개, 세션당 live 대기 1MiB, 요청당 replay 10,000건/10MiB/10초다. 초과 시 `replay-limit` 또는 `retry-later`로 종료하고 이미 적용한 cursor에서 다시 요청하게 한다. 제한값은 부하 시험에서 조정하되 무제한 consumer, 태스크와 큐를 만들지 않는다. 연결 heartbeat와 읽기 deadline으로 강제 종료도 발견하고 지수 지연 및 jitter로 재접속한다.
+대기 요청은 worker가 허용되기 전 live buffer를 만들지 않는다. 초기 제한은 Pod당 replay worker 32개, 대기 요청 128개, 세션당 live 대기 1MiB, 요청당 replay 10,000건/10MiB/10초다. 초과 시 `replay-limit` 또는 `retry-later`로 종료하고 이미 적용한 cursor에서 다시 요청하게 한다. 제한값은 부하 시험에서 조정하되 무제한 consumer, 태스크와 큐를 만들지 않는다. 신규 HA 클라이언트의 초기 heartbeat 주기는 1초, 수신 deadline은 3초, 첫 재접속 jitter는 최대 500ms로 두고 이후 실패에 지수 지연을 적용한다. 이 값과 TLS 연결 및 replay 시간을 합쳐 실제 복구 목표를 검증한다. 기존 예제의 재시도 설정을 그대로 쓰고 5초 목표를 달성했다고 주장하지 않는다.
 
 ## 장애별 처리
 
@@ -170,4 +172,4 @@ broker의 원자적 snapshot 레코드와 WebSocket 전송 단위를 구분한�
 
 이벤트 평균 1KiB, 초당 100건, 24시간, 복제 3이면 원본 로그만 약 26.5GB가 필요하다. checkpoint, snapshot, Kafka segment, compaction 여유와 파일 시스템 공간은 별도다. gateway 3개가 전체 로그를 읽으므로 broker의 소비 전송량도 대략 3배이며, 클라이언트 팬아웃 비용은 별도로 증가한다. transaction batch는 지연을 더하므로 기존 mmap 지연 목표와 동일하게 보지 않는다.
 
-운영에는 장애 도메인에 분산한 broker 3개와 controller quorum, persistent volume, HA 네트워크 및 인증 공급자가 필요하다. 운영용 controller/broker 역할과 배치는 [KRaft 문서](https://kafka.apache.org/41/operations/kraft/)를 따라 별도 결정한다. 한 호스트 kind의 통합 역할 구성은 기능 시험용이다. 이 비용이 과하면 현재 단일 Pod 구성을 유지하거나 JetStream 대안으로 별도 ADR을 쓰고 동일한 복구 및 fencing 시험을 통과시킨다.
+운영에는 장애 도메인에 분산한 broker 3개와 controller quorum, persistent volume, HA 네트워크 및 인증 공급자가 필요하다. gateway의 엄격한 zone/hostname 분산과 순차 교체에는 [배포 계획](ha-rollout.md)에 명시한 zone당 적격 노드 2개, 총 6개와 surge 용량도 필요하다. 운영용 controller/broker 역할과 배치는 [KRaft 문서](https://kafka.apache.org/41/operations/kraft/)를 따라 별도 결정한다. 한 호스트 kind의 통합 역할 구성은 기능 시험용이다. 이 비용이 과하면 현재 단일 Pod 구성을 유지하거나 JetStream 대안으로 별도 ADR을 쓰고 동일한 복구 및 fencing 시험을 통과시킨다.
