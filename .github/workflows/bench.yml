@@ -1,0 +1,59 @@
+name: Bench
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - src/**
+      - proto/**
+      - build.rs
+      - Cargo.toml
+      - Cargo.lock
+      - bench/**
+      - .github/workflows/bench.yml
+
+# 같은 브랜치에 새 커밋이 오면 앞선 실행을 멈춘다.
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # PR이면 기준 브랜치도 받아 같은 러너에서 번갈아 돌린다.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+      - name: Install Rust 1.95.0
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            base -> target
+      # gateway와 loadgen이 코어를 다투지 않게 절반씩 나눈다.
+      - name: Split cores
+        run: |
+          cores=$(nproc)
+          if [ "$cores" -ge 2 ]; then
+            echo "GATEWAY_CPUS=0-$((cores / 2 - 1))" >>"$GITHUB_ENV"
+            echo "LOADGEN_CPUS=$((cores / 2))-$((cores - 1))" >>"$GITHUB_ENV"
+          fi
+      - run: bench/ci.sh ${{ github.event_name == 'pull_request' && 'base' || '' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-results
+          path: |
+            bench/results/ci-*.json
+            base/bench/results/ci-*.json
