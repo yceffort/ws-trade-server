@@ -42,12 +42,13 @@ async fn loadgen_measures_delivery_and_latency() {
     assert!(p50 <= p99 && p99 <= max, "{latency}");
 }
 
-// 송신 큐를 256으로 줄이고 초당 3000건을 쓴다. 읽지 않는 연결은 커널 버퍼가 찬 뒤 큐까지 차서 끊기고, 읽는 연결은 큐가 비어 있어 남는다.
+// 초당 3000건을 쓴다. 읽지 않는 연결은 커널 버퍼가 찬 뒤 큐까지 차서 끊기고, 읽는 연결은 큐가 비어 있어 남는다.
+// 큐 1024는 읽는 연결이 0.3초쯤 밀려도 넘치지 않는 크기다. 멈춘 연결이 끊기기까지 3초 남짓 걸려서 준비 1초에 측정 4초를 둔다.
 #[tokio::test(flavor = "multi_thread")]
 async fn stalled_clients_are_dropped_and_the_rest_are_unaffected() {
     let report = run_loadgen(
         "loadgen-stalled",
-        256,
+        1024,
         &[
             "--connections",
             "10",
@@ -60,7 +61,7 @@ async fn stalled_clients_are_dropped_and_the_rest_are_unaffected() {
             "--warmup",
             "1",
             "--seconds",
-            "2",
+            "4",
         ],
     )
     .await;
