@@ -3,6 +3,8 @@ mod bridge;
 pub mod connection;
 pub mod corrections;
 pub mod feed;
+#[cfg(feature = "ha")]
+pub mod ha;
 mod http;
 pub mod hub;
 pub mod limits;

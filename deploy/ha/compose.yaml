@@ -1,0 +1,46 @@
+name: wts-ha-dev
+x-broker: &broker
+  image: apache/kafka:4.1.1@sha256:0bc1bb2478f45b6cea78864df86acdc11e8df2c5172477819a4d12942cbe5d40
+  environment:
+    KAFKA_HEAP_OPTS: -Xms256m -Xmx384m
+  entrypoint: ["/bin/bash", "-ec"]
+  healthcheck:
+    test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 --command-config /config/admin.properties >/dev/null 2>&1"]
+    interval: 15s
+    timeout: 12s
+    retries: 12
+    start_period: 30s
+  restart: "no"
+  stop_grace_period: 30s
+services:
+  kafka1:
+    <<: *broker
+    ports: ["127.0.0.1:29091:9094"]
+    volumes: ["../local/ha/shared:/config:ro", "data1:/var/lib/kafka/data"]
+    command:
+      - |
+        read -r cluster_id < /config/cluster-id
+        /opt/kafka/bin/kafka-storage.sh format --ignore-formatted -t "$$cluster_id" -c /config/broker1.properties
+        exec /opt/kafka/bin/kafka-server-start.sh /config/broker1.properties
+  kafka2:
+    <<: *broker
+    ports: ["127.0.0.1:29092:9094"]
+    volumes: ["../local/ha/shared:/config:ro", "data2:/var/lib/kafka/data"]
+    command:
+      - |
+        read -r cluster_id < /config/cluster-id
+        /opt/kafka/bin/kafka-storage.sh format --ignore-formatted -t "$$cluster_id" -c /config/broker2.properties
+        exec /opt/kafka/bin/kafka-server-start.sh /config/broker2.properties
+  kafka3:
+    <<: *broker
+    ports: ["127.0.0.1:29093:9094"]
+    volumes: ["../local/ha/shared:/config:ro", "data3:/var/lib/kafka/data"]
+    command:
+      - |
+        read -r cluster_id < /config/cluster-id
+        /opt/kafka/bin/kafka-storage.sh format --ignore-formatted -t "$$cluster_id" -c /config/broker3.properties
+        exec /opt/kafka/bin/kafka-server-start.sh /config/broker3.properties
+volumes:
+  data1:
+  data2:
+  data3:
