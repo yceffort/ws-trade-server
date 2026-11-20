@@ -2,7 +2,9 @@
 mod client;
 #[allow(dead_code)]
 mod common;
+#[cfg(unix)]
 mod temp_file;
+#[cfg(unix)]
 use temp_file::TempFile;
 
 use client::*;
@@ -63,6 +65,7 @@ async fn an_active_session_expires_without_another_request() {
     server.shutdown().await;
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn unreadable_token_file_revokes_existing_sessions() {
     let file = TempFile::new("auth");
