@@ -66,8 +66,12 @@ rows() {
 } >>"${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 
 # 지연과 처리량은 러너에 따라 달라지므로 실패 조건으로 쓰지 않는다. 전달이 온전한지만 본다.
-# saturated는 일부러 넘치게 흘리므로 마지막 1초 안에 못 온 체결이 생긴다. 전달 비율은 steady에서만 따진다.
+intact=1
 jq -es 'all(.[]; .connect.failed == 0 and .seq_gap_clients == 0 and .unexpected_disconnects == 0
-        and .latency_us.unmatched == 0 and .latency_us.samples > 0)' bench/results/ci-head-*.json >/dev/null &&
-  jq -es 'all(.[]; (.delivery.ratio // 1) == 1)' bench/results/ci-head-steady-*.json >/dev/null ||
-  { echo "전달이 온전하지 않은 실행이 있다(연결 실패, 순번 빠짐, 끊김, 짝 없는 표본, steady의 전달 비율)" >&2; exit 1; }
+        and .latency_us.unmatched == 0 and .latency_us.samples > 0)' bench/results/ci-head-*.json >/dev/null || intact=0
+# saturated는 일부러 넘치게 흘리므로 마지막 1초 안에 못 온 체결이 생긴다. 전달 비율은 steady를 돌렸을 때 그 결과에서만 따진다.
+steady=(bench/results/ci-head-steady-*.json)
+if [ -e "${steady[0]}" ]; then
+  jq -es 'all(.[]; (.delivery.ratio // 1) == 1)' "${steady[@]}" >/dev/null || intact=0
+fi
+[ "$intact" = 1 ] || { echo "전달이 온전하지 않은 실행이 있다(연결 실패, 순번 빠짐, 끊김, 짝 없는 표본, steady의 전달 비율)" >&2; exit 1; }
