@@ -180,7 +180,13 @@ async fn ha_bootstrap_stale_recovery_and_drain_keep_explicit_states() {
         }
     }).await.unwrap();
     assert_eq!(stale["code"], "source-stale");
-    assert!(request(http, "GET", "/readyz").await.starts_with("HTTP/1.1 503"));
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !request(http, "GET", "/readyz").await.starts_with("HTTP/1.1 503") {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
     assert!(request(http, "GET", "/livez").await.starts_with("HTTP/1.1 200"));
     feed.pause.store(false, std::sync::atomic::Ordering::Relaxed);
     server.wait_ready(Duration::from_secs(5)).await.unwrap();

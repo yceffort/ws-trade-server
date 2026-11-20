@@ -395,3 +395,31 @@ fn json_expansion_is_rejected_before_a_ha_event_can_be_committed() {
     assert!(matches!(state.stage(&event), Err(Error::TooLarge)));
     assert_eq!(state.to_json().unwrap(), before);
 }
+
+#[tokio::test]
+async fn restoring_a_failed_replica_disconnects_legacy_clients_before_replaying() {
+    let config = config();
+    let hub = crate::hub::Hub::spawn();
+    let mut snapshot = Snapshot::empty(&config).unwrap();
+    snapshot.apply(&LogRecord::Status(SourceStatus::new(&config, replica::now_ms(), false)), 0, &config).unwrap();
+    hub.restore_replica(config.clone(), snapshot.clone()).await.unwrap();
+    let (mut queue, kick) = hub.connect(7, 8).await;
+    hub.subscribe(7, "sub".into(), config.topics[0].clone(), None).await;
+    let mut generator = Synthetic::new(&config, 1, 1000).unwrap();
+    let record = LogRecord::Trade(Box::new(generator.next(&config, 1, 2000).unwrap()));
+    hub.apply_replica(2, record.clone()).await.unwrap();
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(1), queue.recv()).await.unwrap(),
+        Some(crate::hub::Outgoing::Message { .. })
+    ));
+    hub.fail_replica().await;
+    assert_eq!(tokio::time::timeout(Duration::from_secs(1), kick).await.unwrap().unwrap(), "source-stale");
+    let (mut late, late_kick) = hub.connect(8, 8).await;
+    hub.subscribe(8, "sub".into(), config.topics[0].clone(), None).await;
+    hub.restore_replica(config, snapshot).await.unwrap();
+    hub.apply_replica(2, record).await.unwrap();
+    assert_eq!(tokio::time::timeout(Duration::from_secs(1), late_kick).await.unwrap().unwrap(), "source-stale");
+    assert!(tokio::time::timeout(Duration::from_secs(1), queue.recv()).await.unwrap().is_none());
+    assert!(tokio::time::timeout(Duration::from_secs(1), late.recv()).await.unwrap().is_none());
+    hub.stop().await;
+}

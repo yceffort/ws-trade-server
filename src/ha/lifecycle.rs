@@ -53,7 +53,7 @@ impl Lifecycle {
             if matches!(state.phase, Phase::Draining | Phase::Stopped) {
                 return false;
             }
-            let next = if ready {
+            let next = if ready && !failed {
                 Phase::Ready
             } else if state.phase == Phase::Bootstrapping && !failed {
                 Phase::Bootstrapping
@@ -153,6 +153,16 @@ mod tests {
         life.health(true, false);
         assert_eq!(life.phase(), Phase::Stopped);
     }
+    #[test]
+    fn failed_observation_overrides_stale_ready_view() {
+        let life = Lifecycle::default();
+        life.health(true, false);
+        life.health(true, true);
+        assert_eq!(life.phase(), Phase::Degraded);
+        life.health(true, false);
+        assert!(life.ready());
+    }
+
     #[tokio::test]
     async fn a_coalesced_degradation_invalidates_existing_connections() {
         let life = Lifecycle::default();

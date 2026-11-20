@@ -21,3 +21,5 @@ preStop은 `container-probe ha-drain`을 호출하고 20초를 기다리는 형�
 `container-probe ha-live`, `ha-ready`는 loopback API를 0.8초 제한으로 호출한다. 2xx만 성공이며 접속 오류, timeout, 503은 실패한다. `WTS_HTTP_PORT`는 1부터 65535까지의 loopback 포트만 바꿀 수 있고 기본은 8081이다. Pod IP를 향하는 httpGet 대신 컨테이너 내부 exec probe로 실행한다. 실제 manifests는 #52의 별도 HA overlay에서 연결한다.
 
 기본 및 HA Rust 검증과 lifecycle 시험은 bootstrap 거절, ready 전이, 중복 drain, 늦은 handshake, 기존 stream 유지, 관리 API 및 exec probe, 종료 후 포트 반환을 검사한다. 실제 Kafka 시험은 신선도 상실과 회복, HA source-stale 및 지연된 draining 통지를 검사한다. 이 시험은 외부 LB의 routing 제거 시간을 증명하지 않는다.
+
+복제 오류 후 snapshot을 다시 읽을 때 기존 HA와 STOMP 구독자를 먼저 `source-stale`로 종료한다. 재복원 중 이미 전달한 체결을 기존 STOMP 세션에 재발행하지 않는다. 실패 관측은 이전 ready 관측보다 우선한다.
