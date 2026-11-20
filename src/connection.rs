@@ -1,3 +1,4 @@
+mod batch;
 mod idle;
 mod rejection;
 use crate::hub::{Hub, Outgoing};
@@ -174,7 +175,7 @@ async fn write_loop(
     // message-id의 seq는 이 연결로 실제 나가는 순서대로 여기서만 매긴다.
     let mut seq: u64 = 0;
     loop {
-        let text = tokio::select! {
+        let first = tokio::select! {
             reason = auth::invalidated(&mut session) => {
                 let _ = writer.send(Message::text(stomp::error(reason))).await;
                 let _ = writer.close().await;
@@ -185,22 +186,19 @@ async fn write_loop(
                 let _ = writer.close().await;
                 return "server_shutdown";
             }
-            outgoing = outgoing.recv() => match outgoing {
-                Some(Outgoing::Error(code)) => {
-                    let _ = writer.send(Message::text(stomp::error(code))).await;
-                    return code;
-                }
-                Some(Outgoing::Receipt { receipt_id, message }) => stomp::receipt(&receipt_id, message),
-                Some(Outgoing::Message { subscription, body }) => {
-                    seq += 1;
-                    stomp::message(&format!("{connection_id}-{seq}"), &subscription, &body)
-                }
+            first = outgoing.recv() => match first {
+                Some(first) => first,
                 None => return "hub_closed",
             },
-            _ = beat.tick() => "\n".to_string(),
+            _ = beat.tick() => {
+                if writer.send(Message::text("\n")).await.is_err() {
+                    return "write_error";
+                }
+                continue;
+            }
         };
-        if writer.send(Message::text(text)).await.is_err() {
-            return "write_error";
+        if let Err(reason) = batch::write(&mut writer, first, &mut outgoing, connection_id, &mut seq).await {
+            return reason;
         }
     }
 }
