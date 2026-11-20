@@ -25,13 +25,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # 이 뒤에 PR의 코드를 실행하므로 토큰을 git 설정에 남기지 않는다.
       - uses: actions/checkout@v4
-      # PR이면 기준 브랜치도 받아 같은 러너에서 번갈아 돌린다.
+        with:
+          persist-credentials: false
+      # PR이면 기준도 받아 같은 러너에서 번갈아 돌린다. 브랜치 이름으로 받으면 실행을 기다리는 사이 기준이 움직일 수 있어 커밋으로 고정한다.
       - uses: actions/checkout@v4
         if: github.event_name == 'pull_request'
         with:
-          ref: ${{ github.base_ref }}
+          ref: ${{ github.event.pull_request.base.sha }}
           path: base
+          persist-credentials: false
       - name: Install Rust 1.95.0
         run: |
           rustup toolchain install 1.95.0 --profile minimal
