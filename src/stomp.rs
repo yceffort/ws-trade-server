@@ -25,7 +25,7 @@ pub fn parse(text: &str) -> Option<Incoming> {
     let headers = lines
         .map(|line| line.split_once(':').map(|(key, value)| (key.to_string(), value.to_string())))
         .collect::<Option<Vec<_>>>()?;
-    let body = body.strip_suffix('\0')?.to_string();
+    let body = body.trim_end_matches('\n').strip_suffix('\0')?.to_string();
     Some(Incoming::Frame(Frame { command, headers, body }))
 }
 
@@ -74,6 +74,14 @@ mod tests {
     fn frame_without_nul_is_rejected() {
         assert!(parse("CONNECT\nconnection-id:x\n\n").is_none());
         assert!(parse("SUBSCRIBE\nid:0\ndestination:/topic/x\n\n").is_none());
+        assert!(parse("SEND\n\nbody\n\n").is_none());
+    }
+
+    // STOMP 1.2는 종료 NUL 뒤에 줄바꿈이 더 오는 것을 허용한다. 본문 안의 줄바꿈은 그대로 둔다.
+    #[test]
+    fn newlines_after_nul_are_accepted() {
+        let Some(Incoming::Frame(frame)) = parse("SEND\n\nbody\n\0\n\n") else { panic!() };
+        assert_eq!(frame.body, "body\n");
     }
 
     #[test]
