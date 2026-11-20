@@ -39,9 +39,9 @@ const connect = [
   ['sent', frame('CONNECT', { 'connection-id': 'c' })],
   ['received', frame('CONNECTED', { version: '1.2' })],
 ]
-const subscribe = (id) => [
-  ['sent', frame('SUBSCRIBE', { id, receipt: `${id}-sub_receipt`, destination: TOPIC })],
-  ['received', frame('RECEIPT', { 'receipt-id': `${id}-sub_receipt` })],
+const subscribe = (id, receipt = `${id}-sub_receipt`) => [
+  ['sent', frame('SUBSCRIBE', { id, receipt, destination: TOPIC })],
+  ['received', frame('RECEIPT', { 'receipt-id': receipt })],
 ]
 const unsubscribe = (id) => [['sent', frame('UNSUBSCRIBE', { id, receipt: `${id}-unsub_receipt` })]]
 let seq = 0
@@ -89,6 +89,24 @@ test('한쪽만 구독하던 구간의 메시지는 견주지 않는다', () => 
     message('b', 2),
     ...unsubscribe('a'),
     message('b', 3),
+  ])
+  assert.equal(contract.server.duplicateSubscriptions[0].deliveredToEach, true)
+})
+
+test('receipt 값을 다시 써도 그 구독보다 뒤에 받은 RECEIPT부터 센다', () => {
+  const contract = extract([...connect, ...subscribe('a', 'r'), message('a', 1), ...subscribe('b', 'r'), message('a', 2), message('b', 2)])
+  assert.equal(contract.server.duplicateSubscriptions[0].deliveredToEach, true)
+})
+
+test('해지한 id를 다시 써도 그 구독보다 뒤에 보낸 UNSUBSCRIBE까지 센다', () => {
+  const contract = extract([
+    ...connect,
+    ...subscribe('a'),
+    ...unsubscribe('a'),
+    ...subscribe('a', 'a-again'),
+    ...subscribe('b'),
+    message('a', 1),
+    message('b', 1),
   ])
   assert.equal(contract.server.duplicateSubscriptions[0].deliveredToEach, true)
 })
