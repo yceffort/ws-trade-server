@@ -40,7 +40,7 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 
 실측이 없어 STOMP 기본 동작으로 넣은 것:
 
-- [공통 입력 경계](docs/source-input.md)는 로컬 링과 broker 입력을 같은 bounded hub 큐에 전달한다. 별도 envelope의 안정적인 source/event 식별자와 십진 문자열 위치는 실험 규약이다. [복제 로그 실험](deploy/ha/README.md)은 선택적 `ha` feature로 Kafka transaction, producer fencing과 checkpoint 복구를 제공한다. [gateway 복원](docs/ha-gateway.md)은 완전 snapshot 이후 전체 로그를 읽는다. [서명 cursor와 클라이언트 복구](docs/ha-protocol.md)를 제공하며 HA 배포는 후속 작업이다.
+- [공통 입력 경계](docs/source-input.md)는 로컬 링과 broker 입력을 같은 bounded hub 큐에 전달한다. 별도 envelope의 안정적인 source/event 식별자와 십진 문자열 위치는 실험 규약이다. [복제 로그 실험](deploy/ha/README.md)은 선택적 `ha` feature로 Kafka transaction, producer fencing과 checkpoint 복구를 제공한다. [gateway 복원](docs/ha-gateway.md)은 완전 snapshot 이후 전체 로그를 읽는다. [서명 cursor와 클라이언트 복구](docs/ha-protocol.md), [공유 JWT 인증과 온라인 폐기](docs/ha-auth.md)를 제공하며 HA 배포는 후속 작업이다.
 
 - 구독 중이 아닌 id의 `UNSUBSCRIBE`도 `receipt`가 있으면 같은 `RECEIPT`로 답함
 - `UNSUBSCRIBE`에 `receipt`가 없으면 응답 없음

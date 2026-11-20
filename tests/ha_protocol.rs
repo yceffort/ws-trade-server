@@ -3,6 +3,8 @@
 #[allow(dead_code)]
 mod ha_support;
 use ha_support::{feed, now};
+#[path = "ha_support/auth.rs"]
+mod shared_auth;
 use serde_json::{Value, json};
 use std::{path::PathBuf, time::Duration};
 use tokio::sync::oneshot;
@@ -46,6 +48,11 @@ async fn durable_client_recovers_across_gateways_and_replay_limits() {
         events
     }).await.unwrap();
     assert_eq!(expected.len(), 10040);
+    let provider = if std::env::var("WTS_HA_SHARED_TEST").as_deref() == Ok("1") {
+        Some(shared_auth::Provider::start(&source.topics).await)
+    } else {
+        None
+    };
     let config = || Config {
         addr: "127.0.0.1:0".into(),
         ha_lifecycle: Some(
@@ -56,11 +63,14 @@ async fn durable_client_recovers_across_gateways_and_replay_limits() {
             Protocol::new(serde_json::from_slice(&std::fs::read(directory.join("cursor-keys.json")).unwrap()).unwrap())
                 .unwrap(),
         ),
-        auth: Some(Auth::new(vec![Token {
-            token: "synthetic-protocol-test".into(),
-            principal: Some("test-account".into()),
-            expires_at: now() / 1000 + 600,
-        }])),
+        ha_auth: provider.as_ref().map(|provider| SharedAuth::new(provider.config.clone()).unwrap()),
+        auth: provider.is_none().then(|| {
+            Auth::new(vec![Token {
+                token: "synthetic-protocol-test".into(),
+                principal: Some("test-account".into()),
+                expires_at: now() / 1000 + 600,
+            }])
+        }),
         ..Config::default()
     };
     let (a, b, c) = tokio::join!(start_managed(config()), start_managed(config()), start_managed(config()));
@@ -72,7 +82,7 @@ async fn durable_client_recovers_across_gateways_and_replay_limits() {
     let read = reader.clone();
     let tail = tokio::task::spawn_blocking(move || read.reader(EVENTS, None).unwrap().initial_high()).await.unwrap();
     let fixture = directory.join("protocol-oracle.json");
-    std::fs::write(&fixture,serde_json::to_vec(&json!({"urls":urls,"topics":source.topics,"log_id":source.log_id,"tail":tail.to_string(),"start":expected[0]["offset"],"events":expected})).unwrap()).unwrap();
+    std::fs::write(&fixture,serde_json::to_vec(&json!({"urls":urls,"token_file":provider.as_ref().map(|p| p.directory.join("token")),"policy_control":provider.as_ref().map(|p|p.directory.join("control.json")),"topics":source.topics,"log_id":source.log_id,"tail":tail.to_string(),"start":expected[0]["offset"],"events":expected})).unwrap()).unwrap();
     let output = tokio::task::spawn_blocking(move || {
         std::process::Command::new("node")
             .args(["tests/ha-client-oracle.mjs", fixture.to_str().unwrap()])

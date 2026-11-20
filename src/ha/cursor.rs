@@ -49,6 +49,10 @@ impl CursorKeys {
         Ok(())
     }
 
+    pub(crate) fn ready(&self) -> bool {
+        self.keys.get(&self.current).is_some_and(|key| key.retain_until >= (now_ms() / 1000).saturating_add(LIFETIME))
+    }
+
     fn key(&self, kid: &str) -> Result<hmac::Key, &'static str> {
         let key = self.keys.get(kid).ok_or("invalid-cursor")?;
         if key.retain_until <= now_ms() / 1000 {
@@ -131,6 +135,27 @@ fn scope_hash(scope: &[String]) -> Result<String, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cursor_rotation_keeps_previous_gateway_cursors_valid() {
+        let old = serde_json::json!({"secret":URL_SAFE_NO_PAD.encode([1;32]),"retain_until":u64::MAX});
+        let new = serde_json::json!({"secret":URL_SAFE_NO_PAD.encode([2;32]),"retain_until":u64::MAX});
+        let original: CursorKeys =
+            serde_json::from_value(serde_json::json!({"current":"old","keys":{"old":old}})).unwrap();
+        let staged: CursorKeys =
+            serde_json::from_value(serde_json::json!({"current":"old","keys":{"old":old,"new":new}})).unwrap();
+        let active: CursorKeys =
+            serde_json::from_value(serde_json::json!({"current":"new","keys":{"old":old,"new":new}})).unwrap();
+        let scope = vec!["/topic/v1/test".into()];
+        let before = original.sign("log", 42, &scope, "subject").unwrap();
+        assert_eq!(active.verify(&before, "log", &scope, "subject"), Ok(42));
+        let after = active.sign("log", 43, &scope, "subject").unwrap();
+        assert_eq!(staged.verify(&after, "log", &scope, "subject"), Ok(43));
+        assert!(original.verify(&after, "log", &scope, "subject").is_err());
+        assert!(active.ready());
+        let expiring: CursorKeys = serde_json::from_value(serde_json::json!({"current":"old","keys":{"old":{"secret":URL_SAFE_NO_PAD.encode([1;32]),"retain_until":now_ms()/1000+10}}})).unwrap();
+        assert!(!expiring.ready());
+    }
 
     #[test]
     fn cursor_signature_binds_identity_scope_and_large_position() {

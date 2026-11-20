@@ -86,8 +86,15 @@ pub(crate) async fn serve_socket(
         let Request::Connect { token } = request(&mut reader).await? else {
             return Err("auth-invalid");
         };
-        let session = config.auth.as_ref().ok_or("auth-required")?.authorize(Some(&token))?;
-        let subject = session.principal.clone().unwrap_or_else(|| super::digest(token.as_bytes()));
+        let (session, subject) = if let Some(auth) = &config.ha_auth {
+            let session = auth.authorize(&token)?;
+            let subject = session.subject();
+            (Authentication::Shared(session), subject)
+        } else {
+            let session = config.auth.as_ref().ok_or("auth-required")?.authorize(Some(&token))?;
+            let subject = session.principal.clone().unwrap_or_else(|| super::digest(token.as_bytes()));
+            (Authentication::Local(session), subject)
+        };
         let protocol = config.ha_protocol.as_ref().ok_or("ha-disabled")?;
         send(
             &mut writer,
@@ -98,6 +105,9 @@ pub(crate) async fn serve_socket(
         let input = config.ha.as_ref().ok_or("ha-disabled")?;
         let resume =
             Resume::parse(request(&mut reader).await?, protocol, &input.source.log_id, &input.source.topics, &subject)?;
+        if !session.allows(&resume.topics) {
+            return Err("forbidden-scope");
+        }
         Ok::<_, &'static str>((session, subject, resume))
     };
     let result = tokio::select! {
@@ -159,6 +169,25 @@ async fn monitor(hub: &Hub) -> &'static str {
         tokio::time::sleep(Duration::from_millis(250)).await;
         if !hub.replica_ready() {
             return "source-stale";
+        }
+    }
+}
+
+enum Authentication {
+    Local(crate::auth::Session),
+    Shared(super::auth::Session),
+}
+impl Authentication {
+    fn allows(&self, topics: &[String]) -> bool {
+        match self {
+            Self::Local(_) => true,
+            Self::Shared(session) => session.allows(topics),
+        }
+    }
+    async fn invalidated(&mut self) -> &'static str {
+        match self {
+            Self::Local(session) => session.invalidated().await,
+            Self::Shared(session) => session.invalidated().await,
         }
     }
 }

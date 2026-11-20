@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -8,7 +8,7 @@ import { runClient } from '../examples/ha-client.mjs'
 import { FileStore } from '../examples/ha-state.mjs'
 
 const fixture = JSON.parse(readFileSync(process.argv[2]))
-const token = () => 'Bearer synthetic-protocol-test'
+const token = () => fixture.token_file ? readFileSync(fixture.token_file,'utf8') : 'Bearer synthetic-protocol-test'
 const startAt = { log_id: fixture.log_id, partition: 0, offset: fixture.start }
 const timeout = setTimeout(() => { console.error('protocol oracle timed out'); process.exit(1) }, 90000)
 if (process.argv[3] === 'crash') {
@@ -110,5 +110,42 @@ try {
     assert.deepEqual(state.states[topic].body,saved.states[topic].body)
   }
   assert.equal(state.count,'0')
+  if (fixture.policy_control) await verifyRevocation()
   console.log(JSON.stringify({applied:ids.length,crash_recovered:true,snapshot_recovered:true,replay_limits:replayLimits,digest}))
 } finally { clearTimeout(timeout); rmSync(directory,{recursive:true,force:true}) }
+
+async function verifyRevocation() {
+  const { default: WebSocket } = await import('../edge/node_modules/ws/wrapper.mjs')
+  const sockets = []
+  try {
+    const opened = fixture.urls.map(url => new Promise((resolve,reject) => {
+      const socket = new WebSocket(url,'wts.ha.v1',{handshakeTimeout:3000})
+      sockets.push(socket)
+      socket.on('error',reject)
+      socket.on('open',() => socket.send(JSON.stringify({type:'connect',token:token()})))
+      socket.on('message',data => {
+        const frame = JSON.parse(data)
+        if (frame.type === 'connected') {
+          socket.send(JSON.stringify({type:'resume',request_id:'revoke',mode:'state',topics:fixture.topics}))
+        }
+        if (frame.type === 'caught-up') resolve()
+        if (frame.type === 'heartbeat') socket.send('{"type":"heartbeat"}')
+        if (frame.type === 'error' && frame.code !== 'auth-revoked') reject(new Error(frame.code))
+      })
+    }))
+    await Promise.all(opened)
+    const revoked = sockets.map(socket => new Promise((resolve,reject) => {
+      const timer = setTimeout(() => reject(new Error('revocation deadline exceeded')),8000)
+      socket.on('message', data => {
+        const frame = JSON.parse(data)
+        if (frame.type === 'error' && frame.code === 'auth-revoked') { clearTimeout(timer); resolve() }
+      })
+    }))
+    const policy = JSON.parse(readFileSync(fixture.policy_control))
+    policy.policy.version = '2'
+    policy.policy.revoked = {oracle:Math.floor(Date.now()/1000)+1000}
+    writeFileSync(`${fixture.policy_control}.next`,JSON.stringify(policy))
+    renameSync(`${fixture.policy_control}.next`,fixture.policy_control)
+    await Promise.all(revoked)
+  } finally { sockets.forEach(socket => socket.terminate()) }
+}

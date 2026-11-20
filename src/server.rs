@@ -70,8 +70,12 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
         config
     };
     #[cfg(feature = "ha")]
-    if config.ha_protocol.is_some() && (config.ha.is_none() || config.auth.is_none()) {
+    if config.ha_protocol.is_some() && (config.ha.is_none() || config.auth.is_none() && config.ha_auth.is_none()) {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "HA 프로토콜에는 broker 입력과 인증이 필요하다"));
+    }
+    #[cfg(feature = "ha")]
+    if config.ha_auth.is_some() && (config.auth.is_some() || config.ha.is_none() || config.ha_protocol.is_none()) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "공유 인증은 HA 프로토콜에서 단독으로 설정한다"));
     }
     #[cfg(feature = "ha")]
     if config.ha.is_some() && config.ring.is_some() {
@@ -105,6 +109,8 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
         )
     });
     let auth_reload = config.auth.as_ref().and_then(crate::auth::Auth::reload);
+    #[cfg(feature = "ha")]
+    let policy_reload = config.ha_auth.as_ref().map(crate::ha::SharedAuth::spawn);
     let (stop, stopped) = oneshot::channel();
     let accept_hub = hub.clone();
     let task = tokio::spawn(async move {
@@ -136,7 +142,7 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
                     if let Some(life) = &config.ha_lifecycle {
                         if replica.is_some() {
                             let view = tokio::time::timeout(std::time::Duration::from_millis(100), accept_hub.replica_view()).await;
-                            let (ready, failed) = match view { Ok(Ok(view)) => (view.ready(true), view.failed), _ => (false, false) };
+                            let (ready, failed) = match view { Ok(Ok(view)) => (view.ready(config.ha_auth.as_ref().is_none_or(crate::ha::SharedAuth::fresh) && config.ha_protocol.as_ref().is_none_or(crate::ha::Protocol::ready)), view.failed), _ => (false, false) };
                             life.health(ready, failed || replica.as_ref().is_some_and(crate::ha::ReplicaTask::failed));
                         }
                         if let Some(deadline) = life.close_deadline() {
@@ -188,6 +194,11 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
         let drain = async { while connections.join_next().await.is_some() {} };
         if tokio::time::timeout(flush_timeout, drain).await.is_err() {
             connections.shutdown().await;
+        }
+        #[cfg(feature = "ha")]
+        if let Some(task) = policy_reload {
+            task.abort();
+            let _ = task.await;
         }
         if let Some(task) = auth_reload {
             task.abort();
