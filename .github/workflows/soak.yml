@@ -1,0 +1,59 @@
+name: Combined soak
+
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Total holding time, 1 to 1800 seconds
+        type: number
+        default: 600
+      cycles:
+        description: Fault and recovery cycles, 1 to 20
+        type: number
+        default: 6
+      connections:
+        description: Concurrent clients, 2 to 200
+        type: number
+        default: 40
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: cargo build --locked --release --bins
+      - run: npm ci --prefix edge
+      - name: Run lifecycle workload
+        env:
+          SOAK_SECONDS: ${{ inputs.seconds }}
+          SOAK_CYCLES: ${{ inputs.cycles }}
+          SOAK_CONNECTIONS: ${{ inputs.connections }}
+        run: node bench/soak.mjs --seconds "$SOAK_SECONDS" --cycles "$SOAK_CYCLES" --connections "$SOAK_CONNECTIONS" --out /tmp/soak.json
+      - name: Show result
+        if: always()
+        run: test ! -f /tmp/soak.json || cat /tmp/soak.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: soak-result
+          path: /tmp/soak.json
+          if-no-files-found: ignore
+          retention-days: 14
