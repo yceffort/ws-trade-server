@@ -14,7 +14,7 @@ docker build -f bench/ha/Dockerfile --build-arg HA_IMAGE=ws-trade-ha:acceptance 
 node bench/ha/job-run.mjs CONTEXT settings.json options.json ./ha-results
 ```
 
-`options.json` 기본값은 아래와 같다. Service 주소를 사용하는 시험과 실제 외부 LB URL을 사용하는 시험을 별도로 남긴다. 인증서의 SAN과 URL이 일치해야 한다. 측정용 부하 Pod는 서버와 분리된 노드에 두는 것이 좋으며, CPU throttling과 client event loop 지연도 결과와 함께 확인한다.
+아래는 일반 부하 시험용 `options.json` 예시다. 필드를 생략하면 `requireReconnectSlo`는 `true`, `startupIntervalMs`는 `10`이다. Service 주소를 사용하는 시험과 실제 외부 LB URL을 사용하는 시험을 별도로 남긴다. 인증서의 SAN과 URL이 일치해야 한다. 측정용 부하 Pod는 서버와 분리된 노드에 두는 것이 좋으며, CPU throttling과 client event loop 지연도 결과와 함께 확인한다.
 
 ```json
 {"clients":1000,"workers":4,"durationSeconds":600,"startupIntervalMs":20,"requireReconnectSlo":false}
@@ -49,7 +49,7 @@ WTS_HA_ALLOW_FAULTS=dedicated-test-namespace node bench/ha/kind-fault.mjs wts-ha
 WTS_HA_ALLOW_FAULTS=dedicated-test-namespace node bench/ha/kind-fault.mjs wts-ha-test wts-ha network-partition
 ```
 
-kind 전용 장애 도구는 gateway가 있는 worker를 PDB를 존중해 drain하거나, 그 컨테이너의 kind network를 15초 분리했다가 같은 주소로 복구한다. 실험 후 cordon, network, broker quorum 상태를 확인한다. 한 호스트의 가상 노드 시험이며 실제 zone 단절이나 LB endpoint 제거 검증을 대신하지 않는다. 외부 LB 환경에서는 해당 플랫폼의 실제 노드와 네트워크 장애 주입 절차를 별도로 사용한다.
+kind 전용 장애 도구는 부하 Pod가 없는 gateway worker만 골라 PDB를 존중해 drain하거나, 그 컨테이너의 kind network를 15초 분리했다가 같은 주소로 복구한다. 실험 후 cordon, network, broker quorum 상태를 확인한다. 한 호스트의 가상 노드 시험이며 실제 zone 단절이나 LB endpoint 제거 검증을 대신하지 않는다. 외부 LB 환경에서는 해당 플랫폼의 실제 노드와 네트워크 장애 주입 절차를 별도로 사용한다.
 
 ## 회귀 범위
 
@@ -66,6 +66,8 @@ kind 전용 장애 도구는 gateway가 있는 worker를 PDB를 존중해 drain�
 
 부하 Worker는 여러 클라이언트의 checkpoint를 10ms 단위의 append journal로 묶고 fsync가 끝난 뒤에만 적용 완료로 집계한다. 상태와 cursor는 같은 JSON record에 저장하며, 각 클라이언트의 다음 frame 처리는 해당 fsync를 기다린다. 16MiB마다 전체 최신 상태를 fsync와 atomic rename으로 압축한다. 재접속 시간에는 group commit 대기도 포함된다. 기본 예제의 개별 FileStore 동기 fsync와 이 부하 발생기의 저장 방식은 다르므로 클라이언트 디스크 비용을 함께 보고한다.
 
-부하 Worker는 V8 heap 한도를 별도로 적용한다. 클라이언트 수신 대기열은 64KiB에서 socket pause, 32KiB 미만에서 resume하며 1MiB를 넘으면 연결을 닫는다. 백프레셔 때문에 heartbeat 또는 server live buffer 한계를 넘으면 재접속으로 처리하고, 이를 시험 실패 결과에서 숨기지 않는다.
+부하 Worker는 V8 heap 한도를 별도로 적용한다. 클라이언트 수신 대기열은 64KiB에서 socket pause, 32KiB 미만에서 resume하며 1MiB를 넘으면 연결을 닫는다. 스스로 수신을 pause한 동안에는 수신 타이머를 연장하고 resume 시 3초를 다시 시작한다. 서버의 live buffer 한계를 넘으면 재접속으로 처리하며, 이를 시험 실패 결과에서 숨기지 않는다.
 
 현재 연결에서 caught-up 상태가 아니거나 committed 검증 경계보다 뒤처진 클라이언트가 하나라도 남으면 검증에 실패한다. 과거에 한 번 연결됐다는 사실로 초기 준비 완료를 판정하지 않는다. 로컬 Unix 소켓의 `GET /status`는 현재 caught-up 수와 종료 사유 집계만 반환하며 token, cursor, 체결 본문은 반환하지 않는다.
+
+계획 배포의 재접속 p99는 장애 시나리오 표시가 없는 샘플만 사용한다. 표시된 장애 재접속은 `fault_reconnect_p99_ms`로 분리한다. 계획 배포 샘플이 없으면 `reconnect_slo_status`는 `not-measured`이며 `requireReconnectSlo:true` 게이트는 통과하지 않는다. 일반 부하와 장애 시험은 위 예시처럼 명시적으로 `false`를 사용한다. 계획 배포 시험과 장애 주입 시험은 별도 세션으로 실행한다.

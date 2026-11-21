@@ -5,7 +5,9 @@ const empty=topics=>new MemoryStore('events',[...topics].sort()).load()
 export function recover(path) {
   if(statSync(path).size>32*1024*1024)throw new Error('client journal limit')
   const text=readFileSync(path,'utf8'),states=new Map()
-  for(const line of text.slice(0,text.lastIndexOf('\n')).split('\n').filter(Boolean)){
+  const end=text.lastIndexOf('\n')
+  if(end<0)return states
+  for(const line of text.slice(0,end).split('\n').filter(Boolean)){
     const {id,state}=JSON.parse(line)
     if(!Number.isInteger(id)||id<0||!state||state.mode!=='events'||typeof state.count!=='string'||!Array.isArray(state.topics))throw new Error('invalid client journal')
     states.set(id,state)

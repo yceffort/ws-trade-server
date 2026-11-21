@@ -3,19 +3,27 @@ import { readFileSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { performance } from 'node:perf_hooks'
+import { pathToFileURL } from 'node:url'
 const exec=promisify(execFile)
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 const [action,namespace]=process.argv.slice(2)
 const allowed=new Set(['gateway-kill','feed-failover','broker-one','broker-quorum','gateway-restart','full-restart'])
+export function requestBody(method,body) {
+  const data=body===undefined?undefined:JSON.stringify(body)
+  const headers={'content-type':method==='PATCH'?'application/merge-patch+json':'application/json'}
+  if(data!==undefined)headers['content-length']=String(Buffer.byteLength(data))
+  return {data,headers}
+}
 async function api(method,path,body){
   const token=readFileSync('/var/run/chaos/token','utf8').trim()
+  const {data,headers}=requestBody(method,body)
   return await new Promise((resolve,reject)=>{
-    const req=request(`https://kubernetes.default.svc/api${path}`,{method,ca:readFileSync('/var/run/chaos/ca.crt'),headers:{authorization:`Bearer ${token}`,'content-type':method==='PATCH'?'application/merge-patch+json':'application/json'},timeout:3000},res=>{
+    const req=request(`https://kubernetes.default.svc/api${path}`,{method,ca:readFileSync('/var/run/chaos/ca.crt'),headers:{authorization:`Bearer ${token}`,...headers},timeout:3000},res=>{
       let text=''
       res.on('data',chunk=>{text+=chunk;if(text.length>4*1024*1024)req.destroy(new Error('API output limit'))})
       res.on('end',()=>res.statusCode>=200&&res.statusCode<300?resolve(JSON.parse(text)):reject(new Error('Kubernetes action rejected')))
     })
-    req.on('error',reject);req.on('timeout',()=>req.destroy(new Error('Kubernetes request deadline')));req.end(body?JSON.stringify(body):undefined)
+    req.on('error',reject);req.on('timeout',()=>req.destroy(new Error('Kubernetes request deadline')));req.end(data)
   })
 }
 const list=async (component,includeTerminating=false)=>(await api('GET',`/v1/namespaces/${namespace}/pods?labelSelector=${encodeURIComponent(`app.kubernetes.io/part-of=wts-ha,app.kubernetes.io/component=${component}`)}`)).items.filter(p=>includeTerminating||!p.metadata.deletionTimestamp)
@@ -24,7 +32,7 @@ async function remove(pod){
   return await api('DELETE',`/v1/namespaces/${namespace}/pods/${pod.metadata.name}`,{apiVersion:'v1',kind:'DeleteOptions',gracePeriodSeconds:0,preconditions:{uid:pod.metadata.uid,resourceVersion:pod.metadata.resourceVersion}})
 }
 async function head(){const{stdout}=await exec('/app/ha-oracle',['head','/credentials/gateway.json','/source/source.json'],{timeout:15000,maxBuffer:65536});return JSON.parse(stdout)}
-try {
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)try {
   if(!allowed.has(action)||!/^wts-ha(?:-[a-z0-9-]+)?$/.test(namespace)||process.env.WTS_HA_ALLOW_FAULTS!=='dedicated-test-namespace')throw new Error('dedicated test namespace and fault opt-in required')
   const started=performance.now()
   let details={}
@@ -73,4 +81,4 @@ try {
     details={deleted:targets.map(p=>p.metadata.name)}
   }
   console.log(JSON.stringify({ok:true,action,elapsed_ms:performance.now()-started,...details}))
-}catch{console.error('HA fault operation failed; inspect the dedicated test namespace');process.exitCode=1}
+}catch(error){console.error(error.code?'HA fault cluster or oracle operation failed':error.message);process.exitCode=1}

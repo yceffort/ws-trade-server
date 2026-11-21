@@ -1,13 +1,16 @@
 groups:
   - name: wts-ha
     rules:
+      - record: wts_ha_expected_namespace
+        expr: vector(1)
+        labels: { namespace: wts-ha }
       - alert: WtsHaReadyReplicasLow
         expr: sum by (namespace) (wts_ha_gateway_ready) < 3
         for: 30s
         labels: { severity: warning }
         annotations: { summary: 'HA gateway Ready 수가 3 미만입니다. 배포를 중단하고 source와 broker freshness를 확인하세요.' }
       - alert: WtsHaMetricsMissing
-        expr: up{job="wts-ha"} == 0 or absent(up{job="wts-ha"})
+        expr: up{job="wts-ha"} == 0 or (wts_ha_expected_namespace unless on (namespace) up{job="wts-ha"})
         for: 30s
         labels: { severity: critical }
         annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }

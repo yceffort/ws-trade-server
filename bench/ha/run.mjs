@@ -6,10 +6,10 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
-import { compare,percentile } from './oracle.mjs'
+import { compare,percentile,reconnectMetrics } from './oracle.mjs'
 const exec=promisify(execFile)
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
-const workers=[],exits=[],requests=new Map(),ready=new Set(),failures=[],verifications=[]
+const workers=[],exits=[],requests=new Map(),ready=new Set(),failures=[],verifications=[],actions=[]
 let server,config,stopped=false
 async function command(argv,extra=[],timeout=90000){
   if(!Array.isArray(argv)||!argv.length||argv.some(s=>typeof s!=='string'))throw new Error('command argv required')
@@ -45,10 +45,10 @@ async function verify(request={}) {
   const maximum=observed.clients.reduce((n,c)=>BigInt(c.offset)>n?BigInt(c.offset):n,0n)
   const oracle=await command(config.rangeCommand,[config.start,maximum.toString()])
   const comparison=compare(oracle,observed.clients)
-  const reconnect=percentile(observed.samples.filter(s=>s.disconnect_ms!==null).map(s=>s.disconnect_ms),.99)
+  const reconnect=reconnectMetrics(observed.samples)
   const recovery=percentile(observed.samples.filter(s=>s.fault_ms!==null).map(s=>s.fault_ms),.99)
-  const slo=reconnect!==null&&reconnect<=5000
-  const result={...request,ok:comparison.ok&&(!config.requireReconnectSlo||slo),committed_missing:comparison.ok?0:null,duplicate_applies:comparison.ok?0:null,comparison,reconnect_samples:observed.samples.length,reconnect_p99_ms:reconnect,recovery_from_fault_p99_ms:recovery,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms,verified_through:end.toString()}
+  const slo=reconnect.reconnect_slo_status==='pass'
+  const result={...request,ok:comparison.ok&&(!config.requireReconnectSlo||slo),committed_missing:comparison.ok?0:null,duplicate_applies:comparison.ok?0:null,comparison,...reconnect,recovery_from_fault_p99_ms:recovery,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms,verified_through:end.toString()}
   return result
 }
 try {
@@ -78,7 +78,7 @@ try {
   const startup=performance.now()+60000
   while(ready.size<config.clients&&!failures.length&&performance.now()<startup)await delay(100)
   if(ready.size!==config.clients||failures.length)throw new Error('initial client catchup failed')
-  const started=performance.now(),actions=[]
+  const started=performance.now()
   if(config.controlSocket){
     config.controlSocket=resolve(config.controlSocket)
     if(existsSync(config.controlSocket))throw new Error('control socket already exists')
@@ -110,7 +110,9 @@ try {
     if(stopped||failures.length)break
     workers.forEach(w=>w.postMessage({type:'mark',name:action.name}))
     const at=performance.now()
-    const result=await command(action.command,[],180000)
+    let result
+    try {result=await command(action.command,[],180000)}
+    catch(error){actions.push({name:action.name,elapsed_ms:performance.now()-at,result:{ok:false}});throw error}
     actions.push({name:action.name,elapsed_ms:performance.now()-at,result})
     if(result.ok!==true)throw new Error('fault action failed')
   }
@@ -131,7 +133,7 @@ try {
   const reason=error.code?'external-command-or-io-failed':error.message
   if(config?.output){
     const diagnostics=workers.length?await status().catch(()=>({unavailable:true})):null
-    mkdirSync(dirname(config.output),{recursive:true});writeFileSync(config.output,JSON.stringify({ok:false,reason,clients:config.clients,ready:ready.size,failures,diagnostics,production_slo_proven:false},null,2),{mode:0o600})
+    mkdirSync(dirname(config.output),{recursive:true});writeFileSync(config.output,JSON.stringify({ok:false,reason,clients:config.clients,ready:ready.size,failures,diagnostics,actions,rollout_verifications:verifications,production_slo_proven:false},null,2),{mode:0o600})
   }
   console.error(reason);process.exitCode=1
 }

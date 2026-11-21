@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { compare,extend,hash,payloadHash,zero,percentile } from './oracle.mjs'
+import { compare,extend,hash,payloadHash,zero,percentile,reconnectMetrics } from './oracle.mjs'
 const events=[{id:'source/epoch/1',topic:'a',offset:'4',body:{volume:'2',price:'10.00'}},{id:'source/epoch/2',topic:'b',offset:'7',body:{volume:'3'}},{id:'source/epoch/3',topic:'a',offset:'9',body:{volume:'5'}}]
 const oracle={log_id:'log',start:'3',through:'12',events}
 function client(topics=['a','b'],end='12'){
@@ -21,4 +21,12 @@ test('canonical payloads ignore key ordering and SLO uses nearest rank',()=>{
   assert.equal(payloadHash({b:1,a:'2'}),payloadHash({a:'2',b:1}))
   assert.equal(percentile(Array.from({length:100},(_,i)=>i+1),.99),99)
   assert.equal(percentile([],.99),null)
+})
+
+test('planned reconnect SLO excludes injected faults and reports absent samples',()=>{
+  const result=reconnectMetrics([{disconnect_ms:1000,scenario:null},{disconnect_ms:30000,scenario:'broker-quorum'}])
+  assert.equal(result.reconnect_p99_ms,1000);assert.equal(result.fault_reconnect_p99_ms,30000)
+  assert.equal(result.reconnect_slo_status,'pass')
+  assert.equal(reconnectMetrics([]).reconnect_slo_status,'not-measured')
+  assert.equal(reconnectMetrics([{disconnect_ms:6000,scenario:null}]).reconnect_slo_status,'fail')
 })

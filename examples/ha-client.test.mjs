@@ -127,7 +127,7 @@ test('durable apply backpressure pauses burst input and resumes without losing e
   })
   const timeout=setTimeout(()=>controller.abort(),10000)
   try{
-    await runClient({...args,signal:controller.signal,onAttempt(socket){const pause=socket.pause.bind(socket);socket.pause=()=>{pauses++;pause()}},async onCommit(state){await new Promise(resolve=>setTimeout(resolve,10));if(state.count==='2000')controller.abort()}})
+    await runClient({...args,signal:controller.signal,onAttempt(socket){const pause=socket.pause.bind(socket);socket.pause=()=>{pauses++;pause()}},async onCommit(state){await new Promise(resolve=>setTimeout(resolve,state.count==='100'?3600:10));if(state.count==='2000')controller.abort()}})
     assert.equal(args.store.load().count,'2000');assert.equal(attempts,1);assert.ok(pauses>0)
   }finally{clearTimeout(timeout);close(mock)}
 })

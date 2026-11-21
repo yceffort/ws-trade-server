@@ -27,7 +27,7 @@ try {
   }
   let report
   try {
-    const deadline=Date.now()+1100000
+    const deadline=Date.now()+(manifest.items.find(o=>o.kind==='Job').spec.activeDeadlineSeconds+15)*1000
     while(Date.now()<deadline){
       const pods=JSON.parse(await kubectl(['get','pods','-l','app.kubernetes.io/part-of=wts-ha,app.kubernetes.io/component=ha-load','-o','json'])).items
       const pod=pods.find(p=>p.status.phase==='Running'&&!p.metadata.deletionTimestamp)

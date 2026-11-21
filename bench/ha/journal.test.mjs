@@ -36,3 +36,9 @@ test('journal compaction preserves the newest durable checkpoint and permits lat
     assert.equal(store.durable().cursor,'cursor-final')
   }finally{rmSync(directory,{recursive:true,force:true})}
 })
+
+test('a partial first journal record has no durable state',()=>{
+  const directory=mkdtempSync(join(tmpdir(),'ha-journal-')),path=join(directory,'clients')
+  try{appendFileSync(path,'{"id":1,"state":');assert.equal(recover(path).size,0)}
+  finally{rmSync(directory,{recursive:true,force:true})}
+})

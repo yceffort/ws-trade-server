@@ -260,6 +260,9 @@ impl ClientContext for Quiet {
         }
     }
     fn error(&self, error: KafkaError, _: &str) {
+        if matches!(error, KafkaError::PartitionEOF(_)) {
+            return;
+        }
         tracing::warn!(event = "broker_client_error", code = ?error.rdkafka_error_code());
     }
 }

@@ -29,3 +29,7 @@ Producer fencing은 프로세스가 종료되는 사건이므로 scrape 직전 �
 ## 운영 승인 전 필요한 증거
 
 실제 외부 LB의 WebSocket upgrade, 인증서, idle timeout, endpoint 제거 지연, drain과 재접속 p99를 측정한다. 서로 다른 물리 장애 도메인과 zone 내부 surge 노드, N-1 및 4 Pod 순간 용량을 확보하고 단일 도메인 손실을 시험한다. CNI allow/deny, 스토리지 복구, 실제 N/N-1 release 혼합과 rollback 결과도 남긴다. 단일 호스트 kind 결과로 이 조건을 완료했다고 판정하지 않는다.
+
+Kafka 클라이언트 오류는 native 원문 대신 고정 facility 분류와 오류 enum 코드만 기록한다. `PartitionEOF`는 현재 committed 경계에 도달했다는 정상 소비 상태이므로 오류 로그에서 제외한다. 인증 설정, 토큰과 payload는 이 로그에 기록하지 않는다.
+
+`prometheus-rules.yaml`의 `wts_ha_expected_namespace`는 discovery와 독립된 감시 대상 목록이다. 기본값은 `wts-ha`이며 실제 배포 namespace로 바꾸거나 namespace마다 같은 record를 다른 label로 추가한다. 감시 대상의 모든 endpoint가 없어져도 다른 namespace의 정상 `up` 때문에 알림이 사라지지 않는다. 규칙을 적용하기 전에 `promtool test rules deploy/k8s/ha/observability/prometheus-rules.test.yaml`을 실행한다.

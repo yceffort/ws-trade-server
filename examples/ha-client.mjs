@@ -15,7 +15,15 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
     const closed = new Promise(resolve => socket.once('close', () => { onDisconnect(reason); resolve() }))
     const stop = () => socket.terminate()
     signal?.addEventListener('abort', stop, { once: true })
-    let receiveTimer = setTimeout(() => { reason = 'receive-deadline'; stop() },3000)
+    let receiveTimer
+    const receiveDeadline = () => {
+      clearTimeout(receiveTimer)
+      receiveTimer = setTimeout(() => {
+        if (queued > 0 && socket.isPaused) receiveDeadline()
+        else { reason = 'receive-deadline'; stop() }
+      },3000)
+    }
+    receiveDeadline()
     const timer = setInterval(() => {
       if (ready && socket.readyState === WebSocket.OPEN) socket.send('{"type":"heartbeat"}')
     }, 1000)
@@ -25,8 +33,7 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
       catch { reason = 'auth-invalid'; stop() }
     })
     socket.on('message', (data, binary) => {
-      clearTimeout(receiveTimer)
-      receiveTimer = setTimeout(() => { reason = 'receive-deadline'; stop() },3000)
+      receiveDeadline()
       queued += data.length
       if (binary || queued > 1024 * 1024) { reason = 'client-overflow'; return stop() }
       if (queued >= 64 * 1024) socket.pause()
@@ -51,7 +58,12 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
           const ids = application.receive(frame)
           if (frame.type === 'checkpoint') await onCommit(store.load(), ids)
         }
-      }).catch(error => { applyFailed = true; reason = error.message === 'auth-invalid' ? error.message : 'client-apply-failed'; stop() }).finally(() => { queued -= data.length; if (queued < 32 * 1024 && socket.isPaused) socket.resume() })
+      }).catch(error => { applyFailed = true; reason = error.message === 'auth-invalid' ? error.message : 'client-apply-failed'; stop() }).finally(() => {
+        queued -= data.length
+        if (queued < 32 * 1024 && socket.isPaused && socket.readyState === WebSocket.OPEN) {
+          socket.resume(); receiveDeadline()
+        }
+      })
     })
     await closed
     clearInterval(timer)

@@ -28,3 +28,10 @@ test('metrics expose only a separate internal service and monitoring namespace i
   assert.equal(policy.spec.ingress[0].from[0].namespaceSelector.matchLabels['kubernetes.io/metadata.name'],'monitoring')
   assert.deepEqual(items.find(o=>o.kind==='Service'&&o.metadata.name==='wts-gateway').spec.ports.map(p=>p.port),[443])
 })
+
+test('Job and collection budgets cover the requested measurement duration',()=>{
+  const job=durationSeconds=>loadJob(settings,{durationSeconds}).items.find(o=>o.kind==='Job')
+  assert.equal(job(600).spec.activeDeadlineSeconds,1200)
+  assert.equal(job(900).spec.activeDeadlineSeconds,1500)
+  for(const value of [9,901,10.5,'600',null])assert.throws(()=>job(value),/durationSeconds/)
+})
