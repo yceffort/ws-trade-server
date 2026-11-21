@@ -80,8 +80,9 @@ async function verify(request={},requireSlo=config.requireReconnectSlo) {
   const maximum=observed.clients.reduce((n,c)=>BigInt(c.offset)>n?BigInt(c.offset):n,0n)
   const oracle=await oracleCommand(config.rangeCommand,[config.start,maximum.toString()],deadline)
   const comparison=compare(oracle,observed.clients)
-  const reconnect=reconnectMetrics(observed.samples,request.window)
-  const recovery=percentile(observed.samples.filter(s=>s.fault_ms!==null).map(s=>s.fault_ms),.99)
+  const samples=request.fault?observed.samples.filter(s=>s.fault===request.fault):observed.samples
+  const reconnect=reconnectMetrics(samples,request.window)
+  const recovery=percentile(samples.filter(s=>s.fault_ms!==null).map(s=>s.fault_ms),.99)
   const slo=reconnect.reconnect_slo_status==='pass'
   const result={...request,ok:comparison.ok&&(!requireSlo||slo),committed_missing:comparison.ok?0:null,duplicate_applies:comparison.ok?0:null,comparison,...reconnect,recovery_from_fault_p99_ms:recovery,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms,verified_through:end.toString()}
   return result
@@ -149,14 +150,15 @@ try {
     while(!stopped&&!failures.length&&performance.now()-started<action.atSeconds*1000)await delay(100)
     if(stopped||failures.length)break
     if(activeScope)throw new Error('scheduled fault overlaps rollout measurement')
-    await mark({name:action.name})
+    const fault=randomUUID()
+    await mark({name:action.name,fault})
     const at=performance.now()
     let result
     try {result=await command(action.command,[],180000)}
-    catch(error){actions.push({name:action.name,elapsed_ms:performance.now()-at,result:{ok:false}});throw error}
-    actions.push({name:action.name,elapsed_ms:performance.now()-at,result})
+    catch(error){actions.push({name:action.name,fault,elapsed_ms:performance.now()-at,result:{ok:false}});throw error}
+    actions.push({name:action.name,fault,elapsed_ms:performance.now()-at,result})
     if(result.ok!==true)throw new Error('fault action failed')
-    const recovery=await verify({},false)
+    const recovery=await verify({fault},false)
     if(!recovery.ok)throw new Error('fault recovery application mismatch')
     actions.at(-1).recovery=recovery
     await mark(null)

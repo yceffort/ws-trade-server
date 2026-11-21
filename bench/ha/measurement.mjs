@@ -4,7 +4,7 @@ export class Measurement {
   disconnect(at){this.disconnected??={at,scope:this.scope}}
   caughtUp(at){
     const previous=this.disconnected;this.disconnected=null
-    return {disconnect_ms:previous?at-previous.at:null,window:previous?.scope?.window??null,scenario:previous?.scope?.name??null,fault_ms:previous?.scope?.name?at-previous.scope.at:null}
+    return {disconnect_ms:previous?at-previous.at:null,window:previous?.scope?.window??null,fault:previous?.scope?.fault??null,scenario:previous?.scope?.name??null,fault_ms:previous?.scope?.name?at-previous.scope.at:null}
   }
 }
 export function measuredTargets(report) {

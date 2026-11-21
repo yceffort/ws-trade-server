@@ -56,7 +56,7 @@ NetworkPolicy는 기본 거부 후 필요한 경로만 허용한다. policyCIDRs
 
 `node deploy/k8s/ha/rollout.mjs CONTEXT NAMESPACE plan.json`은 환경 ConfigMap 잠금을 획득하고 원래 Pod template, 목표 template, 단계와 결과를 `wts-rollout-state`에 resourceVersion CAS로 보존한다. 현재 slot의 새 revision available=1, 이전 Pod 완전 종료, 전체 세 slot 안정화와 Pod Ready=3, oracle 성공을 모두 확인한 뒤 다음 slot을 patch한다. 일치하지 않는 수동 template 변경, 준비 실패, 검증 실패에서는 멈춘다. 동일 plan으로 재실행하면 완료된 slot을 건너뛰고 진행 중 slot의 현재 revision과 검증을 다시 확인한다. patch 직후 journal 기록 전에 중단돼도 목표 template을 재인식한다.
 
-검증 명령은 `WTS_ROLLOUT_REQUEST` JSON으로 planHash, slot, nonce, 현재 Pod UID 목록과 rollback 여부를 받는다. stdout에는 이 planHash/slot/nonce와 `ok:true`, `committed_missing:0`, `duplicate_applies:0`를 포함한 JSON 하나를 반환한다. 실행 시간 10분, 출력 64 KiB 상한이며 그 외 오류는 다음 slot의 교체를 막는다. 배포 계정은 신뢰한 검증 명령만 사용한다. 실제 oracle 구현과 부하 조건은 장애 검증 작업에서 관리한다.
+검증 명령은 `WTS_ROLLOUT_REQUEST` JSON으로 phase, planHash, slot, nonce, window와 rollback 여부를 받는다. patch 전 `phase=begin`에서는 해당 측정 구간을 시작하고 동일 planHash/slot/nonce/window와 `ok:true`로 응답해야 한다. 현재 Pod UID 목록이 추가된 `phase=verify`에서는 해당 window에서 시작한 재접속과 committed 적용을 비교하고 동일 식별자와 `ok:true`, `committed_missing:0`, `duplicate_applies:0`를 반환한다. stdout에는 JSON 하나만 출력한다. 이전 slot이나 배포 전 표본을 재사용하지 않으며 journal의 window는 재시작에도 유지한다. 실행 시간 10분, 출력 64 KiB 상한이며 그 외 오류는 다음 slot의 교체를 막는다. 배포 계정은 신뢰한 검증 명령만 사용한다. 실제 oracle 구현과 부하 조건은 장애 검증 작업에서 관리한다.
 
 SIGTERM/SIGINT는 다음 patch를 중단하고 finally에서 잠금을 해제하며 journal을 보존한다. SIGKILL이나 호스트 손실에서는 잠금을 자동으로 탈취하지 않는다. 오래 멈춘 이전 드라이버가 다시 patch하는 것을 방지하기 위해서다. 운영자가 기존 드라이버 프로세스가 완전히 종료됐음을 확인하고 lock ConfigMap의 owner/created_at을 기록한 뒤 `kubectl --context CONTEXT -n NAMESPACE delete configmap wts-rollout-lock`을 수행한다. 살아 있는 드라이버의 잠금을 지우지 않는다. 이후 동일 plan으로 재개한다. RBAC의 ConfigMap create는 이름을 제한할 수 없으므로 전용 namespace와 배포 계정 사용을 전제로 한다.
 
