@@ -168,6 +168,21 @@ async fn topics_outside_the_latest_first_list_still_drop_a_full_connection() {
     assert_eq!((metrics.slow_disconnections_total, metrics.latest_skipped_total), (1, 0));
 }
 
+// 개인 이벤트는 합치면 생성 같은 앞의 이벤트가 사라지므로 목록에 넣어도 끊기 정책을 따른다.
+#[tokio::test]
+async fn personal_topics_in_the_latest_first_list_still_drop_a_full_connection() {
+    let personal = "/experimental/personal/acct-alice/orders";
+    let hub = latest_first_hub(&[personal], 0);
+    let (_queue, kicked) = hub.connect_as(1, 1, Some("acct-alice".into())).await;
+    hub.subscribe(1, "p".into(), personal.into(), None).await;
+    for body in ["created", "cancelled"] {
+        hub.publish(personal.into(), body.into()).await;
+    }
+    assert!(timeout(Duration::from_secs(2), kicked).await.unwrap().is_err());
+    let metrics = hub.metrics().await.unwrap();
+    assert_eq!((metrics.slow_disconnections_total, metrics.latest_skipped_total), (1, 0));
+}
+
 #[tokio::test]
 async fn markers_alone_can_fill_the_queue_and_drop_the_connection() {
     let hub = latest_first_hub(&["/a", "/b"], 0);

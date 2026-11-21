@@ -153,6 +153,7 @@ impl Hub {
 
     // latest_first_topics에 정확히 같은 topic만 최신 우선 정책이다. 나머지는 송신 큐가 차면 연결을 끊는다.
     // 최신 우선 topic도 큐에 latest_first_depth건 미만이 쌓여 있으면 일반 MESSAGE로 넣고, 넘을 때만 칸으로 접는다.
+    // 개인 topic은 목록에 있어도 뺀다. 합치면 주문 생성처럼 뒤의 이벤트로 대신할 수 없는 이벤트가 사라진다.
     pub fn with_latest_first(
         limits: Limits,
         topics: Vec<String>,
@@ -172,7 +173,7 @@ impl Hub {
                 log_drops: drops,
                 bridge: counters,
                 cache: Cache::new(topics),
-                latest_first: latest_first_topics.into_iter().collect(),
+                latest_first: latest_first_topics.into_iter().filter(|topic| personal_owner(topic).is_none()).collect(),
                 latest_first_depth,
                 ..State::default()
             };
