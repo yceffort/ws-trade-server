@@ -154,6 +154,10 @@ impl Envelope {
             return Err(InputError::TooLarge);
         }
         let wire: WireEnvelope = serde_json::from_slice(bytes).map_err(|_| InputError::InvalidEnvelope)?;
+        Self::from_wire(wire)
+    }
+
+    fn from_wire(wire: WireEnvelope) -> Result<Self, InputError> {
         if wire.schema_version != 1 {
             return Err(InputError::UnsupportedSchema);
         }
@@ -198,15 +202,37 @@ impl Envelope {
     pub fn source_seq(&self) -> u64 {
         self.wire.source_seq
     }
+    pub fn source_epoch(&self) -> &str {
+        &self.wire.source_epoch
+    }
+    pub fn received_at_ms(&self) -> u64 {
+        self.wire.received_at_ms
+    }
+    #[cfg(feature = "ha")]
+    pub(crate) fn payload_bytes(&self) -> &[u8] {
+        &self.wire.trade
+    }
     pub fn trade(&self) -> &Trade {
         &self.trade
     }
-    pub(super) fn message(&self) -> (String, Arc<str>) {
+    pub(crate) fn message(&self) -> (String, Arc<str>) {
         self.message.clone()
     }
 }
 
-pub(super) fn identifier(value: &str) -> bool {
+impl Serialize for Envelope {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.wire.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Envelope {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::from_wire(WireEnvelope::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+pub(crate) fn identifier(value: &str) -> bool {
     !value.is_empty() && value.len() <= 96 && value.bytes().all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
 }
 
@@ -230,7 +256,7 @@ pub(super) fn prepare_trade(trade: &Trade) -> Result<(String, Arc<str>), InputEr
     crate::trade::to_message(trade).ok_or(InputError::InvalidTrade)
 }
 
-mod decimal {
+pub(crate) mod decimal {
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> {

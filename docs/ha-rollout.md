@@ -1,6 +1,6 @@
 # HA 배포와 검증 계획
 
-상태: 미구현 계획. [데이터 및 복구 설계](ha-design.md)의 후속 작업이며 현재 `deploy/k8s`의 단일 Pod 예제를 HA 구성으로 오해하지 않도록 별도 overlay에서 진행한다. 아래 시간, 용량과 오류 예산은 검증 목표이지 달성한 성능 수치가 아니다.
+상태: 단계별 구현 및 검증 중. [별도 HA 배포](../deploy/k8s/ha/README.md)에 manifest 렌더러와 직렬 배포 드라이버를 제공한다. [데이터 및 복구 설계](ha-design.md)의 후속 작업이며 현재 `deploy/k8s`의 단일 Pod 예제를 HA 구성으로 오해하지 않도록 별도 overlay에서 진행한다. 아래 시간, 용량과 오류 예산은 검증 목표이지 달성한 성능 수치가 아니다.
 
 ## 배포 단위와 장애 도메인
 
@@ -31,7 +31,7 @@ PDB와 RollingUpdate의 역할은 다르다. Deployment의 rollout은 PDB에 의
 | `GET /readyz` | bootstrap 완료, 허용 schema/config, 인증 정책 신선도, 로그 catch-up과 source 상태가 유효하며 drain 중이 아님 |
 | `POST /drain` | loopback에서만 받는 idempotent 관리 명령. readiness와 새 upgrade 허용을 같은 상태 변경으로 내림 |
 
-현재 관리 HTTP는 이 API를 제공하지 않는다. 신규 endpoint는 loopback에만 바인딩하며 Service와 외부 프록시에 공개하지 않는다. `/metrics`와 `/livez`는 drain 완료까지 유지한다. broker adapter의 종료, 진행 중 HTTP 요청, 출력 큐, 스레드 join은 모두 남은 종료 예산을 공유하고 `select!` 취소로 cursor 적용을 잃지 않게 한다.
+[상태 머신 구현](ha-lifecycle.md)은 HA 모드의 관리 HTTP에 이 API를 제공한다. 신규 endpoint는 loopback에만 바인딩하며 Service와 외부 프록시에 공개하지 않는다. `/metrics`와 `/livez`는 drain 완료까지 유지한다. broker adapter의 종료, 진행 중 HTTP 요청, 출력 큐, 스레드 join은 모두 남은 종료 예산을 공유하고 `select!` 취소로 cursor 적용을 잃지 않게 한다.
 
 HA 이미지에는 container-probe의 별도 HA 모드를 추가한다. startup/liveness는 컨테이너 내부 exec probe로 loopback `/livez`를 호출하고 readiness는 같은 방식으로 `/readyz`를 호출한다. 2xx만 성공, timeout/접속 오류/그 외 상태는 실패로 반환하며 bootstrap 미완료, DEGRADED, DRAINING을 Pod readiness에 반영한다. 초기 readiness는 periodSeconds 2, timeoutSeconds 1, failureThreshold 1, successThreshold 1로 두고 즉각적인 신규 upgrade 거절은 서버의 동일 상태 머신이 담당한다. Pod IP로 요청하는 기본 httpGet probe를 loopback listener에 그대로 붙이지 않는다. edge 자체의 probe도 함께 성공해야 Pod가 ready이며 실제 manifest와 probe 실행은 #50/#52에서 검증한다. [Kubernetes probe 방식](https://kubernetes.io/docs/concepts/workloads/pods/probes/) 참조.
 
@@ -44,11 +44,11 @@ HA 이미지에는 container-probe의 별도 HA 모드를 추가한다. startup/
 
 preStop 없이 SIGTERM만 와도 동일한 drain 상태 머신을 시작한다. 이미 시작된 drain을 다시 호출해 예산을 연장하지 않는다. 훅이 실패하거나 SIGKILL이 오면 통지 프레임이 없어도 client heartbeat/read deadline으로 재접속해야 한다. 새 admission을 거절하는 단계에서 listener를 먼저 없애거나 source 소비를 먼저 끊지 않는다.
 
-현재 edge는 upstream 연결 실패를 일반 502로 바꿀 수 있으므로 HA 구현에서 upstream의 503과 제한된 Retry-After를 보존한다. 임의의 upstream 헤더를 모두 전달하지는 않는다. endpoint 전파 중 옛 Pod로 들어간 요청은 거절될 수 있으므로 개별 handshake 100% 성공을 약속하지 않고 제한된 재시도까지 포함해 접속 성공 시간을 측정한다.
+edge는 upstream의 503과 제한된 Retry-After를 보존한다. 임의의 upstream 헤더를 모두 전달하지는 않는다. endpoint 전파 중 옛 Pod로 들어간 요청은 거절될 수 있으므로 개별 handshake 100% 성공을 약속하지 않고 제한된 재시도까지 포함해 접속 성공 시간을 측정한다.
 
 ## 인증과 설정 일관성
 
-로컬 데모의 JSON token 파일 모드는 유지한다. HA 프로파일은 짧은 수명의 서명 토큰, issuer/audience/expiry/topic scope 검증과 버전이 있는 정책/JWKS 캐시를 사용한다. 인증 공급자 자체도 HA 요구를 충족해야 하며 구체적인 제품이나 클라우드는 이번 설계에서 선택하지 않는다.
+[공유 인증 구현](ha-auth.md)은 다음 정책을 제공한다. 로컬 데모의 JSON token 파일 모드는 유지한다. HA 프로파일은 짧은 수명의 서명 토큰, issuer/audience/expiry/topic scope 검증과 버전이 있는 정책/JWKS 캐시를 사용한다. 인증 공급자 자체도 HA 요구를 충족해야 하며 구체적인 제품이나 클라우드는 이번 설계에서 선택하지 않는다.
 
 폐기 정책은 온라인으로 갱신하고 캐시의 유효 기간을 최대 60초로 제한한다. 초기 목표는 폐기를 모든 활성 gateway와 기존 연결에 60초 안에 반영하는 것이다. 만료된 정책에서 새 연결이나 활성 세션을 계속 허용하지 않는다. 공급자 장애 시 fresh cache의 남은 수명까지만 동작하고 그 이후에는 준비 상태를 내리고 해당 세션을 종료한다. 토큰 exp도 연결 중에 계속 검사한다. 이 선택은 공급자 장기 장애 때 가용성보다 권한 검증을 우선한다.
 

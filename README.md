@@ -40,7 +40,7 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 
 실측이 없어 STOMP 기본 동작으로 넣은 것:
 
-- [공통 입력 경계](docs/source-input.md)는 로컬 링과 향후 broker 입력을 같은 bounded hub 큐에 전달한다. 별도 envelope의 안정적인 source/event 식별자와 십진 문자열 위치는 실험 규약이다. Kafka 연결, durable checkpoint, replay와 HA 배포는 아직 구현하지 않았다.
+- [공통 입력 경계](docs/source-input.md)는 로컬 링과 broker 입력을 같은 bounded hub 큐에 전달한다. 별도 envelope의 안정적인 source/event 식별자와 십진 문자열 위치는 실험 규약이다. [복제 로그 실험](deploy/ha/README.md)은 선택적 `ha` feature로 Kafka transaction, producer fencing과 checkpoint 복구를 제공한다. [gateway 복원](docs/ha-gateway.md)은 완전 snapshot 이후 전체 로그를 읽는다. [서명 cursor와 클라이언트 복구](docs/ha-protocol.md), [공유 JWT 인증과 온라인 폐기](docs/ha-auth.md)를 제공하며 [별도 HA 배포 구성](deploy/k8s/ha/README.md)은 zone별 slot과 직렬 rollout을 제공한다. [HA 수용 시험](bench/ha/README.md)은 committed oracle와 지속 부하, 장애 주입, 배포 검증을 연결한다. [관측과 운영 절차](docs/ha-runbook.md), [용량 보고서](docs/ha-capacity.md)를 함께 확인한다. 실제 LB와 장애 도메인 검증은 별도로 필요하다.
 
 - 구독 중이 아닌 id의 `UNSUBSCRIBE`도 `receipt`가 있으면 같은 `RECEIPT`로 답함
 - `UNSUBSCRIBE`에 `receipt`가 없으면 응답 없음
@@ -64,7 +64,7 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 - `--http-addr`를 켜면 로컬 `GET /metrics`에서 STOMP 연결 수, 구독 수, 송신 큐 점유와 용량, hub 명령 대기, 발행 및 큐 적재 수, 느린 연결 차단 수, 링 덮어쓰기 횟수, seq 누락 건수와 재시작 횟수, 디코딩 및 본문 생성 실패를 읽는다. 링 덮어쓰기 횟수는 유실 체결 건수가 아니며 seq 누락과 합산하지 않는다. 큐 적재 수는 클라이언트 수신 보장이 아니다. 지표에는 종목이나 토큰 label이 없고 팬아웃 집계는 hub 안에서 수행한다. 브리지 카운터만 atomic으로 읽으므로 모든 필드가 같은 순간의 값임을 보장하지 않는다. 특정 증권사의 내부 메트릭을 재현한 것은 아니다.
 - gateway는 [구조화 로그](docs/logging.md)를 stderr로 출력한다. `WTS_LOG_FORMAT=json`과 `RUST_LOG`로 형식과 수준을 고르고 연결 종료 사유는 DEBUG에서 확인한다. 체결별 로그 대신 10초 요약을 남기며, 출력 큐가 차서 버린 로그는 `logs_dropped_total`로 센다. 로깅 정책은 이 저장소의 운영 실험이다.
 - [Docker와 Kubernetes 배포](deploy/README.md)는 합성 feed용 실험 설정이다. 두 topic에 최근 10초 이내 snapshot이 있어야 준비 상태로 판단하며 WTS의 배포 구조나 실거래 휴장 정책을 재현한 것이 아니다.
-- [고가용성 및 재접속 복구 설계](docs/ha-design.md)는 미구현 제안이다. 복제 로그와 여러 gateway, cursor 복구 및 단계별 drain을 별도 HA 구성으로 계획하며 실제 증권사 동작을 관측한 내용이 아니다.
+- [고가용성 및 재접속 복구 설계](docs/ha-design.md)는 단계별 구현 중이다. 복제 로그와 여러 gateway, cursor 복구 및 단계별 drain을 별도 HA 구성으로 계획하며 실제 증권사 동작을 관측한 내용이 아니다.
 - 연결마다 잡는 읽기 버퍼는 4 KiB(웹소켓 라이브러리 기본값은 128 KiB)
 - 송신 큐에 이미 쌓인 프레임은 4개까지 모아 소켓에 한 번에 씀. 프레임의 내용과 순서는 그대로임(측정은 `bench/README.md`의 "쓰기 묶음")
 

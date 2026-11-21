@@ -3,7 +3,25 @@ name = "ws-trade-server"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+ha = ["dep:rdkafka", "dep:sha2", "dep:reqwest", "dep:ring", "dep:base64"]
+
+[[bin]]
+name = "ha-feed"
+path = "src/bin/ha-feed.rs"
+required-features = ["ha"]
+
+[[bin]]
+name = "ha-oracle"
+path = "src/bin/ha-oracle.rs"
+required-features = ["ha"]
+
 [dependencies]
+ring = { version = "0.17.14", optional = true }
+base64 = { version = "0.22.1", optional = true }
+rdkafka = { version = "=0.39.0", optional = true, default-features = false, features = ["tokio", "ssl-vendored", "libz-static", "tracing"] }
+sha2 = { version = "0.10.9", optional = true }
+reqwest = { version = "0.12.24", optional = true, default-features = false, features = ["blocking", "json", "rustls-tls"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 tracing-appender = "0.2.5"
