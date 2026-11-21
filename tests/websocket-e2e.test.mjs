@@ -5,7 +5,10 @@ import { Client, until } from '../bench/soak/client.mjs'
 import { checkWebSocket } from '../examples/websocket-check.mjs'
 
 test('실제 feed와 gateway의 WS 및 WSS 클라이언트 경로', { timeout: 45000 }, async t => {
-  const signal = AbortSignal.timeout(35000)
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  for (const name of ['SIGINT', 'SIGTERM']) process.on(name, abort)
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(35000)])
   const env = new Environment({ binDir: 'target/debug', connections: 4 }, signal)
   try {
     await env.start()
@@ -39,7 +42,10 @@ test('실제 feed와 gateway의 WS 및 WSS 클라이언트 경로', { timeout: 4
       return metrics.stomp_connections === 0 && metrics.subscriptions === 0 && metrics.queued_frames === 0
     }, 'connection cleanup', signal)
     assert.equal(env.invalidLogs, 0)
-  } finally { await env.close() }
+  } finally {
+    try { await env.close() }
+    finally { for (const name of ['SIGINT', 'SIGTERM']) process.off(name, abort) }
+  }
   assert.equal(env.gateway?.exitCode, 0)
   assert.equal(env.events.shutdown_complete, 1)
 })

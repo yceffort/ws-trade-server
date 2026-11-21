@@ -6,6 +6,14 @@ import { Client, topics, until } from '../bench/soak/client.mjs'
 
 const contract = JSON.parse(await readFile(new URL('../contract/wts-stomp.json', import.meta.url), 'utf8'))
 
+export function endpointUrl(value) {
+  const endpoint = new URL(value)
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)
+  assert((endpoint.protocol === 'wss:' || endpoint.protocol === 'ws:' && loopback) && endpoint.pathname === '/ws')
+  assert(!endpoint.username && !endpoint.password && !endpoint.search && !endpoint.hash)
+  return endpoint.href
+}
+
 function observe(client) {
   const accepted = new Set()
   let unsubscribed = false
@@ -55,6 +63,7 @@ function observe(client) {
 
 export async function checkWebSocket({ url, token, ca, signal = AbortSignal.timeout(15000), onStep = () => {} }) {
   signal.throwIfAborted()
+  url = endpointUrl(url)
   const result = { ok: false, protocol: 'v12.stomp', steps: [] }
   let client, phase = 'connect'
   const step = async (name, action) => {
@@ -108,16 +117,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const { values } = parseArgs({ options: {
       url: { type: 'string' }, 'token-file': { type: 'string' }, 'ca-file': { type: 'string' },
     } })
-    const endpoint = new URL(values.url)
-    assert(['ws:', 'wss:'].includes(endpoint.protocol) && endpoint.pathname === '/ws')
-    assert(!endpoint.username && !endpoint.password && !endpoint.search && !endpoint.hash)
+    const url = endpointUrl(values.url)
     const token = (await readFile(values['token-file'], 'utf8')).trim()
     assert(token && !/[\r\n\0]/.test(token))
     const ca = values['ca-file'] ? await readFile(values['ca-file']) : undefined
     const controller = new AbortController()
     for (const name of ['SIGINT', 'SIGTERM']) process.once(name, () => controller.abort())
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15000)])
-    const result = await checkWebSocket({ url: endpoint.href, token, ca, signal })
+    const result = await checkWebSocket({ url, token, ca, signal })
     console.log(JSON.stringify(result, null, 2))
   } catch (error) {
     const code = error.message.startsWith('websocket-check-failed:') ? error.message : 'invalid-options-or-input'

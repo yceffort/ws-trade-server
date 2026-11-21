@@ -5,12 +5,14 @@
 ```sh
 cargo build --locked --bin gateway --bin feed
 npm ci --prefix edge --ignore-scripts
-node --test tests/websocket-e2e.test.mjs
+node tests/websocket-e2e.test.mjs
 ```
 
 테스트가 임시 링, 토큰과 인증서를 만들고 비어 있는 포트로 서버를 시작한다. 평문 WS와 인증서를 신뢰한 WSS 양쪽에서 CONNECT, 구독 성공 RECEIPT, 국내 및 미국 MESSAGE 수신, 구독 해지, 연결 종료와 재접속을 검증한다. MESSAGE는 해당 구독의 성공 RECEIPT 이후여야 하고 해지 성공 RECEIPT 뒤에는 해당 구독으로 오면 안 된다. 본문의 키 순서와 JSON 값의 타입, content-length와 연결 내 message-id 순번도 확인한다. 잘못된 토큰과 신뢰하지 않은 인증서가 거절되는지 검사한다. 성공과 실패 모두 테스트가 만든 프로세스, 소켓과 임시 파일을 정리한다.
 
-이미 실행한 실험 서버에는 아래 클라이언트만 연결할 수 있다. 토큰 파일은 토큰 문자열 한 줄이며 gateway의 토큰 배열 JSON과 다르다. 두 공개 합성 topic인 `/topic/v1/kr/stock/trade/A005930`과 `/topic/v1/us/stock/trade/US19990122001`에 지속적으로 데이터가 들어와야 한다. 낮은 발행률에서는 단계별 5초 제한을 넘길 수 있다. `--ca-file`은 테스트 CA를 쓸 때 지정하고 공개 CA 인증서에서는 생략한다.
+이 파일은 node:test를 사용하지만 `node`로 직접 실행한다. 신호 처리와 자원 정리를 같은 프로세스에서 실행해 SIGINT와 SIGTERM을 받으면 검사를 취소하고 정리를 기다린다. `node --test`의 기본 프로세스 격리에서는 바깥 runner에 신호를 보내면 테스트 프로세스가 먼저 종료되어 정리할 기회를 잃을 수 있다. SIGKILL이나 시스템 강제 종료 뒤의 정리는 보장하지 않는다.
+
+이미 실행한 실험 서버에는 아래 클라이언트만 연결할 수 있다. 원격 주소는 WSS만 허용하며 평문 WS는 localhost, 127.0.0.1과 ::1에서만 허용한다. 토큰 파일은 토큰 문자열 한 줄이며 gateway의 토큰 배열 JSON과 다르다. 두 공개 합성 topic인 `/topic/v1/kr/stock/trade/A005930`과 `/topic/v1/us/stock/trade/US19990122001`에 지속적으로 데이터가 들어와야 한다. 낮은 발행률에서는 단계별 5초 제한을 넘길 수 있다. `--ca-file`은 테스트 CA를 쓸 때 지정하고 공개 CA 인증서에서는 생략한다.
 
 ```sh
 node examples/websocket-check.mjs --url wss://localhost:8443/ws --token-file /path/to/token.txt --ca-file /path/to/cert.pem

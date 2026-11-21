@@ -41,7 +41,7 @@ jobs:
       - name: Exercise real WebSocket clients
         run: |
           cargo build --locked --bin gateway --bin feed
-          node --test tests/websocket-e2e.test.mjs
+          node tests/websocket-e2e.test.mjs
       - name: Exercise combined lifecycle scenarios
         run: node bench/soak.mjs --seconds 6 --cycles 2 --connections 4 --bin-dir target/debug --out /tmp/soak.json
       - name: Show lifecycle result
