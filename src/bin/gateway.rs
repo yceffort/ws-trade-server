@@ -62,6 +62,10 @@ fn parse_args() -> Option<Config> {
                 let millis = value.parse::<u64>().ok()?;
                 config.idle_timeout = (millis > 0).then(|| std::time::Duration::from_millis(millis));
             }
+            "--write-timeout-ms" => {
+                let millis = value.parse::<u64>().ok()?;
+                config.write_timeout = (millis > 0).then(|| std::time::Duration::from_millis(millis));
+            }
             _ => return None,
         }
     }

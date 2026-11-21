@@ -9,6 +9,7 @@ const CLOSE_REASONS: &[&str] = &[
     "client_disconnect",
     "read_error",
     "write_error",
+    "write_timeout",
     "invalid_frame",
     "invalid_command",
     "unsupported_command",
