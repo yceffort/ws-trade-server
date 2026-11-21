@@ -23,7 +23,8 @@ export async function startProxy({ backend, tls, host = '127.0.0.1', port = 0, m
   const wss = new WebSocketServer({ noServer: true, perMessageDeflate: compression ? { serverNoContextTakeover: true, clientNoContextTakeover: true, concurrencyLimit: 4, threshold: 0 } : false, maxPayload: 65536, autoPong: false, handleProtocols: (_, request) => protocols[request.url] })
   server.on('upgrade', (request, socket, head) => {
     let rejected = false
-    const reject = (reason, status, retry) => { if (rejected) return; rejected = true; counts[reason]++; if (!socket.destroyed) socket.end(`HTTP/1.1 ${status}\r\n${retry ? `Retry-After: ${retry}\r\n` : ''}Connection: close\r\nContent-Length: 0\r\n\r\n`) }
+    // upgrade 전의 연결도 하나는 한 사유로만 센다. 종료 중에는 shutdown으로 센다.
+    const reject = (reason, status, retry) => { if (rejected) return; rejected = true; counts[closing ? 'shutdown' : reason]++; if (!socket.destroyed) socket.end(`HTTP/1.1 ${status}\r\n${retry ? `Retry-After: ${retry}\r\n` : ''}Connection: close\r\nContent-Length: 0\r\n\r\n`) }
     const protocol = Object.hasOwn(protocols, request.url) && protocols[request.url]
     if (!protocol) return reject('not_found', '404 Not Found')
     if (!request.headers['sec-websocket-protocol']?.split(',').map((s) => s.trim()).includes(protocol)) return reject('bad_protocol', '400 Bad Request')
@@ -38,7 +39,8 @@ export async function startProxy({ backend, tls, host = '127.0.0.1', port = 0, m
     let ended = false
     const end = (reason) => { if (!ended) { ended = true; counts[closing ? 'shutdown' : reason]++ } }
     const terminate = (reason) => { end(reason); client?.terminate(); upstream.terminate(); socket.destroy() }
-    socket.once('close', () => { if (!client) upstream.terminate() })
+    // 클라이언트가 upgrade 전에 떠나거나 프록시가 닫으면 그 사유를 먼저 정한다. 뒤따르는 upstream 오류는 다시 세지 않는다.
+    socket.once('close', () => { if (!client && !rejected) { rejected = true; counts[closing ? 'shutdown' : 'client_closed']++; upstream.terminate() } })
     upstream.on('error', () => { if (client) terminate('relay_error'); else reject('upstream_error', '502 Bad Gateway') })
     upstream.once('unexpected-response', (_, response) => {
       const retry = Number(response.headers['retry-after'])
@@ -47,7 +49,7 @@ export async function startProxy({ backend, tls, host = '127.0.0.1', port = 0, m
       response.destroy()
       upstream.terminate()
     })
-    upstream.once('close', () => { backends.delete(upstream); if (!client && !rejected) { counts[socket.destroyed ? 'client_closed' : 'upstream_error']++; socket.destroy() } })
+    upstream.once('close', () => { backends.delete(upstream); if (!client && !rejected) { rejected = true; counts[closing ? 'shutdown' : 'upstream_error']++; socket.destroy() } })
     upstream.once('open', () => {
       if (socket.destroyed) return upstream.terminate()
       try {

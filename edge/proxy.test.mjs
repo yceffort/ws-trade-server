@@ -45,6 +45,22 @@ test('upstream drain preserves only 503 and a bounded Retry-After', { timeout: 1
   assert.equal(proxy.counts().upstream_unavailable, 1)
 })
 
+// gateway가 upgrade에 답하기 전에 프록시가 닫히면 뒤따르는 upstream 오류가 아니라 shutdown으로 센다.
+test('shutdown before the upstream answers is counted as shutdown', { timeout: 10000 }, async (t) => {
+  const backend = http.createServer()
+  const pending = []
+  backend.on('upgrade', (_, socket) => pending.push(socket))
+  backend.listen(0, '127.0.0.1'); await once(backend, 'listening')
+  t.after(() => { for (const socket of pending) socket.destroy(); return new Promise(resolve => backend.close(resolve)) })
+  const proxy = await startProxy({ backend: `ws://127.0.0.1:${backend.address().port}/ws` })
+  const socket = new WebSocket(`ws://127.0.0.1:${proxy.address.port}/ws`, 'v12.stomp')
+  socket.on('error', () => {})
+  while (pending.length === 0) await new Promise((resolve) => setTimeout(resolve, 10))
+  await proxy.close()
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.deepEqual(Object.fromEntries(Object.entries(proxy.counts()).filter(([, n]) => n > 0)), { shutdown: 1 })
+})
+
 test('rejections and closes are counted once by fixed reasons only', { timeout: 10000 }, async (t) => {
   const backend = await echoServer(); t.after(() => backend.close())
   const proxy = await startProxy({ backend: backend.url }); t.after(() => proxy.close())
