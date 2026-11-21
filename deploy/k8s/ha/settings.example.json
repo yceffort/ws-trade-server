@@ -1,0 +1,13 @@
+{
+  "namespace": "wts-ha",
+  "zones": ["zone-a", "zone-b", "zone-c"],
+  "version": "v1",
+  "gatewayImage": "ghcr.io/yceffort/ws-trade-server-ha@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "edgeImage": "ghcr.io/yceffort/ws-trade-edge@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "storageClass": "replace-with-zone-aware-storage",
+  "storageSize": "20Gi",
+  "gatewayIngressCIDRs": ["192.0.2.0/24"],
+  "clientCIDRs": ["192.0.2.0/24"],
+  "policyCIDRs": ["198.51.100.1/32"],
+  "apiCIDRs": ["198.51.100.2/32"]
+}

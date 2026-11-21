@@ -11,6 +11,8 @@ on:
       - Cargo.toml
       - Cargo.lock
       - deploy/ha/**
+      - deploy/container/probe.sh
+      - deploy/k8s/ha/**
       - .github/workflows/ha.yml
   workflow_dispatch:
 permissions:
@@ -34,7 +36,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm ci --prefix edge --ignore-scripts && npm test --prefix edge && node --test examples/ha-*.test.mjs
+      - run: npm ci --prefix edge --ignore-scripts && npm test --prefix edge && node --test examples/ha-*.test.mjs deploy/k8s/ha/*.test.mjs
   replicated-log:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -53,3 +55,21 @@ jobs:
         with:
           name: producer-failover
           path: deploy/local/ha/results/*.json
+  ha-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/ha/Dockerfile
+          push: false
+          load: true
+          tags: ws-trade-ha:test
+          cache-from: type=gha,scope=ha
+          cache-to: type=gha,mode=max,scope=ha
+      - run: docker run --rm --entrypoint sh ws-trade-ha:test -c 'command -v gateway && command -v ha-feed && command -v container-probe'
