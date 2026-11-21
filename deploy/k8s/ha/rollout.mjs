@@ -9,6 +9,18 @@ const slots = ['a','b','c'].map(slot => `wts-gateway-${slot}`)
 const label = 'app.kubernetes.io/part-of=wts-ha,app.kubernetes.io/component=gateway'
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const sleep = ms => new Promise(resolve => setTimeout(resolve,ms))
+const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+const validPlan = plan => object(plan) && typeof plan.version === 'string' && plan.version.length <= 49 && /^[a-z0-9][-a-z0-9]{0,47}[a-z0-9]$|^[a-z0-9]$/.test(plan.version) && [plan.gatewayImage,plan.edgeImage].every(s=>typeof s==='string' && /^[\w./:-]+@sha256:[a-f0-9]{64}$/.test(s))
+export function validateJournal(journal) {
+  const template = t => object(t) && object(t.metadata) && object(t.spec) && Array.isArray(t.spec.containers) && Array.isArray(t.spec.initContainers) && Array.isArray(t.spec.volumes)
+  if (!object(journal) || !validPlan(journal.plan) || typeof journal.rollback !== 'boolean' || journal.planHash !== hash({plan:journal.plan,rollback:journal.rollback}) || !Number.isInteger(journal.completed) || journal.completed < 0 || journal.completed > 3 || !Array.isArray(journal.steps) || journal.steps.length !== 3 || new Set(journal.steps.map(s=>s?.name)).size !== 3 || journal.steps.some((s,i)=>!object(s) || !slots.includes(s.name) || !template(s.before) || !template(s.target) || !['pending','prepared','patched','verified'].includes(s.phase) || (i<journal.completed && s.phase!=='verified'))) throw new Error('invalid rollout journal; manual reconciliation required')
+  return journal
+}
+export function stablePod(pod,now=Date.now()) {
+  const ready=pod.status?.conditions?.find(c=>c.type==='Ready')
+  const since=Date.parse(ready?.lastTransitionTime)
+  return !pod.metadata.deletionTimestamp && ready?.status==='True' && Number.isFinite(since) && now-since>=15000
+}
 export function target(template,plan) {
   const next = structuredClone(template)
   next.metadata.annotations = {...next.metadata.annotations,'wts/config-version':plan.version}
@@ -20,15 +32,23 @@ export function target(template,plan) {
   return next
 }
 export async function drive(api,plan,verify,{rollback=false,stop=()=>false}={}) {
-  if (!/^[a-z0-9][-a-z0-9]{0,61}[a-z0-9]$|^[a-z0-9]$/.test(plan.version) || ![plan.gatewayImage,plan.edgeImage].every(s=>/^[\w./:-]+@sha256:[a-f0-9]{64}$/.test(s))) throw new Error('version and pinned images required')
+  if (!validPlan(plan)) throw new Error('version (at most 49 characters) and pinned images required')
   const owner = randomUUID()
   await api.lock(owner)
   try {
     const planHash = hash({plan,rollback})
     let journal = await api.read()
+    if (journal !== null) validateJournal(journal)
     if (journal && journal.planHash !== planHash) {
       if (rollback && !journal.rollback) {
-        journal = {planHash,rollback:true,plan,completed:0,steps:[...journal.steps].reverse().map(step=>({name:step.name,before:step.target,target:step.before,phase:'pending'}))}
+        const changed=[],unchanged=[]
+        for (const step of [...journal.steps].reverse()) {
+          const current=hash((await api.deployment(step.name)).spec.template)
+          if (current!==hash(step.before) && current!==hash(step.target)) throw new Error('unexpected template change; manual reconciliation required')
+          const restored={name:step.name,before:step.target,target:step.before,phase:'pending'}
+          ;(current===hash(step.before)?unchanged:changed).push(restored)
+        }
+        journal = {planHash,rollback:true,plan,completed:0,steps:[...changed,...unchanged]}
         await api.save(journal)
       } else if (journal.completed !== 3) throw new Error('unfinished rollout uses a different plan')
       else journal = null
@@ -50,7 +70,8 @@ export async function drive(api,plan,verify,{rollback=false,stop=()=>false}={}) 
       const current = await api.deployment(step.name)
       if (hash(current.spec.template) !== hash(step.target)) {
         if (hash(current.spec.template) !== hash(step.before)) throw new Error('unexpected template change; manual reconciliation required')
-        await api.readyAll()
+        if (journal.rollback) await api.readyOthers(step.name)
+        else await api.readyAll()
         step.phase = 'prepared'
         await api.save(journal)
         if (stop()) throw new Error('rollout interrupted before patch')
@@ -100,7 +121,7 @@ export class Kubernetes {
   async read() {
     const state=await this.get('configmap','wts-rollout-state')
     this.stateVersion=state?.metadata.resourceVersion??null
-    return state?JSON.parse(state.data.journal):null
+    return state?validateJournal(JSON.parse(state.data.journal)):null
   }
   async save(journal) {
     const serialized=JSON.stringify(journal)
@@ -119,10 +140,12 @@ export class Kubernetes {
     await this.command(['patch','deployment',name,'--type=json','-p',JSON.stringify([{op:'test',path:'/metadata/resourceVersion',value:version},{op:'replace',path:'/spec/template',value:template}])])
   }
   async pods() { return JSON.parse(await this.command(['get','pods','-l',label,'-o','json'])).items }
-  async readyAll() {
-    const pods=await this.pods()
-    if(pods.length!==3 || new Set(pods.map(p=>p.metadata.labels['wts-slot'])).size!==3 || pods.some(p=>p.metadata.deletionTimestamp || !p.status.conditions?.some(c=>c.type==='Ready'&&c.status==='True'))) throw new Error('three ready gateways with no terminating pod required')
-    for (const name of slots) {
+  async readyAll() { return this.readyOthers(null) }
+  async readyOthers(excluded) {
+    const expected=slots.filter(name=>name!==excluded)
+    const pods=(await this.pods()).filter(p=>!excluded || p.metadata.labels['wts-slot']!==excluded.at(-1))
+    if(pods.length!==expected.length || expected.some(name=>!pods.some(p=>p.metadata.labels['wts-slot']===name.at(-1))) || pods.some(p=>!stablePod(p))) throw new Error('other gateway slots must be continuously ready for 15 seconds with no terminating pod')
+    for (const name of expected) {
       const d=await this.deployment(name),s=d.status
       if(s?.observedGeneration!==d.metadata.generation || s?.availableReplicas!==1 || s?.updatedReplicas!==1 || s?.replicas!==1) throw new Error('all slots must be stable before proceeding')
     }
@@ -135,7 +158,7 @@ export class Kubernetes {
       const d=await this.deployment(name)
       if(hash(d.spec.template)!==hash(template)) throw new Error('template changed during rollout')
       const pods=(await this.pods()).filter(p=>p.metadata.labels['wts-slot']===name.at(-1))
-      if(d.status?.observedGeneration===d.metadata.generation && d.status.availableReplicas===1 && d.status.updatedReplicas===1 && d.status.replicas===1 && pods.length===1 && !pods[0].metadata.deletionTimestamp && pods[0].status.conditions?.some(c=>c.type==='Ready'&&c.status==='True')) return
+      if(d.status?.observedGeneration===d.metadata.generation && d.status.availableReplicas===1 && d.status.updatedReplicas===1 && d.status.replicas===1 && pods.length===1 && stablePod(pods[0])) return
       await sleep(2000)
     }
     throw new Error('slot stabilization deadline exceeded')

@@ -5,9 +5,9 @@ const brokerImage = 'apache/kafka:4.1.1@sha256:0bc1bb2478f45b6cea78864df86acdc11
 const clone = value => structuredClone(value)
 export function render(s) {
   const name = /^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/
-  if (!name.test(s.namespace) || !name.test(s.version) || s.zones.length !== 3 || new Set(s.zones).size !== 3 || s.zones.some(z => !name.test(z))) throw new Error('namespace/version/three distinct zones required')
+  if (!name.test(s.namespace) || !name.test(s.version) || s.version.length > 49 || s.zones.length !== 3 || new Set(s.zones).size !== 3 || s.zones.some(z => !name.test(z))) throw new Error('namespace/version/three distinct zones required')
   if (![s.gatewayImage,s.edgeImage].every(image => /^[\w./:-]+@sha256:[a-f0-9]{64}$/.test(image))) throw new Error('image digests required')
-  for (const key of ['clientCIDRs','policyCIDRs','apiCIDRs']) if (!Array.isArray(s[key]) || !s[key].length || s[key].some(c => !/^[0-9a-f.:]+\/\d{1,3}$/i.test(c))) throw new Error('explicit CIDRs required')
+  for (const key of ['clientCIDRs','gatewayIngressCIDRs','policyCIDRs','apiCIDRs']) if (!Array.isArray(s[key]) || !s[key].length || s[key].some(c => !/^[0-9a-f.:]+\/\d{1,3}$/i.test(c))) throw new Error('explicit CIDRs required')
   const objects = []
   const resource = (apiVersion,kind,name,fields={}) => ({apiVersion,kind,metadata:{name,namespace:s.namespace},...fields})
   const add = (...args) => { const object = resource(...args); objects.push(object); return object }
@@ -60,7 +60,7 @@ export function render(s) {
   const peers = component => ({podSelector:selector(component)})
   const ports = (...numbers) => numbers.map(port=>({protocol:'TCP',port}))
   const cidrs = values => values.map(cidr=>({ipBlock:{cidr}}))
-  add('networking.k8s.io/v1','NetworkPolicy','gateway',{spec:{podSelector:selector('gateway'),policyTypes:['Ingress','Egress'],ingress:[{from:cidrs(s.clientCIDRs),ports:ports(8443)}],egress:[dns,{to:[peers('broker')],ports:ports(9092)},{to:cidrs(s.policyCIDRs),ports:ports(443)}]}})
+  add('networking.k8s.io/v1','NetworkPolicy','gateway',{spec:{podSelector:selector('gateway'),policyTypes:['Ingress','Egress'],ingress:[{from:cidrs(s.gatewayIngressCIDRs),ports:ports(8443)}],egress:[dns,{to:[peers('broker')],ports:ports(9092)},{to:cidrs(s.policyCIDRs),ports:ports(443)}]}})
   add('networking.k8s.io/v1','NetworkPolicy','feed',{spec:{podSelector:selector('feed'),policyTypes:['Ingress','Egress'],egress:[dns,{to:[peers('broker')],ports:ports(9092)},{to:cidrs(s.apiCIDRs),ports:ports(443,6443)}]}})
   add('networking.k8s.io/v1','NetworkPolicy','broker',{spec:{podSelector:selector('broker'),policyTypes:['Ingress','Egress'],ingress:[{from:[peers('broker')],ports:ports(9092,9093)},{from:[peers('feed'),peers('gateway'),peers('bootstrap')],ports:ports(9092)}],egress:[dns,{to:[peers('broker')],ports:ports(9092,9093)}]}})
   const bootstrap = `set -euo pipefail

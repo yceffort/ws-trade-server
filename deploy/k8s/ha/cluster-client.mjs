@@ -2,9 +2,14 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import WebSocket from '/app/node_modules/ws/wrapper.mjs'
 
-const token=readFileSync('/client/token','utf8')
 const topics=['/topic/v1/kr/stock/trade/A005930','/topic/v1/us/stock/trade/US19990122001']
 const urls=JSON.parse(process.env.WTS_URLS)
+assert.ok(Array.isArray(urls) && urls.length>=2)
+for (const value of urls) {
+  const url=new URL(value)
+  assert.ok(url.protocol==='wss:' && url.pathname==='/experimental/ha/ws' && !url.username && !url.password && !url.search && !url.hash,'TLS HA endpoint required')
+}
+const token=readFileSync('/client/token','utf8')
 async function attempt(url,cursor) {
   const socket=new WebSocket(url,'wts.ha.v1',{handshakeTimeout:3000,servername:'wts-gateway'})
   let saved=cursor,events=0,first=null

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { drive } from './rollout.mjs'
+import { drive, Kubernetes, stablePod } from './rollout.mjs'
 import { render } from './render.mjs'
 import { readFileSync } from 'node:fs'
 const settings=JSON.parse(readFileSync(new URL('./settings.example.json',import.meta.url)))
@@ -8,7 +8,7 @@ const plan={version:'v2',gatewayImage:`example/gateway@sha256:${'1'.repeat(64)}`
 function fixture() {
   const deployments=new Map(render(settings).items.filter(o=>o.kind==='Deployment'&&o.metadata.name.startsWith('wts-gateway')).map(o=>[o.metadata.name,o]))
   for(const d of deployments.values()) d.metadata.resourceVersion='1'
-  const api={state:null,owner:null,changes:[],settledSlots:[],async lock(owner){if(this.owner)throw new Error('locked');this.owner=owner},async unlock(owner){assert.equal(this.owner,owner);this.owner=null},async read(){return structuredClone(this.state)},async save(state){this.state=structuredClone(state)},async readyAll(){return [{uid:'a'},{uid:'b'},{uid:'c'}]},async deployment(name){return structuredClone(deployments.get(name))},async patch(name,version,template){const d=deployments.get(name);assert.equal(d.metadata.resourceVersion,version);d.spec.template=structuredClone(template);d.metadata.resourceVersion=String(Number(version)+1);this.changes.push(name)},async settled(name){this.settledSlots.push(name)}}
+  const api={state:null,owner:null,changes:[],settledSlots:[],async lock(owner){if(this.owner)throw new Error('locked');this.owner=owner},async unlock(owner){assert.equal(this.owner,owner);this.owner=null},async read(){return structuredClone(this.state)},async save(state){this.state=structuredClone(state)},async readyOthers(){return []},async readyAll(){return [{uid:'a'},{uid:'b'},{uid:'c'}]},async deployment(name){return structuredClone(deployments.get(name))},async patch(name,version,template){const d=deployments.get(name);assert.equal(d.metadata.resourceVersion,version);d.spec.template=structuredClone(template);d.metadata.resourceVersion=String(Number(version)+1);this.changes.push(name)},async settled(name){this.settledSlots.push(name)}}
   return api
 }
 const accepted=request=>({...request,ok:true,committed_missing:0,duplicate_applies:0})
@@ -79,4 +79,58 @@ test('manifest preserves three zones, single surge, loopback probes, independent
   assert.ok(items.find(o=>o.kind==='NetworkPolicy'&&o.metadata.name==='default-deny'))
   assert.throws(()=>render({...settings,zones:['same','same','same']}),/distinct zones/)
   assert.throws(()=>render({...settings,gatewayImage:'example:latest'}),/digests required/)
+})
+
+test('rollback repairs failed second slot before checking untouched third slot',async()=>{
+  const api=fixture(),patch=api.patch.bind(api)
+  let failed=null
+  api.readyAll=async()=>{if(failed)throw new Error('gateway unready');return []}
+  api.readyOthers=async name=>{assert.equal(name===failed || failed===null,true)}
+  api.patch=async(name,version,template)=>{
+    await patch(name,version,template)
+    if(name==='wts-gateway-b') failed=template.metadata.annotations['wts/config-version']==='v2'?name:null
+  }
+  api.settled=async()=>{if(failed)throw new Error('slot stabilization deadline exceeded')}
+  await assert.rejects(drive(api,plan,accepted),/deadline exceeded/)
+  assert.equal(api.state.completed,1)
+  const result=await drive(api,plan,accepted,{rollback:true})
+  assert.equal(result.completed,3)
+  assert.deepEqual(api.changes,['wts-gateway-a','wts-gateway-b','wts-gateway-b','wts-gateway-a'])
+})
+test('rollback does not change a failed slot when another slot is also unavailable',async()=>{
+  const api=fixture()
+  await assert.rejects(drive(api,plan,()=>{throw new Error('failed')}),/failed/)
+  api.readyOthers=async()=>{throw new Error('another slot unavailable')}
+  await assert.rejects(drive(api,plan,accepted,{rollback:true}),/another slot unavailable/)
+  assert.deepEqual(api.changes,['wts-gateway-a'])
+})
+test('existing corrupt journal is rejected before deployment mutation',async()=>{
+  for (const value of [null,false,0,{}, {steps:[]}, {completed:4}]) {
+    const api=new Kubernetes('test','wts-ha')
+    let changes=0
+    api.get=async()=>({metadata:{resourceVersion:'1'},data:{journal:JSON.stringify(value)}})
+    api.lock=api.unlock=async()=>{}
+    api.patch=async()=>{changes++}
+    await assert.rejects(drive(api,plan,accepted),/invalid rollout journal/)
+    assert.equal(changes,0)
+  }
+  const api=fixture()
+  await drive(api,plan,accepted)
+  api.state.steps[1].name=api.state.steps[0].name
+  await assert.rejects(drive(api,plan,accepted),/invalid rollout journal/)
+})
+test('ready age must be continuous and at least fifteen seconds',()=>{
+  const now=Date.now(),pod={metadata:{},status:{conditions:[{type:'Ready',status:'True',lastTransitionTime:new Date(now-15000).toISOString()}]}}
+  assert.equal(stablePod(pod,now),true)
+  pod.status.conditions[0].lastTransitionTime=new Date(now-14999).toISOString()
+  assert.equal(stablePod(pod,now),false)
+  pod.status.conditions[0].lastTransitionTime='invalid'
+  assert.equal(stablePod(pod,now),false)
+})
+test('manifest name limit and post-SNAT network range are separate from LB clients',()=>{
+  assert.throws(()=>render({...settings,version:'v'.repeat(50)}),/version/)
+  for(const item of render({...settings,version:'v'.repeat(49)}).items) assert.ok(item.metadata.name.length<=63)
+  const items=render({...settings,clientCIDRs:['198.51.100.0/24'],gatewayIngressCIDRs:['10.0.0.0/8']}).items
+  assert.deepEqual(items.find(o=>o.kind==='Service'&&o.metadata.name==='wts-gateway').spec.loadBalancerSourceRanges,['198.51.100.0/24'])
+  assert.deepEqual(items.find(o=>o.kind==='NetworkPolicy'&&o.metadata.name==='gateway').spec.ingress[0].from,[{ipBlock:{cidr:'10.0.0.0/8'}}])
 })

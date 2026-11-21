@@ -11,6 +11,7 @@ on:
       - Cargo.toml
       - Cargo.lock
       - deploy/ha/**
+      - deploy/container/probe.sh
       - deploy/k8s/ha/**
       - .github/workflows/ha.yml
   workflow_dispatch:

@@ -71,3 +71,7 @@ SIGTERM/SIGINT는 다음 patch를 중단하고 finally에서 잠금을 해제하
 Kubernetes 동작은 [native sidecar](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/), [Pod 배치 제약](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/), [Lease](https://kubernetes.io/docs/concepts/architecture/leases/), [disruption](https://kubernetes.io/docs/concepts/workloads/pods/disruptions/) 문서를 기준으로 한다.
 
 kind에 로컬 이미지를 넣을 때 `node deploy/k8s/ha/kind-images.mjs wts-ha-NAME ws-trade-ha:VERSION ws-trade-edge:VERSION`을 사용하면 각 node의 실제 OCI digest를 확인하고 digest 참조를 등록한다. 출력한 digest를 개발 settings에 넣는다. `client-job.mjs settings.json`은 Service 내부에서 TLS, 공통 인증과 cursor 재접속을 검사하는 별도 Job을 렌더링한다. 이 간단한 smoke는 committed event oracle나 SLO 검증을 대체하지 않는다.
+
+`version`은 bootstrap Job 이름의 63자 제한을 지키도록 49자 이하로 설정한다. `clientCIDRs`는 LoadBalancer의 외부 클라이언트 허용 범위이고, `gatewayIngressCIDRs`는 Pod에 실제 도착하는 패킷의 출발지 범위다. `externalTrafficPolicy: Cluster`에서 SNAT가 발생하는 환경은 관측한 노드 또는 LB 주소 범위를 후자에 지정해야 한다. 운영 CNI에서 허용된 외부 WSS 접속과 비허용 주소 차단을 각각 확인해야 하며, kind 기본 CNI 시험은 이 검증을 대신하지 않는다.
+
+Rollback은 실제 template이 바뀐 슬롯을 역순으로 복구한 뒤 변경하지 않은 슬롯을 확인한다. 실패한 슬롯 자체는 unready여도 다른 두 슬롯이 15초 이상 Ready이고 종료 중인 Pod가 없으면 복구를 시작한다. 복구한 슬롯의 안정화와 committed oracle 확인을 마치기 전에는 다음 슬롯을 변경하지 않는다. 손상된 journal은 자동 초기화하지 않고 중단한다.
