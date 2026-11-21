@@ -63,11 +63,16 @@ async fn independent_gateways_restore_and_deliver_the_whole_stream() {
     let feed = feed(kafka, source.clone());
     let config = || Config {
         addr: "127.0.0.1:0".into(),
+        ha_lifecycle: Some(
+            Lifecycle::new(Duration::from_millis(200), Duration::from_millis(100), Duration::from_millis(200)).unwrap(),
+        ),
         ha: Some(ReplicaInput { kafka: reader.clone(), source: source.clone() }),
         ..Config::default()
     };
     let (a, b) = tokio::join!(start_managed(config()), start_managed(config()));
     let (a, b) = (a.unwrap(), b.unwrap());
+    a.wait_ready(Duration::from_secs(30)).await.unwrap();
+    b.wait_ready(Duration::from_secs(30)).await.unwrap();
     let mut ca = client::connect_stomp(&a.addr.to_string(), "replica-a").await;
     let mut cb = client::connect_stomp(&b.addr.to_string(), "replica-b").await;
     for (index, topic) in source.topics.iter().enumerate() {
@@ -108,6 +113,7 @@ async fn independent_gateways_restore_and_deliver_the_whole_stream() {
     feed.commands.send((0, done)).unwrap();
     tokio::time::timeout(Duration::from_secs(10), committed).await.unwrap().unwrap();
     let c = start_managed(config()).await.unwrap();
+    c.wait_ready(Duration::from_secs(30)).await.unwrap();
     let va = a.hub.replica_view().await.unwrap();
     let vc = c.hub.replica_view().await.unwrap();
     assert_eq!(serde_json::to_vec(&va.snapshot.topics).unwrap(), serde_json::to_vec(&vc.snapshot.topics).unwrap());

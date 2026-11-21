@@ -12,7 +12,11 @@ pub async fn bind(addr: &str) -> io::Result<TcpListener> {
     Ok(listener)
 }
 
-pub fn spawn(listener: TcpListener, hub: Hub) -> tokio::task::JoinHandle<()> {
+pub fn spawn(
+    listener: TcpListener,
+    hub: Hub,
+    #[cfg(feature = "ha")] lifecycle: Option<crate::ha::Lifecycle>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             let stream = match listener.accept().await {
@@ -24,12 +28,25 @@ pub fn spawn(listener: TcpListener, hub: Hub) -> tokio::task::JoinHandle<()> {
                 }
             };
             // 로컬 조회를 순차 처리하고 전체 마감을 두어 느린 요청이 태스크를 쌓지 못하게 한다.
-            let _ = tokio::time::timeout(Duration::from_secs(2), respond(stream, &hub)).await;
+            let _ = tokio::time::timeout(
+                Duration::from_secs(2),
+                respond(
+                    stream,
+                    &hub,
+                    #[cfg(feature = "ha")]
+                    lifecycle.as_ref(),
+                ),
+            )
+            .await;
         }
     })
 }
 
-async fn respond(mut stream: TcpStream, hub: &Hub) -> io::Result<()> {
+async fn respond(
+    mut stream: TcpStream,
+    hub: &Hub,
+    #[cfg(feature = "ha")] lifecycle: Option<&crate::ha::Lifecycle>,
+) -> io::Result<()> {
     let mut bytes = [0; 8192];
     let mut size = 0;
     loop {
@@ -46,7 +63,21 @@ async fn respond(mut stream: TcpStream, hub: &Hub) -> io::Result<()> {
         }
     }
     let first = bytes[..size].split(|b| *b == b'\n').next().unwrap_or_default();
-    let (status, body) = if first == b"GET /snapshots HTTP/1.1\r" {
+    #[cfg(feature = "ha")]
+    let managed = lifecycle.and_then(|life| match first {
+        b"GET /livez HTTP/1.1\r" => Some((life.phase() != crate::ha::Phase::Stopped, life.phase())),
+        b"GET /readyz HTTP/1.1\r" => Some((life.ready(), life.phase())),
+        b"POST /drain HTTP/1.1\r" => {
+            life.drain();
+            Some((true, life.phase()))
+        }
+        _ => None,
+    });
+    #[cfg(not(feature = "ha"))]
+    let managed: Option<(bool, &str)> = None;
+    let (status, body) = if let Some((healthy, phase)) = managed {
+        (if healthy { "200 OK" } else { "503 Service Unavailable" }, serde_json::json!({"state":phase}).to_string())
+    } else if first == b"GET /snapshots HTTP/1.1\r" {
         match hub.snapshot().await {
             Some(body) => ("200 OK", body),
             None => ("503 Service Unavailable", "{}".into()),
@@ -76,7 +107,12 @@ mod tests {
         let hub = Hub::configured(Limits::default(), vec!["known".into()]);
         let listener = bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        spawn(listener, hub.clone());
+        spawn(
+            listener,
+            hub.clone(),
+            #[cfg(feature = "ha")]
+            None,
+        );
         assert_eq!(hub.snapshot().await.unwrap(), "{}");
         hub.publish("known".into(), "first".into()).await;
         hub.publish("ignored".into(), "unbounded".into()).await;

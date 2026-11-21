@@ -96,6 +96,13 @@ async fn main() -> ExitCode {
         Ok(server) => {
             tracing::info!(target: "ws_trade_server::gateway", event = "gateway_started", addr = %server.addr, http_addr = ?server.http_addr);
             let reporter = logging.reporter(server.hub.clone());
+            #[cfg(feature = "ha")]
+            if let Some(life) = &server.lifecycle {
+                tokio::select! { _ = wait_for_signal() => {}, _ = life.stopped() => {} }
+            } else {
+                wait_for_signal().await;
+            }
+            #[cfg(not(feature = "ha"))]
             wait_for_signal().await;
             tracing::info!(target: "ws_trade_server::gateway", event = "shutdown_requested");
             tokio::join!(server.shutdown(), reporter.finish());

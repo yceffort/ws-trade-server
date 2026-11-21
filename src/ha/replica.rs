@@ -162,60 +162,91 @@ impl Replica {
 pub struct ReplicaTask {
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<Result<(), Error>>>,
+    failed: Arc<AtomicBool>,
 }
 
 impl ReplicaTask {
     pub fn spawn(input: ReplicaInput, hub: Hub) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = stop.clone();
+        let failed = Arc::new(AtomicBool::new(false));
+        let failure = failed.clone();
         let runtime = tokio::runtime::Handle::current();
         let worker = tokio::task::spawn_blocking(move || {
-            let result = (|| {
-                let snapshot = input.kafka.latest(SNAPSHOT, SHARD.as_bytes())?.ok_or(Error::MissingCheckpoint)?;
-                let snapshot = Snapshot::from_json(&snapshot, &input.source)?;
-                let next = snapshot.through.ok_or(Error::InvalidState)?.0.checked_add(1).ok_or(Error::Exhausted)?;
-                let mut reader = input.kafka.reader_catchup(EVENTS, next)?;
-                let mut log_end = reader.initial_high();
-                let mut sampled = Instant::now();
-                runtime.block_on(hub.restore_replica(input.source.clone(), snapshot))?;
-                runtime.block_on(hub.replica_observation(next, log_end, sampled))?;
-                while !stopped.load(Ordering::Relaxed) {
-                    if sampled.elapsed() >= Duration::from_millis(250) {
-                        match reader.refresh_end() {
-                            Ok(end) => {
-                                sampled = Instant::now();
-                                log_end = end;
-                                runtime.block_on(hub.replica_observation(
-                                    reader.next_offset(),
-                                    log_end,
-                                    Instant::now(),
-                                ))?;
+            loop {
+                if stopped.load(Ordering::Relaxed) {
+                    return Ok(());
+                }
+                let result = (|| {
+                    let snapshot = input.kafka.latest(SNAPSHOT, SHARD.as_bytes())?.ok_or(Error::MissingCheckpoint)?;
+                    if stopped.load(Ordering::Relaxed) {
+                        return Ok(());
+                    }
+                    let snapshot = Snapshot::from_json(&snapshot, &input.source)?;
+                    let next = snapshot.through.ok_or(Error::InvalidState)?.0.checked_add(1).ok_or(Error::Exhausted)?;
+                    let mut reader = input.kafka.reader_catchup(EVENTS, next)?;
+                    if stopped.load(Ordering::Relaxed) {
+                        return Ok(());
+                    }
+                    let mut log_end = reader.initial_high();
+                    let mut sampled = Instant::now();
+                    runtime.block_on(hub.restore_replica(input.source.clone(), snapshot))?;
+                    failure.store(false, Ordering::Relaxed);
+                    runtime.block_on(hub.replica_observation(next, log_end, sampled))?;
+                    while !stopped.load(Ordering::Relaxed) {
+                        if sampled.elapsed() >= Duration::from_millis(250) {
+                            match reader.refresh_end() {
+                                Ok(end) => {
+                                    sampled = Instant::now();
+                                    log_end = end;
+                                    runtime.block_on(hub.replica_observation(
+                                        reader.next_offset(),
+                                        log_end,
+                                        Instant::now(),
+                                    ))?;
+                                }
+                                Err(Error::Deadline) => {
+                                    std::thread::sleep(Duration::from_millis(50));
+                                    continue;
+                                }
+                                Err(Error::Broker(error)) if super::broker::transient(&error) => {
+                                    std::thread::sleep(Duration::from_millis(50));
+                                    continue;
+                                }
+                                Err(error) => return Err(error),
                             }
-                            Err(Error::Deadline) => {
-                                std::thread::sleep(Duration::from_millis(50));
-                                continue;
+                        }
+                        if let Some(stored) = reader.poll(Duration::from_millis(50))? {
+                            let record = LogRecord::from_json(&stored.payload, &input.source)?;
+                            runtime.block_on(hub.apply_replica(stored.offset, record))?;
+                        }
+                        runtime.block_on(hub.replica_boundary(reader.next_offset(), log_end))?;
+                    }
+                    Ok(())
+                })();
+                match result {
+                    Ok(()) => return Ok(()),
+                    Err(error) => {
+                        failure.store(true, Ordering::Relaxed);
+                        runtime.block_on(hub.fail_replica());
+                        if !matches!(error, Error::Deadline | Error::Broker(_)) {
+                            return Err(error);
+                        }
+                        for _ in 0..20 {
+                            if stopped.load(Ordering::Relaxed) {
+                                return Ok(());
                             }
-                            Err(Error::Broker(error)) if super::broker::transient(&error) => {
-                                std::thread::sleep(Duration::from_millis(50));
-                                continue;
-                            }
-                            Err(error) => return Err(error),
+                            std::thread::sleep(Duration::from_millis(50));
                         }
                     }
-                    if let Some(stored) = reader.poll(Duration::from_millis(50))? {
-                        let record = LogRecord::from_json(&stored.payload, &input.source)?;
-                        runtime.block_on(hub.apply_replica(stored.offset, record))?;
-                    }
-                    runtime.block_on(hub.replica_boundary(reader.next_offset(), log_end))?;
                 }
-                Ok(())
-            })();
-            if result.is_err() {
-                runtime.block_on(hub.fail_replica());
             }
-            result
         });
-        Self { stop, worker: Some(worker) }
+        Self { stop, worker: Some(worker), failed }
+    }
+
+    pub fn failed(&self) -> bool {
+        self.failed.load(Ordering::Relaxed)
     }
 
     pub fn stop(&self) {

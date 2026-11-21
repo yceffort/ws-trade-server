@@ -48,6 +48,9 @@ async fn durable_client_recovers_across_gateways_and_replay_limits() {
     assert_eq!(expected.len(), 10040);
     let config = || Config {
         addr: "127.0.0.1:0".into(),
+        ha_lifecycle: Some(
+            Lifecycle::new(Duration::from_millis(200), Duration::from_millis(100), Duration::from_millis(200)).unwrap(),
+        ),
         ha: Some(ReplicaInput { kafka: reader.clone(), source: source.clone() }),
         ha_protocol: Some(
             Protocol::new(serde_json::from_slice(&std::fs::read(directory.join("cursor-keys.json")).unwrap()).unwrap())
@@ -62,6 +65,9 @@ async fn durable_client_recovers_across_gateways_and_replay_limits() {
     };
     let (a, b, c) = tokio::join!(start_managed(config()), start_managed(config()), start_managed(config()));
     let (a, b, c) = (a.unwrap(), b.unwrap(), c.unwrap());
+    for server in [&a, &b, &c] {
+        server.wait_ready(Duration::from_secs(30)).await.unwrap();
+    }
     let urls: Vec<_> = [&a, &b, &c].iter().map(|server| format!("ws://{}/experimental/ha/ws", server.addr)).collect();
     let read = reader.clone();
     let tail = tokio::task::spawn_blocking(move || read.reader(EVENTS, None).unwrap().initial_high()).await.unwrap();

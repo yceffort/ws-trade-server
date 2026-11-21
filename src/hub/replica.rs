@@ -14,14 +14,27 @@ pub(super) enum Command {
 }
 
 impl State {
+    fn clear_replica_clients(&mut self) {
+        self.live.fail_all("source-stale");
+        for client in self.clients.values_mut() {
+            if let Some(kick) = client.kick.take() {
+                let _ = kick.send("source-stale");
+            }
+        }
+        self.clients.clear();
+        self.index.clear();
+    }
     pub(super) fn replica(&mut self, command: Command) {
         match command {
             Command::Restore(config, snapshot, reply) => {
                 let result = (|| {
-                    if self.replica.is_some() || !self.clients.is_empty() {
+                    if self.replica.as_ref().is_some_and(|replica| !replica.view().failed)
+                        || self.replica.is_none() && !self.clients.is_empty()
+                    {
                         return Err(Error::InvalidState);
                     }
                     let replica = Replica::restore(config.clone(), *snapshot)?;
+                    self.clear_replica_clients();
                     let view = replica.view();
                     self.cache = Cache::new(config.topics);
                     for (topic, latest) in &view.snapshot.topics {
@@ -87,6 +100,7 @@ impl State {
             }
             Command::Unfollow(id) => self.live.detach(id),
             Command::Fail => {
+                self.clear_replica_clients();
                 if let Some(replica) = &mut self.replica {
                     replica.fail();
                 }

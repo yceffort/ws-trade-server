@@ -13,7 +13,7 @@ pub fn now() -> u64 {
 
 pub struct Feed {
     stop: Arc<AtomicBool>,
-    pause: Arc<AtomicBool>,
+    pub pause: Arc<AtomicBool>,
     pub commands: mpsc::SyncSender<(usize, oneshot::Sender<Committed>)>,
 }
 impl Drop for Feed {
