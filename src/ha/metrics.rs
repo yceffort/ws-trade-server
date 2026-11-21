@@ -1,0 +1,100 @@
+use super::{Lifecycle, Protocol, SharedAuth};
+use crate::hub::Hub;
+use std::{
+    fmt::Write,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
+
+#[derive(Default)]
+pub(crate) struct Counters {
+    pub connections: AtomicU64,
+    pub active: AtomicU64,
+    pub resumes: AtomicU64,
+    pub caught_up: AtomicU64,
+    pub replay_bytes: AtomicU64,
+    pub snapshot_bytes: AtomicU64,
+    pub checkpoints: AtomicU64,
+    pub replay_limits: AtomicU64,
+    pub cursor_rejections: AtomicU64,
+    pub slow_clients: AtomicU64,
+    pub drain_notices: AtomicU64,
+    pub auth_errors: AtomicU64,
+}
+pub(crate) struct Connection(Arc<Counters>);
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.0.active.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+impl Counters {
+    pub fn connection(self: &Arc<Self>) -> Connection {
+        self.connections.fetch_add(1, Ordering::Relaxed);
+        self.active.fetch_add(1, Ordering::Relaxed);
+        Connection(self.clone())
+    }
+    pub fn closed(&self, reason: &str) {
+        let counter = match reason {
+            "replay-limit" => Some(&self.replay_limits),
+            "invalid-cursor" | "cursor-expired" => Some(&self.cursor_rejections),
+            "slow-client" => Some(&self.slow_clients),
+            "draining" => Some(&self.drain_notices),
+            reason if reason.starts_with("auth-") || reason == "forbidden-scope" => Some(&self.auth_errors),
+            _ => None,
+        };
+        if let Some(counter) = counter {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+pub struct Management {
+    pub lifecycle: Lifecycle,
+    pub protocol: Option<Protocol>,
+    pub auth: Option<SharedAuth>,
+}
+impl Management {
+    pub(crate) async fn prometheus(&self, hub: &Hub) -> String {
+        let view = hub.replica_view().await.ok();
+        let mut output = String::new();
+        let mut metric = |name: &str, value: f64| {
+            let kind = if name.ends_with("_total") { "counter" } else { "gauge" };
+            let _ = writeln!(output, "# TYPE wts_ha_{name} {kind}\nwts_ha_{name} {value}");
+        };
+        metric("gateway_ready", u8::from(self.lifecycle.ready()) as f64);
+        metric("policy_fresh", u8::from(self.auth.as_ref().is_none_or(SharedAuth::fresh)) as f64);
+        metric("policy_age_seconds", self.auth.as_ref().and_then(SharedAuth::age_seconds).unwrap_or(0.0));
+        metric(
+            "log_position_lag",
+            view.as_ref().and_then(|v| v.log_end.map(|end| end.saturating_sub(v.next) as f64)).unwrap_or(f64::NAN),
+        );
+        metric("source_age_seconds", view.as_ref().map_or(f64::NAN, |v| v.source_age_seconds()));
+        metric("broker_age_seconds", view.as_ref().and_then(|v| v.broker_age_seconds()).unwrap_or(f64::NAN));
+        metric("drain_elapsed_seconds", self.lifecycle.drain_started().map_or(0.0, |at| at.elapsed().as_secs_f64()));
+        if let Some(protocol) = &self.protocol {
+            let counters = &protocol.counters;
+            for (name, counter) in [
+                ("connections_total", &counters.connections),
+                ("active_connections", &counters.active),
+                ("resumes_total", &counters.resumes),
+                ("caught_up_total", &counters.caught_up),
+                ("replay_bytes_total", &counters.replay_bytes),
+                ("snapshot_bytes_total", &counters.snapshot_bytes),
+                ("checkpoints_total", &counters.checkpoints),
+                ("replay_limits_total", &counters.replay_limits),
+                ("cursor_rejections_total", &counters.cursor_rejections),
+                ("slow_clients_total", &counters.slow_clients),
+                ("drain_notices_total", &counters.drain_notices),
+                ("auth_errors_total", &counters.auth_errors),
+            ] {
+                metric(name, counter.load(Ordering::Relaxed) as f64);
+            }
+            metric("replay_workers", (32 - protocol.workers.available_permits()) as f64);
+            metric("replay_waiters", (128 - protocol.waiting.available_permits()) as f64);
+        }
+        let _ = writeln!(output, "wts_ha_gateway_phase{{phase=\"{:?}\"}} 1", self.lifecycle.phase());
+        output
+    }
+}

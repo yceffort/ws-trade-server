@@ -1,0 +1,21 @@
+{
+  "rollback": true,
+  "completed": 0,
+  "steps": [
+    {
+      "name": "wts-gateway-b",
+      "phase": "patched",
+      "report": null
+    },
+    {
+      "name": "wts-gateway-a",
+      "phase": "pending",
+      "report": null
+    },
+    {
+      "name": "wts-gateway-c",
+      "phase": "pending",
+      "report": null
+    }
+  ]
+}

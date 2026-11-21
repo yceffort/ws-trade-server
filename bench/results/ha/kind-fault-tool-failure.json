@@ -1,0 +1,20 @@
+{
+  "ok": false,
+  "reason": "external-command-or-io-failed",
+  "clients": 30,
+  "ready": 30,
+  "failures": [],
+  "diagnostics": {
+    "clients": 30,
+    "caught_up": 30,
+    "failures": 0,
+    "minimum_offset": "693818",
+    "maximum_offset": "693842",
+    "reasons": {
+      "draining": 9
+    },
+    "client_event_loop_p99_ms": 26.247167,
+    "client_event_loop_max_ms": 278.134783
+  },
+  "production_slo_proven": false
+}

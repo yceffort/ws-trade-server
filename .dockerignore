@@ -17,3 +17,12 @@ edge/**
 !edge/run.mjs
 !edge/proxy.mjs
 !edge/tcp-probe.mjs
+!examples/
+examples/**
+!examples/ha-client.mjs
+!examples/ha-state.mjs
+!bench/
+bench/**
+!bench/ha/
+bench/ha/**
+!bench/ha/*.mjs

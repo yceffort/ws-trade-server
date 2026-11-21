@@ -1,0 +1,98 @@
+{
+  "ok": false,
+  "reason": "external-command-or-io-failed",
+  "clients": 30,
+  "ready": 30,
+  "failures": [],
+  "diagnostics": {
+    "clients": 30,
+    "caught_up": 30,
+    "failures": 0,
+    "minimum_offset": "1031810",
+    "maximum_offset": "1031834",
+    "reasons": {
+      "connection-error": 30
+    },
+    "client_event_loop_p99_ms": 24.510463,
+    "client_event_loop_max_ms": 39.583743
+  },
+  "actions": [
+    {
+      "name": "gateway-kill",
+      "elapsed_ms": 174.79917800000112,
+      "result": {
+        "ok": true,
+        "action": "gateway-kill",
+        "elapsed_ms": 136.818973,
+        "deleted": [
+          "wts-gateway-a-6f7597c885-st5pf"
+        ]
+      },
+      "recovery": {
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 30,
+          "committed_events": 3220,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": null,
+        "fault_reconnect_samples": 0,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": null,
+        "client_event_loop_p99_ms": 24.559615,
+        "client_event_loop_max_ms": 37.781503,
+        "verified_through": "1016223"
+      }
+    },
+    {
+      "name": "feed-failover",
+      "elapsed_ms": 11717.253108999997,
+      "result": {
+        "ok": true,
+        "action": "feed-failover",
+        "elapsed_ms": 11689.140718,
+        "feed_failover_ms": 11055,
+        "old_pod": "wts-feed-66fc875bf-dfjjr"
+      },
+      "recovery": {
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 30,
+          "committed_events": 10900,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 15164.07918999999,
+        "fault_reconnect_samples": 30,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 18128.547840999992,
+        "client_event_loop_p99_ms": 24.461311,
+        "client_event_loop_max_ms": 39.583743,
+        "verified_through": "1024767"
+      }
+    },
+    {
+      "name": "broker-one",
+      "elapsed_ms": 66.53314099999261,
+      "result": {
+        "ok": true,
+        "action": "broker-one",
+        "elapsed_ms": 35.765108,
+        "deleted": [
+          "wts-broker-0"
+        ]
+      }
+    }
+  ],
+  "rollout_verifications": [],
+  "production_slo_proven": false
+}

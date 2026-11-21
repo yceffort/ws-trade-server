@@ -3,6 +3,8 @@ mod bridge;
 pub mod connection;
 pub mod corrections;
 pub mod feed;
+#[cfg(feature = "ha")]
+pub mod ha;
 mod http;
 pub mod hub;
 pub mod limits;
@@ -25,6 +27,14 @@ pub use server::{Server, start_managed};
 
 #[derive(Clone)]
 pub struct Config {
+    #[cfg(feature = "ha")]
+    pub ha: Option<ha::ReplicaInput>,
+    #[cfg(feature = "ha")]
+    pub ha_protocol: Option<ha::Protocol>,
+    #[cfg(feature = "ha")]
+    pub ha_lifecycle: Option<ha::Lifecycle>,
+    #[cfg(feature = "ha")]
+    pub ha_auth: Option<ha::SharedAuth>,
     pub auth: Option<auth::Auth>,
     pub addr: String,
     pub http_addr: Option<String>,
@@ -41,6 +51,14 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
+            #[cfg(feature = "ha")]
+            ha: None,
+            #[cfg(feature = "ha")]
+            ha_protocol: None,
+            #[cfg(feature = "ha")]
+            ha_lifecycle: None,
+            #[cfg(feature = "ha")]
+            ha_auth: None,
             auth: None,
             addr: "127.0.0.1:8080".to_string(),
             http_addr: None,
