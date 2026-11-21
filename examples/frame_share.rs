@@ -90,18 +90,57 @@ fn measure(subscribers: usize, build: impl Fn(&mut Vec<Message>)) -> (f64, u64, 
     (nanos, ALLOCS.load(Relaxed), BYTES.load(Relaxed))
 }
 
+// 각 측정마다 새 연결을 써서 앞 측정의 송신 대기열이 섞이지 않게 한다.
+fn with_tcp(run: impl FnOnce(&mut TcpStream) -> std::io::Result<f64>) -> std::io::Result<f64> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let mut stream = TcpStream::connect(listener.local_addr()?)?;
+    stream.set_nodelay(true)?;
+    let reader = std::thread::spawn(move || -> std::io::Result<()> {
+        let (mut stream, _) = listener.accept()?;
+        let mut buffer = vec![0; 64 << 10];
+        while stream.read(&mut buffer)? > 0 {}
+        Ok(())
+    });
+    let result = run(&mut stream);
+    drop(stream);
+    reader.join().expect("읽는 스레드는 패닉하지 않는다")?;
+    result
+}
+
+fn measure_with_tcp(subscribers: usize, build: impl Fn(&mut Vec<Message>)) -> std::io::Result<f64> {
+    with_tcp(|stream| {
+        let mut frames = Vec::with_capacity(subscribers);
+        let reps = 1_000_000 / subscribers;
+        let start = Instant::now();
+        for _ in 0..reps {
+            build(&mut frames);
+            for frame in &frames {
+                stream.write_all(black_box(frame.to_text().expect("조립한 프레임은 Text").as_bytes()))?;
+            }
+            frames.clear();
+        }
+        Ok(start.elapsed().as_nanos() as f64 / reps as f64)
+    })
+}
+
 fn main() -> std::io::Result<()> {
+    let reverse = std::env::args().any(|arg| arg == "--reverse");
+    let order = if reverse { ["한 번 조립", "구독자마다"] } else { ["구독자마다", "한 번 조립"] };
     let trade = Generator::new(default_symbols().remove(0)).next_trade(1);
     let (topic, body) = trade::to_message(&trade).expect("기본 종목은 topic이 있다");
-    let frame_size = stomp::message(CONNECTION_ID, "0", &body).len();
-    println!("본문 {}바이트, 구독자마다 조립한 프레임 {frame_size}바이트", body.len());
+    let frame = stomp::message(&format!("{CONNECTION_ID}-1"), "0", &body);
+    println!("본문 {}바이트, 첫 구독자 프레임 {}바이트", body.len(), frame.len());
+    println!("조건별 실행 순서: {} 다음 {}", order[0], order[1]);
     println!("구독자 | 방식        | 한 건 조립 us | 구독자당 ns | 할당 횟수/건 | 할당 바이트/건");
     for subscribers in [100, 1_000, 10_000] {
-        let rows = [
-            ("구독자마다", measure(subscribers, |f| per_subscriber(subscribers, &body, f))),
-            ("한 번 조립", measure(subscribers, |f| shared(subscribers, &topic, &body, f))),
-        ];
-        for (name, (nanos, allocs, bytes)) in rows {
+        for name in order {
+            let (nanos, allocs, bytes) = measure(subscribers, |f| {
+                if name == "구독자마다" {
+                    per_subscriber(subscribers, &body, f);
+                } else {
+                    shared(subscribers, &topic, &body, f);
+                }
+            });
             println!(
                 "{subscribers:>6} | {name:<11} | {:>13.1} | {:>11.1} | {allocs:>12} | {bytes:>14}",
                 nanos / 1e3,
@@ -111,23 +150,28 @@ fn main() -> std::io::Result<()> {
     }
 
     // boundary_cost와 같은 조건이다. 루프백 TCP에 프레임을 쓰고 읽는 스레드가 계속 비운다.
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let addr = listener.local_addr()?;
-    let reader = std::thread::spawn(move || -> std::io::Result<()> {
-        let (mut stream, _) = listener.accept()?;
-        let mut buffer = vec![0; 64 << 10];
-        while stream.read(&mut buffer)? > 0 {}
-        Ok(())
-    });
-    let mut stream = TcpStream::connect(addr)?;
-    stream.set_nodelay(true)?;
-    let frame = stomp::message(CONNECTION_ID, "0", &body);
-    let count = 1_000_000;
-    let start = Instant::now();
-    for _ in 0..count {
-        stream.write_all(black_box(frame.as_bytes()))?;
+    let send_ns = with_tcp(|stream| {
+        let count = 1_000_000;
+        let start = Instant::now();
+        for _ in 0..count {
+            stream.write_all(black_box(frame.as_bytes()))?;
+        }
+        Ok(start.elapsed().as_nanos() as f64 / count as f64)
+    })?;
+    println!("TCP 소켓에 첫 구독자 프레임 send: {send_ns:.1}ns");
+
+    println!("구독자 | 방식        | 한 건 조립+TCP us | 구독자당 ns");
+    for subscribers in [100, 1_000, 10_000] {
+        for name in order {
+            let nanos = measure_with_tcp(subscribers, |f| {
+                if name == "구독자마다" {
+                    per_subscriber(subscribers, &body, f);
+                } else {
+                    shared(subscribers, &topic, &body, f);
+                }
+            })?;
+            println!("{subscribers:>6} | {name:<11} | {:>18.1} | {:>11.1}", nanos / 1e3, nanos / subscribers as f64);
+        }
     }
-    println!("TCP 소켓에 같은 크기 프레임 send: {:.1}ns", start.elapsed().as_nanos() as f64 / count as f64);
-    drop(stream);
-    reader.join().expect("읽는 스레드는 패닉하지 않는다")
+    Ok(())
 }
