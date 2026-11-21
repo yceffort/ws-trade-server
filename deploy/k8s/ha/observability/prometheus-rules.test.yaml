@@ -1,24 +1,268 @@
 rule_files:
   - prometheus-rules.yaml
-evaluation_interval: 10s
+evaluation_interval: 5s
 tests:
-  - interval: 10s
+  - name: 다른 namespace가 정상이어도 감시 대상의 전체 소실을 알린다
+    interval: 5s
     input_series:
       - series: 'up{job="wts-ha",namespace="other",instance="gateway"}'
-        values: '1+0x10'
+        values: '1x12'
     alert_rule_test:
+      - eval_time: 25s
+        alertname: WtsHaMetricsMissing
+        exp_alerts: []
+      - eval_time: 30s
+        alertname: WtsHaMetricsMissing
+        exp_alerts:
+          - exp_labels: { namespace: wts-ha, severity: critical }
+            exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }
+  - name: 수집 실패가 30초 지속되어야 알리고 성공하면 해제한다
+    interval: 5s
+    input_series:
+      - series: 'up{job="wts-ha",namespace="wts-ha",instance="gateway"}'
+        values: '1 0x6 1x4'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: WtsHaMetricsMissing
+        exp_alerts: []
+      - eval_time: 35s
+        alertname: WtsHaMetricsMissing
+        exp_alerts:
+          - exp_labels: { job: wts-ha, namespace: wts-ha, instance: gateway, severity: critical }
+            exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }
+      - eval_time: 40s
+        alertname: WtsHaMetricsMissing
+        exp_alerts: []
+
+  - name: 발견된 endpoint가 사라지면 namespace 알림으로 전환하고 재발견 뒤 해제한다
+    interval: 5s
+    input_series:
+      - series: 'up{job="wts-ha",namespace="wts-ha",instance="gateway"}'
+        values: '1x1 stale _x6 1x4'
+      - series: 'up{job="wts-ha",namespace="other",instance="gateway"}'
+        values: '1x14'
+    alert_rule_test:
+      - eval_time: 35s
+        alertname: WtsHaMetricsMissing
+        exp_alerts: []
       - eval_time: 40s
         alertname: WtsHaMetricsMissing
         exp_alerts:
           - exp_labels: { namespace: wts-ha, severity: critical }
             exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }
-  - interval: 10s
+      - eval_time: 50s
+        alertname: WtsHaMetricsMissing
+        exp_alerts: []
+
+  - name: 일부 endpoint 수집 실패는 정상 endpoint 때문에 가려지지 않는다
+    interval: 5s
     input_series:
-      - series: 'up{job="wts-ha",namespace="wts-ha",instance="gateway"}'
-        values: '0+0x10'
+      - series: 'up{job="wts-ha",namespace="wts-ha",instance="gateway-a"}'
+        values: '0x8'
+      - series: 'up{job="wts-ha",namespace="wts-ha",instance="gateway-b"}'
+        values: '1x8'
     alert_rule_test:
-      - eval_time: 40s
+      - eval_time: 30s
         alertname: WtsHaMetricsMissing
         exp_alerts:
-          - exp_labels: { job: wts-ha, namespace: wts-ha, instance: gateway, severity: critical }
+          - exp_labels: { job: wts-ha, namespace: wts-ha, instance: gateway-a, severity: critical }
             exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }
+
+  - name: Ready는 namespace별로 합산하고 짧은 감소 뒤 유지 시간을 다시 센다
+    interval: 5s
+    input_series:
+      - series: 'wts_ha_gateway_ready{namespace="wts-ha",pod="gateway-a"}'
+        values: '1x14'
+      - series: 'wts_ha_gateway_ready{namespace="wts-ha",pod="gateway-b"}'
+        values: '1x14'
+      - series: 'wts_ha_gateway_ready{namespace="wts-ha",pod="gateway-c"}'
+        values: '1 0x2 1 0x6 1x2'
+      - series: 'wts_ha_gateway_ready{namespace="other",pod="gateway-a"}'
+        values: '1x14'
+      - series: 'wts_ha_gateway_ready{namespace="other",pod="gateway-b"}'
+        values: '1x14'
+      - series: 'wts_ha_gateway_ready{namespace="other",pod="gateway-c"}'
+        values: '1x14'
+    alert_rule_test:
+      - eval_time: 0s
+        alertname: WtsHaReadyReplicasLow
+        exp_alerts: []
+      - eval_time: 20s
+        alertname: WtsHaReadyReplicasLow
+        exp_alerts: []
+      - eval_time: 50s
+        alertname: WtsHaReadyReplicasLow
+        exp_alerts: []
+      - eval_time: 55s
+        alertname: WtsHaReadyReplicasLow
+        exp_alerts:
+          - exp_labels: { namespace: wts-ha, severity: warning }
+            exp_annotations: { summary: 'HA gateway Ready 수가 3 미만입니다. 배포를 중단하고 source와 broker freshness를 확인하세요.' }
+      - eval_time: 60s
+        alertname: WtsHaReadyReplicasLow
+        exp_alerts: []
+
+  - name: source와 broker의 3초 경계 및 각각의 관측 만료를 확인한다
+    interval: 5s
+    input_series:
+      - series: 'wts_ha_source_age_seconds{namespace="wts-ha",pod="gateway-a"}'
+        values: '3 4x1 3x4'
+      - series: 'wts_ha_broker_age_seconds{namespace="wts-ha",pod="gateway-a"}'
+        values: '3x7'
+      - series: 'wts_ha_source_age_seconds{namespace="wts-ha",pod="gateway-b"}'
+        values: '3x7'
+      - series: 'wts_ha_broker_age_seconds{namespace="wts-ha",pod="gateway-b"}'
+        values: '3x3 4x1 3x1'
+    alert_rule_test:
+      - eval_time: 0s
+        alertname: WtsHaSourceStale
+        exp_alerts: []
+      - eval_time: 5s
+        alertname: WtsHaSourceStale
+        exp_alerts: []
+      - eval_time: 10s
+        alertname: WtsHaSourceStale
+        exp_alerts:
+          - exp_labels: { namespace: wts-ha, pod: gateway-a, severity: critical }
+            exp_annotations: { summary: 'HA source 또는 broker 관측이 만료됐습니다.' }
+      - eval_time: 15s
+        alertname: WtsHaSourceStale
+        exp_alerts: []
+      - eval_time: 20s
+        alertname: WtsHaSourceStale
+        exp_alerts: []
+      - eval_time: 25s
+        alertname: WtsHaSourceStale
+        exp_alerts:
+          - exp_labels: { namespace: wts-ha, pod: gateway-b, severity: critical }
+            exp_annotations: { summary: 'HA source 또는 broker 관측이 만료됐습니다.' }
+      - eval_time: 30s
+        alertname: WtsHaSourceStale
+        exp_alerts: []
+
+  - name: log 위치 lag 100은 정상이고 초과가 10초 유지되면 알린다
+    interval: 5s
+    input_series:
+      - series: 'wts_ha_log_position_lag{namespace="wts-ha",pod="gateway-a"}'
+        values: '100 101x2 100x2'
+    alert_rule_test:
+      - eval_time: 0s
+        alertname: WtsHaReplicaLag
+        exp_alerts: []
+      - eval_time: 10s
+        alertname: WtsHaReplicaLag
+        exp_alerts: []
+      - eval_time: 15s
+        alertname: WtsHaReplicaLag
+        exp_alerts:
+          - exp_labels: { namespace: wts-ha, pod: gateway-a, severity: warning }
+            exp_annotations: { summary: 'HA log 위치 지연. Kafka control record를 포함하므로 이벤트 수가 아닙니다.' }
+      - eval_time: 20s
+        alertname: WtsHaReplicaLag
+        exp_alerts: []
+
+  - name: replay 대기 96은 정상이고 초과가 30초 유지되면 알린다
+    interval: 5s
+    input_series:
+      - series: 'wts_ha_replay_waiters{namespace="wts-ha",pod="gateway-a"}'
+        values: '96 97x6 96x2'
+      - series: 'wts_ha_replay_limits_total{namespace="wts-ha",pod="gateway-a"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 0s
+        alertname: WtsHaReplayPressure
+        exp_alerts: []
+      - eval_time: 30s
+        alertname: WtsHaReplayPressure
+        exp_alerts: []
+      - eval_time: 35s
+        alertname: WtsHaReplayPressure
+        exp_alerts:
+          - exp_labels: { namespace: wts-ha, pod: gateway-a, severity: warning }
+            exp_annotations: { summary: 'Replay 대기열 또는 budget 초과. 클라이언트 checkpoint 진행과 N-1 용량을 확인하세요.' }
+      - eval_time: 40s
+        alertname: WtsHaReplayPressure
+        exp_alerts: []
+
+  - name: replay budget 초과는 대기가 없어도 알리고 5분 관측창에서 빠지면 해제한다
+    interval: 5s
+    input_series:
+      - series: 'wts_ha_replay_waiters{namespace="wts-ha",pod="gateway-a"}'
+        values: '0x70'
+      - series: 'wts_ha_replay_limits_total{namespace="wts-ha",pod="gateway-a"}'
+        values: '0x1 1x68'
+    alert_rule_test:
+      - eval_time: 35s
+        alertname: WtsHaReplayPressure
+        exp_alerts: []
+      - eval_time: 40s
+        alertname: WtsHaReplayPressure
+        exp_alerts: &replay_firing
+          - exp_labels: { namespace: wts-ha, pod: gateway-a, severity: warning }
+            exp_annotations: { summary: 'Replay 대기열 또는 budget 초과. 클라이언트 checkpoint 진행과 N-1 용량을 확인하세요.' }
+      - eval_time: 5m
+        alertname: WtsHaReplayPressure
+        exp_alerts: *replay_firing
+      - eval_time: 5m5s
+        alertname: WtsHaReplayPressure
+        exp_alerts: []
+
+  - name: replay counter가 0으로 리셋된 것만으로 budget 초과를 알리지 않는다
+    interval: 5s
+    input_series:
+      - series: 'wts_ha_replay_waiters{namespace="wts-ha",pod="gateway-a"}'
+        values: '0x80'
+      - series: 'wts_ha_replay_limits_total{namespace="wts-ha",pod="gateway-a"}'
+        values: '100x11 0x68'
+    alert_rule_test:
+      - eval_time: 55s
+        alertname: WtsHaReplayPressure
+        exp_alerts: []
+      - eval_time: 1m30s
+        alertname: WtsHaReplayPressure
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: WtsHaReplayPressure
+        exp_alerts: []
+
+  - name: drain 40초는 정상이고 초과가 5초 유지되면 알린다
+    interval: 5s
+    input_series:
+      - series: 'wts_ha_drain_elapsed_seconds{namespace="wts-ha",pod="gateway-a"}'
+        values: '40 41x1 0x2'
+    alert_rule_test:
+      - eval_time: 0s
+        alertname: WtsHaDrainOverdue
+        exp_alerts: []
+      - eval_time: 5s
+        alertname: WtsHaDrainOverdue
+        exp_alerts: []
+      - eval_time: 10s
+        alertname: WtsHaDrainOverdue
+        exp_alerts:
+          - exp_labels: { namespace: wts-ha, pod: gateway-a, severity: critical }
+            exp_annotations: { summary: 'Gateway drain 예산 초과. 다음 slot 변경을 멈추세요.' }
+      - eval_time: 15s
+        alertname: WtsHaDrainOverdue
+        exp_alerts: []
+
+  - name: 인증 정책 freshness 만료가 5초 유지되면 알리고 갱신되면 해제한다
+    interval: 5s
+    input_series:
+      - series: 'wts_ha_policy_fresh{namespace="wts-ha",pod="gateway-a"}'
+        values: '1 0x1 1x2'
+    alert_rule_test:
+      - eval_time: 0s
+        alertname: WtsHaPolicyStale
+        exp_alerts: []
+      - eval_time: 5s
+        alertname: WtsHaPolicyStale
+        exp_alerts: []
+      - eval_time: 10s
+        alertname: WtsHaPolicyStale
+        exp_alerts:
+          - exp_labels: { namespace: wts-ha, pod: gateway-a, severity: critical }
+            exp_annotations: { summary: '공유 인증 정책 freshness 만료. 공급자 TLS와 정책 version을 확인하세요.' }
+      - eval_time: 15s
+        alertname: WtsHaPolicyStale
+        exp_alerts: []

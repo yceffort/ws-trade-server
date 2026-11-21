@@ -34,4 +34,12 @@ Kafka 클라이언트 오류는 native 원문 대신 고정 facility 분류와 �
 
 `prometheus-rules.yaml`의 `wts_ha_expected_namespace`는 discovery와 독립된 감시 대상 목록이다. 기본값은 `wts-ha`이며 실제 배포 namespace로 바꾸거나 namespace마다 같은 record를 다른 label로 추가한다. 감시 대상의 모든 endpoint가 없어져도 다른 namespace의 정상 `up` 때문에 알림이 사라지지 않는다. `namespace`를 바꾸거나 추가하면 `prometheus-rules.test.yaml`의 `input_series`와 `exp_labels`도 함께 수정하고 추가 namespace에서 발생할 누락 알림을 기대 결과에 포함한다. 규칙을 적용하기 전에 `promtool test rules deploy/k8s/ha/observability/prometheus-rules.test.yaml`을 실행한다.
 
+이 테스트는 일곱 Prometheus 알림의 임계값 경계, `for` 유지 시간 전후와 정상 복구를 합성 시계열로 확인한다. Ready 집계의 namespace 분리, 짧은 Ready 감소 뒤 유지 시간 초기화, 일부 수집 실패와 endpoint 전체 소실 및 재발견, source와 broker 각각의 만료, replay counter 리셋과 5분 관측창의 만료도 포함한다. 테스트 평가 간격은 가장 짧은 `for`와 같은 5초다. 실제 배포에서는 Prometheus의 rule 평가 간격과 scrape 간격 때문에 알림 시각이 달라질 수 있다.
+
+CI와 같은 고정 이미지로 로컬에서 확인하려면 저장소 루트에서 아래 명령을 실행한다. 외부 수신처로 통지하지 않으며, 이 검증은 Alertmanager 전달, Loki fencing 규칙, 실제 수집기 장애와 운영 환경 장애 주입을 검증하지 않는다. 해당 통지 경로는 [관측 알림 이슈 #76](https://github.com/yceffort/ws-trade-server/issues/76)의 후속 작업이다.
+
+```sh
+docker run --rm --entrypoint /bin/promtool -v "$PWD/deploy/k8s/ha/observability:/rules:ro" -w /rules prom/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 test rules prometheus-rules.test.yaml
+```
+
 서버의 admission 상태 감시와 연결별 freshness 감시는 같은 hub 상태 watch를 사용한다. 상태를 읽기 위한 actor 요청의 대기 시간을 source 장애로 판정하지 않으며, 실제 관측 시각과 lag, 공유 인증 및 cursor key 준비 상태는 계속 검사한다.
