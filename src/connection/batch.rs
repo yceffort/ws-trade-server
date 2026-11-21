@@ -52,7 +52,8 @@ where
                     }
                     continue;
                 };
-                counters.queue_wait.observe(taken.saturating_duration_since(published));
+                // 꺼낸 뒤에도 hub가 칸을 새 본문으로 바꿀 수 있으므로 표지는 칸을 비운 직후의 시각으로 잰다. 표지는 큐가 K건을 넘을 때만 생긴다.
+                counters.queue_wait.observe(Instant::now().saturating_duration_since(published));
                 *seq += 1;
                 stomp::message(&format!("{connection_id}-{seq}"), &subscription, &body)
             }
