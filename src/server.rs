@@ -145,8 +145,9 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
                     #[cfg(feature = "ha")]
                     if let Some(life) = &config.ha_lifecycle {
                         if replica.is_some() {
-                            let view = tokio::time::timeout(std::time::Duration::from_millis(100), accept_hub.replica_view()).await;
-                            let (ready, failed) = match view { Ok(Ok(view)) => (view.ready(config.ha_auth.as_ref().is_none_or(crate::ha::SharedAuth::fresh) && config.ha_protocol.as_ref().is_none_or(crate::ha::Protocol::ready)), view.failed), _ => (false, false) };
+                            let dependencies_ready = config.ha_auth.as_ref().is_none_or(crate::ha::SharedAuth::fresh)
+                                && config.ha_protocol.as_ref().is_none_or(crate::ha::Protocol::ready);
+                            let (ready, failed) = accept_hub.replica_health(dependencies_ready);
                             life.health(ready, failed || replica.as_ref().is_some_and(crate::ha::ReplicaTask::failed));
                         }
                         if let Some(deadline) = life.close_deadline() {

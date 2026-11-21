@@ -40,7 +40,7 @@ export function render(s) {
   for (const [index,slot] of ['a','b','c'].entries()) {
     const label = {...labels('gateway'),'wts-slot':slot}
     const edge = {name:'edge',image:s.edgeImage,imagePullPolicy:'IfNotPresent',restartPolicy:'Always',securityContext,
-      env:Object.entries({WTS_BACKEND:'ws://127.0.0.1:8080/experimental/ha/ws',WTS_EDGE_HOST:'0.0.0.0',WTS_EDGE_PORT:'8443',WTS_TLS_CERT_FILE:'/tls/cert.pem',WTS_TLS_KEY_FILE:'/tls/key.pem',WTS_COMPRESSION:'none'}).map(([name,value])=>({name,value})),
+      env:Object.entries({WTS_BACKEND:'ws://127.0.0.1:8080/experimental/ha/ws',WTS_EDGE_HOST:'0.0.0.0',WTS_EDGE_PORT:'8443',WTS_TLS_CERT_FILE:'/tls/cert.pem',WTS_TLS_KEY_FILE:'/tls/key.pem',WTS_COMPRESSION:'none',NODE_OPTIONS:'--max-old-space-size=128'}).map(([name,value])=>({name,value})),
       ports:[{name:'wss',containerPort:8443}],volumeMounts:[mount('tls','/tls')],resources:{requests:{cpu:'250m',memory:'128Mi'},limits:{cpu:'2',memory:'512Mi'}},
       startupProbe:{tcpSocket:{port:'wss'},periodSeconds:2,timeoutSeconds:1,failureThreshold:30},readinessProbe:{tcpSocket:{port:'wss'},periodSeconds:2,timeoutSeconds:1},livenessProbe:{tcpSocket:{port:'wss'},periodSeconds:10,timeoutSeconds:1}}
     const gateway = {name:'gateway',image:s.gatewayImage,imagePullPolicy:'IfNotPresent',securityContext,

@@ -12,6 +12,10 @@ use std::collections::BTreeMap;
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+#[path = "broker_log_tests.rs"]
+mod log_tests;
+
 pub(super) fn transient(error: &KafkaError) -> bool {
     matches!(error, KafkaError::Seek(_))
         || matches!(
@@ -260,7 +264,9 @@ impl ClientContext for Quiet {
         }
     }
     fn error(&self, error: KafkaError, _: &str) {
-        if matches!(error, KafkaError::PartitionEOF(_)) {
+        if matches!(error, KafkaError::PartitionEOF(_))
+            || error.rdkafka_error_code() == Some(RDKafkaErrorCode::PartitionEOF)
+        {
             return;
         }
         tracing::warn!(event = "broker_client_error", code = ?error.rdkafka_error_code());

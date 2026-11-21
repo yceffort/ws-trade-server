@@ -33,3 +33,5 @@ Producer fencing은 프로세스가 종료되는 사건이므로 scrape 직전 �
 Kafka 클라이언트 오류는 native 원문 대신 고정 facility 분류와 오류 enum 코드만 기록한다. `PartitionEOF`는 현재 committed 경계에 도달했다는 정상 소비 상태이므로 오류 로그에서 제외한다. 인증 설정, 토큰과 payload는 이 로그에 기록하지 않는다.
 
 `prometheus-rules.yaml`의 `wts_ha_expected_namespace`는 discovery와 독립된 감시 대상 목록이다. 기본값은 `wts-ha`이며 실제 배포 namespace로 바꾸거나 namespace마다 같은 record를 다른 label로 추가한다. 감시 대상의 모든 endpoint가 없어져도 다른 namespace의 정상 `up` 때문에 알림이 사라지지 않는다. 규칙을 적용하기 전에 `promtool test rules deploy/k8s/ha/observability/prometheus-rules.test.yaml`을 실행한다.
+
+서버의 admission 상태 감시와 연결별 freshness 감시는 같은 hub 상태 watch를 사용한다. 상태를 읽기 위한 actor 요청의 대기 시간을 source 장애로 판정하지 않으며, 실제 관측 시각과 lag, 공유 인증 및 cursor key 준비 상태는 계속 검사한다.

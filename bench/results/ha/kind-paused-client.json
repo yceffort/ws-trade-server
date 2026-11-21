@@ -1,0 +1,26 @@
+{
+  "ok": false,
+  "reason": "clients did not apply the committed verification boundary",
+  "clients": 1000,
+  "ready": 199,
+  "failures": [],
+  "diagnostics": {
+    "clients": 1000,
+    "caught_up": 199,
+    "failures": 0,
+    "minimum_offset": "786196",
+    "maximum_offset": "837796",
+    "reasons": {
+      "connection-error": 812,
+      "connection-closed": 51,
+      "receive-deadline": 126,
+      "replay-limit": 10,
+      "source-stale": 1
+    },
+    "client_event_loop_p99_ms": 465.567743,
+    "client_event_loop_max_ms": 1656.750079
+  },
+  "actions": [],
+  "rollout_verifications": [],
+  "production_slo_proven": false
+}
