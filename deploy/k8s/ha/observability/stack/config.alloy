@@ -1,0 +1,85 @@
+// HA 구성(app.kubernetes.io/part-of=wts-ha)의 Pod stdout/stderr를 Kubernetes API로 읽어 Loki에 보낸다.
+// 노드 파일시스템이나 root 권한 없이 동작한다.
+logging {
+	level  = "info"
+	format = "json"
+}
+
+discovery.kubernetes "pods" {
+	role = "pod"
+}
+
+// label은 값의 수가 정해진 것만 둔다. pod는 검색용 구조화 메타데이터로 옮기고, conn 같은 값은 본문 JSON에 남긴다.
+// loki.source.kubernetes가 붙이는 instance(namespace/pod:container)도 Pod마다 늘어나므로 지운다.
+discovery.relabel "wts" {
+	targets = discovery.kubernetes.pods.targets
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_part_of"]
+		regex         = "wts-ha"
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_namespace"]
+		target_label  = "namespace"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+		target_label  = "component"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_container_name"]
+		target_label  = "container"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_annotation_wts_config_version"]
+		target_label  = "version"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_name"]
+		target_label  = "pod"
+	}
+}
+
+loki.source.kubernetes "wts" {
+	targets    = discovery.relabel.wts.output
+	forward_to = [loki.process.wts.receiver]
+}
+
+// gateway, feed, edge의 JSON 줄에서 level만 label로 올린다. JSON이 아닌 줄(broker 등)은 그대로 보낸다.
+loki.process "wts" {
+	forward_to = [loki.write.loki.receiver]
+
+	// Pod를 지운 뒤 Kubernetes API가 로그 대신 돌려주는 오류 문장은 앱 로그가 아니므로 버리고 loki_process_dropped_lines_total로만 센다.
+	stage.drop {
+		expression          = "^(unable to retrieve container logs for |failed to try resolving symlinks in path )"
+		drop_counter_reason = "kubernetes_log_unavailable"
+	}
+
+	stage.json {
+		expressions = {level = "level"}
+	}
+
+	stage.labels {
+		values = {level = ""}
+	}
+
+	stage.structured_metadata {
+		values = {pod = ""}
+	}
+
+	stage.label_drop {
+		values = ["pod", "instance"]
+	}
+}
+
+loki.write "loki" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}
