@@ -29,6 +29,8 @@ trait Queue: Send + Sized + 'static {
     // 구독마다 두는 상태. 같은 id로 다시 구독할 때도 새로 만든다.
     type Sub: Default + Send + 'static;
     type Rx: Pop;
+    // 끊기지 않은 연결에서 끝까지 살아 있는 최신 우선 구독은 마지막 발행분을 받는다. 고리는 밀어낼 수 있어 세기만 한다.
+    const KEEPS_LATEST: bool = true;
     fn open(capacity: usize) -> (Self, Self::Rx);
     // latest는 최신 우선 topic의 MESSAGE에만 넘긴다. None으로 넣은 항목은 버리지 않는다.
     fn push(&self, item: Outgoing, latest: Option<&Self::Sub>) -> Push;
@@ -78,6 +80,7 @@ struct RingRx(Arc<Ring>);
 impl Queue for RingTx {
     type Sub = ();
     type Rx = RingRx;
+    const KEEPS_LATEST: bool = false;
 
     fn open(capacity: usize) -> (Self, RingRx) {
         let ring = Ring { items: Mutex::default(), capacity, ready: Notify::new(), closed: AtomicBool::new(false) };
@@ -789,6 +792,10 @@ async fn check<Q: Queue>(name: &str, rounds: u32, steps: u64) {
         // 끊기지 않았으면 마지막 "end"도 큐에 들어갔다. 수신 태스크는 "end"를 목록에 넣지 않는다.
         let accepted = accepted - u64::from(round_kicked == 0);
         let (round_stale, round_checked) = verify(&log, &seen, round_kicked > 0, accepted as usize);
+        assert!(
+            !Q::KEEPS_LATEST || round_stale == 0,
+            "불변식 7: 살아 있는 최신 우선 구독이 마지막 발행분을 받지 못했다"
+        );
         kicked_rounds += u64::from(round_kicked > 0);
         frames += seen.len();
         dropped += round_dropped;
