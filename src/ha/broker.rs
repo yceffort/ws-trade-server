@@ -12,20 +12,21 @@ use std::collections::BTreeMap;
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::time::{Duration, Instant};
 
-fn transient(error: &KafkaError) -> bool {
-    matches!(
-        error.rdkafka_error_code(),
-        Some(
-            RDKafkaErrorCode::BrokerTransportFailure
-                | RDKafkaErrorCode::AllBrokersDown
-                | RDKafkaErrorCode::OperationTimedOut
-                | RDKafkaErrorCode::LeaderNotAvailable
-                | RDKafkaErrorCode::NotLeaderForPartition
-                | RDKafkaErrorCode::RequestTimedOut
-                | RDKafkaErrorCode::BrokerNotAvailable
-                | RDKafkaErrorCode::NetworkException
+pub(super) fn transient(error: &KafkaError) -> bool {
+    matches!(error, KafkaError::Seek(_))
+        || matches!(
+            error.rdkafka_error_code(),
+            Some(
+                RDKafkaErrorCode::BrokerTransportFailure
+                    | RDKafkaErrorCode::AllBrokersDown
+                    | RDKafkaErrorCode::OperationTimedOut
+                    | RDKafkaErrorCode::LeaderNotAvailable
+                    | RDKafkaErrorCode::NotLeaderForPartition
+                    | RDKafkaErrorCode::RequestTimedOut
+                    | RDKafkaErrorCode::BrokerNotAvailable
+                    | RDKafkaErrorCode::NetworkException
+            )
         )
-    )
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -97,10 +98,20 @@ impl Kafka {
     }
 
     pub fn reader(&self, topic: &str, start: Option<u64>) -> Result<LogReader, Error> {
-        self.reader_until(topic, start, Instant::now() + self.timeout())
+        self.reader_until(topic, start, Instant::now() + self.timeout(), false)
     }
 
-    fn reader_until(&self, topic: &str, start: Option<u64>, deadline: Instant) -> Result<LogReader, Error> {
+    pub fn reader_catchup(&self, topic: &str, start: u64) -> Result<LogReader, Error> {
+        self.reader_until(topic, Some(start), Instant::now() + self.timeout(), true)
+    }
+
+    fn reader_until(
+        &self,
+        topic: &str,
+        start: Option<u64>,
+        deadline: Instant,
+        wait_for_start: bool,
+    ) -> Result<LogReader, Error> {
         let consumer: BaseConsumer<Quiet> = self
             .client()?
             .set("group.id", format!("wts-reader-{SHARD}"))
@@ -124,6 +135,11 @@ impl Kafka {
                 0,
                 deadline.saturating_duration_since(Instant::now()).min(Duration::from_secs(2)),
             ) {
+                Ok((low, high))
+                    if wait_for_start && start.is_some_and(|start| start > high as u64 && start >= low as u64) =>
+                {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
                 Ok(bounds) => break bounds,
                 Err(error) if transient(&error) => std::thread::sleep(Duration::from_millis(50)),
                 Err(error) => return Err(error.into()),
@@ -147,6 +163,9 @@ impl Kafka {
             scan_end: high as u64,
             timeout: self.timeout(),
             end: false,
+            seek_pending: false,
+            #[cfg(test)]
+            lose_seek_result: false,
         })
     }
 
@@ -165,7 +184,7 @@ impl Kafka {
         }
         let (_, high) = probe.fetch_watermarks(topic, 0, deadline.saturating_duration_since(Instant::now()))?;
         let mut boundary = u64::try_from(high).map_err(|_| Error::InvalidState)?;
-        let mut reader = self.reader_until(topic, None, deadline)?;
+        let mut reader = self.reader_until(topic, None, deadline, false)?;
         let low = reader.next_offset();
         let mut bytes = 0;
         let mut first = |start, end| -> Result<Option<StoredRecord>, Error> {
@@ -322,6 +341,9 @@ pub struct LogReader {
     scan_end: u64,
     timeout: Duration,
     end: bool,
+    seek_pending: bool,
+    #[cfg(test)]
+    pub(super) lose_seek_result: bool,
 }
 
 impl LogReader {
@@ -329,15 +351,31 @@ impl LogReader {
         self.initial_high
     }
 
+    pub fn refresh_end(&mut self) -> Result<u64, Error> {
+        self.rewind(self.next)?;
+        Ok(self.scan_end)
+    }
+
     fn rewind(&mut self, offset: u64) -> Result<(), Error> {
+        let deadline = Instant::now() + self.timeout;
         let (_, stable) = self.consumer.fetch_watermarks(&self.topic, 0, self.timeout)?;
-        let mut assignment = TopicPartitionList::new();
-        assignment.add_partition_offset(
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(Error::Deadline);
+        }
+        self.seek_pending = true;
+        // 이미 할당한 partition의 위치만 바꾼다. 반복 assign은 native 해제 작업과 경합한다.
+        self.consumer.seek(
             &self.topic,
             0,
             Offset::Offset(i64::try_from(offset).map_err(|_| Error::InvalidState)?),
+            remaining,
         )?;
-        self.consumer.assign(&assignment)?;
+        #[cfg(test)]
+        if self.lose_seek_result {
+            return Err(KafkaError::Seek("test: seek completion lost".into()).into());
+        }
+        self.seek_pending = false;
         self.next = offset;
         self.scan_end = u64::try_from(stable).map_err(|_| Error::InvalidState)?;
         self.end = false;
@@ -374,6 +412,10 @@ impl LogReader {
     }
 
     pub fn poll(&mut self, timeout: Duration) -> Result<Option<StoredRecord>, Error> {
+        // seek 실패 후 native 위치는 불확실하다. refresh_end 성공 전에는 큐를 소비하지 않는다.
+        if self.seek_pending {
+            return Err(Error::Deadline);
+        }
         match self.consumer.poll(timeout) {
             Some(Ok(message)) => {
                 let offset = u64::try_from(message.offset()).map_err(|_| Error::InvalidState)?;
@@ -392,7 +434,7 @@ impl LogReader {
                 {
                     self.next = self.next.max(u64::try_from(offset).map_err(|_| Error::InvalidState)?);
                 }
-                // Rust client는 EOF 위치를 반환하지 않는다. assign 전에 조회한 안정 경계까지만 전진한다.
+                // Rust client는 EOF 위치를 반환하지 않는다. seek 전에 조회한 안정 경계까지만 전진한다.
                 self.next = self.next.max(self.scan_end);
                 self.end = true;
                 Ok(None)

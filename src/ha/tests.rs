@@ -38,6 +38,14 @@ fn unclear_commit_result_restores_committed_input() {
     let mut records = Vec::new();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while std::time::Instant::now() < deadline {
+        let next = reader.next_offset();
+        reader.lose_seek_result = true;
+        assert!(matches!(reader.refresh_end(), Err(Error::Broker(error)) if broker::transient(&error)));
+        assert_eq!(reader.next_offset(), next);
+        assert!(matches!(reader.poll(std::time::Duration::ZERO), Err(Error::Deadline)));
+        reader.lose_seek_result = false;
+        reader.refresh_end().unwrap();
+        assert_eq!(reader.next_offset(), next);
         if let Some(record) = reader.poll(std::time::Duration::from_millis(50)).unwrap()
             && let LogRecord::Trade(event) = LogRecord::from_json(&record.payload, &config).unwrap()
         {
@@ -53,6 +61,99 @@ fn unclear_commit_result_restores_committed_input() {
         assert_eq!(record.event_id(), expected.event_id());
         assert_eq!(record.to_json().unwrap(), expected.to_json().unwrap());
     }
+}
+
+#[tokio::test]
+async fn replica_restores_no_data_and_applies_cache_and_position_once() {
+    let config = config();
+    let mut snapshot = Snapshot::empty(&config).unwrap();
+    snapshot.apply(&LogRecord::Status(SourceStatus::new(&config, replica::now_ms(), false)), 0, &config).unwrap();
+    let hub = crate::hub::Hub::spawn();
+    hub.restore_replica(config.clone(), snapshot).await.unwrap();
+    let initial = hub.replica_view().await.unwrap();
+    assert!(!initial.ready(true));
+    assert!(initial.snapshot.topics.values().all(Option::is_none));
+    let (mut queue, _kick) = hub.connect(1, 8).await;
+    hub.subscribe(1, "sub".into(), config.topics[0].clone(), Some("r".into())).await;
+    assert!(matches!(queue.recv().await, Some(crate::hub::Outgoing::Receipt { .. })));
+    let mut generator = Synthetic::new(&config, 1, 1000).unwrap();
+    let event = generator.next(&config, 1, 2000).unwrap();
+    let record = LogRecord::Trade(Box::new(event.clone()));
+    assert!(hub.apply_replica(3, record.clone()).await.unwrap());
+    assert!(!hub.apply_replica(3, record).await.unwrap());
+    assert!(matches!(queue.recv().await, Some(crate::hub::Outgoing::Message { .. })));
+    assert!(queue.try_recv().is_err());
+    let view = hub.replica_view().await.unwrap();
+    assert_eq!(view.next, 4);
+    assert_eq!(view.snapshot.through, Some(Number(3)));
+    assert!(view.snapshot.topics[&config.topics[1]].is_none());
+    let cache: serde_json::Value = serde_json::from_str(&hub.snapshot().await.unwrap()).unwrap();
+    assert_eq!(cache[&config.topics[0]]["updated_at_ms"], 2000);
+    assert_eq!(cache[&config.topics[0]]["body"].as_str().unwrap(), event.message().1.as_ref());
+    hub.stop().await;
+}
+
+#[test]
+fn replica_readiness_uses_source_status_policy_and_catchup_not_trade_time() {
+    let config = config();
+    let mut snapshot = Snapshot::empty(&config).unwrap();
+    snapshot.apply(&LogRecord::Status(SourceStatus::new(&config, replica::now_ms(), false)), 0, &config).unwrap();
+    let mut replica = Replica::restore(config.clone(), snapshot).unwrap();
+    let status = |at| LogRecord::Status(SourceStatus::new(&config, at, false));
+    replica.apply(2, &status(replica::now_ms())).unwrap();
+    assert!(!replica.view().ready(true));
+    replica.boundary(4, 4).unwrap();
+    replica.observed(std::time::Instant::now());
+    assert!(replica.view().ready(true));
+    assert!(!replica.view().ready(false));
+    replica.boundary(4, 105).unwrap();
+    assert!(!replica.view().ready(true));
+    replica.boundary(4, 104).unwrap();
+    assert!(replica.view().ready(true));
+    replica.boundary(8, 8).unwrap();
+    assert!(replica.view().ready(true));
+    assert!(replica.view().snapshot.topics.values().all(Option::is_none));
+    replica.apply(8, &status(1000)).unwrap();
+    assert!(!replica.view().ready(true));
+    replica.apply(9, &status(replica::now_ms() + 10000)).unwrap();
+    assert!(!replica.view().ready(true));
+    replica.apply(10, &status(replica::now_ms())).unwrap();
+    assert!(replica.view().ready(true));
+    replica.fail();
+    assert!(!replica.view().ready(true));
+}
+
+#[test]
+fn fresh_snapshot_is_ready_without_new_records_but_expired_observation_is_not() {
+    let config = config();
+    let mut snapshot = Snapshot::empty(&config).unwrap();
+    snapshot.apply(&LogRecord::Status(SourceStatus::new(&config, replica::now_ms(), false)), 0, &config).unwrap();
+    let mut replica = Replica::restore(config, snapshot).unwrap();
+    replica.boundary(2, 2).unwrap();
+    assert!(!replica.view().ready(true));
+    replica.observed(std::time::Instant::now());
+    assert!(replica.view().ready(true));
+    replica.observed(std::time::Instant::now() - std::time::Duration::from_secs(4));
+    replica.boundary(2, 2).unwrap();
+    assert!(!replica.view().ready(true));
+}
+
+#[tokio::test]
+async fn replica_rejects_gap_without_advancing_or_publishing_partial_state() {
+    let config = config();
+    let mut snapshot = Snapshot::empty(&config).unwrap();
+    snapshot.apply(&LogRecord::Status(SourceStatus::new(&config, replica::now_ms(), true)), 0, &config).unwrap();
+    let hub = crate::hub::Hub::spawn();
+    hub.restore_replica(config.clone(), snapshot).await.unwrap();
+    let mut generator = Synthetic::new(&config, 1, 1000).unwrap();
+    let event = generator.next(&config, 2, 2000).unwrap();
+    assert!(matches!(hub.apply_replica(3, LogRecord::Trade(Box::new(event))).await, Err(Error::SourceGap)));
+    let view = hub.replica_view().await.unwrap();
+    assert!(view.failed);
+    assert_eq!(view.next, 1);
+    assert!(view.snapshot.topics.values().all(Option::is_none));
+    assert_eq!(hub.snapshot().await.unwrap(), "{}");
+    hub.stop().await;
 }
 
 fn applied(state: &mut Checkpoint, event: &Envelope, offset: u64) {

@@ -215,7 +215,7 @@ impl Envelope {
     pub fn trade(&self) -> &Trade {
         &self.trade
     }
-    pub(super) fn message(&self) -> (String, Arc<str>) {
+    pub(crate) fn message(&self) -> (String, Arc<str>) {
         self.message.clone()
     }
 }

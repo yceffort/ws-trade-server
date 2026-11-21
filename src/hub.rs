@@ -1,6 +1,8 @@
 mod cache;
 mod metrics;
 use crate::metrics::{BridgeCounters, Metrics};
+#[cfg(feature = "ha")]
+mod replica;
 mod state;
 use crate::limits::{Limits, Rate};
 use crate::source::{AppliedRecord, Input, InputError, Publication};
@@ -22,6 +24,8 @@ pub enum Outgoing {
 }
 
 enum Command {
+    #[cfg(feature = "ha")]
+    Replica(Box<replica::Command>),
     #[cfg(test)]
     Pause {
         entered: oneshot::Sender<()>,
@@ -75,6 +79,8 @@ struct Client {
 
 #[derive(Default)]
 struct State {
+    #[cfg(feature = "ha")]
+    replica: Option<crate::ha::Replica>,
     limits: Limits,
     log_drops: Arc<AtomicU64>,
     bridge: Arc<BridgeCounters>,
@@ -115,6 +121,8 @@ impl Hub {
                 State { limits, log_drops: drops, bridge: counters, cache: Cache::new(topics), ..State::default() };
             while let Some(command) = inbox.recv().await {
                 match command {
+                    #[cfg(feature = "ha")]
+                    Command::Replica(command) => state.replica(*command),
                     #[cfg(test)]
                     Command::Pause { entered, resume } => {
                         let _ = entered.send(());
@@ -151,6 +159,12 @@ impl Hub {
                         let _ = reply.send(state.cache.json());
                     }
                     Command::Publish { publication, reply } => {
+                        #[cfg(feature = "ha")]
+                        if state.replica.is_some() {
+                            // 복제 상태를 일반 publish로 우회하면 offset과 cache가 어긋난다.
+                            drop(reply);
+                            continue;
+                        }
                         state.publish(&publication.topic, publication.body);
                         if let Some(reply) = reply {
                             let _ = reply.send(publication.record);
