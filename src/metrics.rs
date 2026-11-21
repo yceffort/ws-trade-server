@@ -64,7 +64,8 @@ const LATENCY_BOUNDS: &[f64] =
 pub(crate) struct Histogram {
     bounds: &'static [f64],
     counts: Box<[AtomicU64]>,
-    // 마이크로초로 쌓는다. 나노초면 평균 1초인 관측이 초당 10만 건일 때 이틀 만에 넘쳐 되돌아간다.
+    // 마이크로초로 쌓는다. 평균 1초인 관측이 초당 10만 건이면 나노초는 이틀, 마이크로초는 약 5.8년 만에 넘쳐 되돌아간다.
+    // 넘치면 Prometheus에는 _sum의 counter reset으로 보인다. 쓰는 태스크마다 CAS를 반복하지 않도록 포화 덧셈은 쓰지 않는다.
     sum_micros: AtomicU64,
 }
 
