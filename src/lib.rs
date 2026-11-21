@@ -46,6 +46,7 @@ pub struct Config {
     pub poll_us: u64,
     pub heartbeat_ms: u64,
     pub idle_timeout: Option<Duration>,
+    pub write_timeout: Option<Duration>,
     pub shutdown_timeout: Duration,
     pub queue_capacity: usize,
 }
@@ -72,6 +73,7 @@ impl Default for Config {
             poll_us: 200,
             heartbeat_ms: 5000,
             idle_timeout: None,
+            write_timeout: None,
             shutdown_timeout: Duration::from_secs(3),
             queue_capacity: 1024,
         }

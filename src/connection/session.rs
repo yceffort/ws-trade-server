@@ -33,7 +33,7 @@ where
         _ = async { auth::invalidated(&mut auth_guard).await; tokio::time::sleep(Duration::from_secs(1)).await; } => "auth_invalidated",
         _ = idle::wait(last_received, config.idle_timeout) => "idle_timeout",
         reason = read::run(reader, hub, conn, activity) => reason,
-        reason = write::run(writer, outgoing, connection_id, config.heartbeat_ms, shutdown, session) => reason,
+        reason = write::run(writer, outgoing, connection_id, config.heartbeat_ms, config.write_timeout, shutdown, session) => reason,
         reason = rejected(&mut kicked, &mut rejection) => reason,
     };
     // 큐가 먼저 닫혀도 이미 받은 거절 사유를 잃지 않는다. 아직 읽지 않은 통지도 확인한다.

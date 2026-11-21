@@ -1,6 +1,7 @@
 use super::batch;
 use crate::{auth, hub::Outgoing, stomp};
 use futures_util::SinkExt;
+use std::future::Future;
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, MissedTickBehavior, interval_at};
@@ -11,6 +12,7 @@ pub(super) async fn run<W>(
     mut outgoing: mpsc::Receiver<Outgoing>,
     connection_id: &str,
     heartbeat_ms: u64,
+    write_timeout: Option<Duration>,
     mut shutdown: watch::Receiver<bool>,
     mut session: Option<auth::Session>,
 ) -> &'static str
@@ -43,14 +45,25 @@ where
                 None => return "hub_closed",
             },
             _ = beat.tick() => {
-                if writer.send(Message::text("\n")).await.is_err() {
-                    return "write_error";
+                match bounded(write_timeout, writer.send(Message::text("\n"))).await {
+                    Some(Ok(())) => continue,
+                    Some(Err(_)) => return "write_error",
+                    None => return "write_timeout",
                 }
-                continue;
             }
         };
-        if let Err(reason) = batch::write(&mut writer, first, &mut outgoing, connection_id, &mut seq).await {
-            return reason;
+        match bounded(write_timeout, batch::write(&mut writer, first, &mut outgoing, connection_id, &mut seq)).await {
+            Some(Ok(())) => {}
+            Some(Err(reason)) => return reason,
+            None => return "write_timeout",
         }
+    }
+}
+
+// 송신 큐가 차지 않는 저빈도 연결도 소켓이 막히면 끊기도록 쓰기 한 번에 기한을 건다. 기한이 없으면 끝까지 기다린다.
+async fn bounded<T>(limit: Option<Duration>, write: impl Future<Output = T>) -> Option<T> {
+    match limit {
+        Some(limit) => tokio::time::timeout(limit, write).await.ok(),
+        None => Some(write.await),
     }
 }
