@@ -181,9 +181,9 @@ impl ReplicaTask {
                 runtime.block_on(hub.replica_observation(next, log_end, sampled))?;
                 while !stopped.load(Ordering::Relaxed) {
                     if sampled.elapsed() >= Duration::from_millis(250) {
-                        sampled = Instant::now();
                         match reader.refresh_end() {
                             Ok(end) => {
+                                sampled = Instant::now();
                                 log_end = end;
                                 runtime.block_on(hub.replica_observation(
                                     reader.next_offset(),
@@ -191,7 +191,14 @@ impl ReplicaTask {
                                     Instant::now(),
                                 ))?;
                             }
-                            Err(Error::Broker(error)) if super::broker::transient(&error) => {}
+                            Err(Error::Deadline) => {
+                                std::thread::sleep(Duration::from_millis(50));
+                                continue;
+                            }
+                            Err(Error::Broker(error)) if super::broker::transient(&error) => {
+                                std::thread::sleep(Duration::from_millis(50));
+                                continue;
+                            }
                             Err(error) => return Err(error),
                         }
                     }

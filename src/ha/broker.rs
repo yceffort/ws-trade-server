@@ -13,19 +13,20 @@ use std::sync::mpsc::{SyncSender, sync_channel};
 use std::time::{Duration, Instant};
 
 pub(super) fn transient(error: &KafkaError) -> bool {
-    matches!(
-        error.rdkafka_error_code(),
-        Some(
-            RDKafkaErrorCode::BrokerTransportFailure
-                | RDKafkaErrorCode::AllBrokersDown
-                | RDKafkaErrorCode::OperationTimedOut
-                | RDKafkaErrorCode::LeaderNotAvailable
-                | RDKafkaErrorCode::NotLeaderForPartition
-                | RDKafkaErrorCode::RequestTimedOut
-                | RDKafkaErrorCode::BrokerNotAvailable
-                | RDKafkaErrorCode::NetworkException
+    matches!(error, KafkaError::Seek(_))
+        || matches!(
+            error.rdkafka_error_code(),
+            Some(
+                RDKafkaErrorCode::BrokerTransportFailure
+                    | RDKafkaErrorCode::AllBrokersDown
+                    | RDKafkaErrorCode::OperationTimedOut
+                    | RDKafkaErrorCode::LeaderNotAvailable
+                    | RDKafkaErrorCode::NotLeaderForPartition
+                    | RDKafkaErrorCode::RequestTimedOut
+                    | RDKafkaErrorCode::BrokerNotAvailable
+                    | RDKafkaErrorCode::NetworkException
+            )
         )
-    )
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -162,6 +163,9 @@ impl Kafka {
             scan_end: high as u64,
             timeout: self.timeout(),
             end: false,
+            seek_pending: false,
+            #[cfg(test)]
+            lose_seek_result: false,
         })
     }
 
@@ -337,6 +341,9 @@ pub struct LogReader {
     scan_end: u64,
     timeout: Duration,
     end: bool,
+    seek_pending: bool,
+    #[cfg(test)]
+    pub(super) lose_seek_result: bool,
 }
 
 impl LogReader {
@@ -356,6 +363,7 @@ impl LogReader {
         if remaining.is_zero() {
             return Err(Error::Deadline);
         }
+        self.seek_pending = true;
         // 이미 할당한 partition의 위치만 바꾼다. 반복 assign은 native 해제 작업과 경합한다.
         self.consumer.seek(
             &self.topic,
@@ -363,6 +371,11 @@ impl LogReader {
             Offset::Offset(i64::try_from(offset).map_err(|_| Error::InvalidState)?),
             remaining,
         )?;
+        #[cfg(test)]
+        if self.lose_seek_result {
+            return Err(KafkaError::Seek("test: seek completion lost".into()).into());
+        }
+        self.seek_pending = false;
         self.next = offset;
         self.scan_end = u64::try_from(stable).map_err(|_| Error::InvalidState)?;
         self.end = false;
@@ -399,6 +412,10 @@ impl LogReader {
     }
 
     pub fn poll(&mut self, timeout: Duration) -> Result<Option<StoredRecord>, Error> {
+        // seek 실패 후 native 위치는 불확실하다. refresh_end 성공 전에는 큐를 소비하지 않는다.
+        if self.seek_pending {
+            return Err(Error::Deadline);
+        }
         match self.consumer.poll(timeout) {
             Some(Ok(message)) => {
                 let offset = u64::try_from(message.offset()).map_err(|_| Error::InvalidState)?;

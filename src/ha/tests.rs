@@ -38,6 +38,14 @@ fn unclear_commit_result_restores_committed_input() {
     let mut records = Vec::new();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while std::time::Instant::now() < deadline {
+        let next = reader.next_offset();
+        reader.lose_seek_result = true;
+        assert!(matches!(reader.refresh_end(), Err(Error::Broker(error)) if broker::transient(&error)));
+        assert_eq!(reader.next_offset(), next);
+        assert!(matches!(reader.poll(std::time::Duration::ZERO), Err(Error::Deadline)));
+        reader.lose_seek_result = false;
+        reader.refresh_end().unwrap();
+        assert_eq!(reader.next_offset(), next);
         if let Some(record) = reader.poll(std::time::Duration::from_millis(50)).unwrap()
             && let LogRecord::Trade(event) = LogRecord::from_json(&record.payload, &config).unwrap()
         {
