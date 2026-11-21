@@ -189,9 +189,16 @@ impl<const K: usize> Queue for DepthTx<K> {
     }
 
     fn push(&self, item: Outgoing, latest: Option<&Slot>) -> Push {
-        let pending = latest.is_some_and(|slot| slot.lock().unwrap().is_some());
+        // 본체처럼 칸이 차 있는지 보는 것과 값을 바꾸는 것을 한 번 잠가서 한다. 따로 하면 그 사이 수신단이 칸을 비워
+        // K건 미만인데도 표지가 들어간다. 칸을 채우는 쪽은 hub뿐이라 비어 있던 칸이 그 사이에 차지는 않는다.
+        if let (Some(slot), Outgoing::Message { body, .. }) = (latest, &item)
+            && let Some(pending) = slot.lock().unwrap().as_mut()
+        {
+            *pending = body.clone();
+            return Push::Dropped;
+        }
         let queued = self.0.0.max_capacity() - self.0.0.capacity();
-        self.0.push(item, latest.filter(|_| pending || queued >= K))
+        self.0.push(item, latest.filter(|_| queued >= K))
     }
 }
 
