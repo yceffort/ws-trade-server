@@ -25,7 +25,7 @@ async fn full_queue_drops_only_that_connection() {
         assert_eq!(&*body, n.to_string());
     }
     // 큐 용량 1인 연결은 첫 메시지만 받고 끊긴다.
-    assert!(timeout(Duration::from_secs(2), slow_kicked).await.unwrap().is_err());
+    assert_eq!(timeout(Duration::from_secs(2), slow_kicked).await.unwrap(), Ok(SLOW_CONSUMER));
     assert!(matches!(recv(&mut slow).await, Some(Outgoing::Message { .. })));
     assert!(recv(&mut slow).await.is_none());
 }
@@ -163,7 +163,7 @@ async fn topics_outside_the_latest_first_list_still_drop_a_full_connection() {
     for n in 0..2 {
         hub.publish("/strict".into(), n.to_string().into()).await;
     }
-    assert!(timeout(Duration::from_secs(2), kicked).await.unwrap().is_err());
+    assert_eq!(timeout(Duration::from_secs(2), kicked).await.unwrap(), Ok(SLOW_CONSUMER));
     let metrics = hub.metrics().await.unwrap();
     assert_eq!((metrics.slow_disconnections_total, metrics.latest_skipped_total), (1, 0));
 }
@@ -178,7 +178,7 @@ async fn personal_topics_in_the_latest_first_list_still_drop_a_full_connection()
     for body in ["created", "cancelled"] {
         hub.publish(personal.into(), body.into()).await;
     }
-    assert!(timeout(Duration::from_secs(2), kicked).await.unwrap().is_err());
+    assert_eq!(timeout(Duration::from_secs(2), kicked).await.unwrap(), Ok(SLOW_CONSUMER));
     let metrics = hub.metrics().await.unwrap();
     assert_eq!((metrics.slow_disconnections_total, metrics.latest_skipped_total), (1, 0));
 }
@@ -191,7 +191,7 @@ async fn markers_alone_can_fill_the_queue_and_drop_the_connection() {
     hub.subscribe(1, "b".into(), "/b".into(), None).await;
     hub.publish("/a".into(), "a".into()).await;
     hub.publish("/b".into(), "b".into()).await;
-    assert!(timeout(Duration::from_secs(2), kicked).await.unwrap().is_err());
+    assert_eq!(timeout(Duration::from_secs(2), kicked).await.unwrap(), Ok(SLOW_CONSUMER));
     assert_eq!(hub.metrics().await.unwrap().slow_disconnections_total, 1);
 }
 
@@ -202,7 +202,7 @@ async fn a_receipt_without_room_behind_markers_drops_the_connection() {
     hub.subscribe(1, "a".into(), "/a".into(), None).await;
     hub.publish("/a".into(), "a".into()).await;
     hub.unsubscribe(1, "a".into(), Some("r".into())).await;
-    assert!(timeout(Duration::from_secs(2), kicked).await.unwrap().is_err());
+    assert_eq!(timeout(Duration::from_secs(2), kicked).await.unwrap(), Ok(SLOW_CONSUMER));
     assert_eq!(hub.metrics().await.unwrap().slow_disconnections_total, 1);
 }
 

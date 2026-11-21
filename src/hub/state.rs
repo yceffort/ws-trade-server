@@ -14,6 +14,7 @@ impl State {
         } else if owner.is_some_and(|owner| owner.is_empty() || client.principal.as_deref() != Some(owner)) {
             // 연결을 닫는 reject 대신 이 구독만 버린다. 사유를 하나로 두어 거절 응답으로 다른 주체의 존재를 추측하지 못하게 한다.
             tracing::debug!(event = "subscription_rejected", conn, reason = "forbidden-topic");
+            self.counters.subscription_rejections.add("forbidden-topic");
             if let Some(receipt_id) = receipt {
                 self.deliver(conn, Outgoing::Denied { receipt_id, code: "forbidden-topic" });
             }
@@ -30,6 +31,7 @@ impl State {
         };
         if let Some(code) = error {
             tracing::debug!(event = "subscription_rejected", conn, reason = code);
+            self.counters.subscription_rejections.add(code);
             self.reject(conn, code);
             return;
         }
@@ -56,6 +58,7 @@ impl State {
         }
         if !client.rate.allow(self.limits.commands_per_second) {
             tracing::debug!(event = "subscription_rejected", conn, reason = "rate-limit-exceeded");
+            self.counters.subscription_rejections.add("rate-limit-exceeded");
             self.reject(conn, "rate-limit-exceeded");
             return;
         }
@@ -131,7 +134,11 @@ impl State {
     }
 
     pub(super) fn drop_slow(&mut self, conn: u64) {
-        if self.clients.contains_key(&conn) {
+        if let Some(client) = self.clients.get_mut(&conn) {
+            // 사유를 넘기지 않으면 연결 쪽은 큐가 닫힌 것만 보고 hub_closed로 센다. 거절 중이면 그 사유를 둔다.
+            if let Some(kick) = client.kick.take() {
+                let _ = kick.send(SLOW_CONSUMER);
+            }
             self.slow_disconnections += 1;
             tracing::debug!(event = "slow_consumer_dropped", conn);
             self.remove(conn);

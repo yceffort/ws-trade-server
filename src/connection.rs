@@ -91,14 +91,16 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
             }
             negotiate(request, response)
         };
-        let socket = accept_hdr_async_with_config(stream, callback, Some(websocket_config)).await.ok()?;
+        let socket = accept_hdr_async_with_config(stream, callback, Some(websocket_config))
+            .await
+            .map_err(|_| "handshake_failed")?;
         #[cfg(feature = "ha")]
         if route_ha {
-            return Some(Handshake::Ha(socket));
+            return Ok(Handshake::Ha(socket));
         }
         let (mut writer, mut reader) = socket.split();
-        let frame = read_connect(&mut reader).await?;
-        let connection_id = frame.header("connection-id")?.to_string();
+        let frame = read_connect(&mut reader).await.ok_or("handshake_failed")?;
+        let connection_id = frame.header("connection-id").ok_or("handshake_failed")?.to_string();
         let session = match &config.auth {
             Some(auth) => match auth.authorize(frame.header("authorization")) {
                 Ok(session) => Some(session),
@@ -106,20 +108,24 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
                     tracing::debug!(event = "authentication_rejected", conn, reason = code);
                     let _ = writer.send(Message::text(stomp::error(code))).await;
                     let _ = writer.close().await;
-                    return None;
+                    return Err(code);
                 }
             },
             None => None,
         };
-        Some(Handshake::Legacy(writer, reader, connection_id, session))
+        Ok(Handshake::Legacy(writer, reader, connection_id, session))
     };
     let result = tokio::select! {
-        result = timeout(HANDSHAKE_DEADLINE, handshake) => result,
+        result = timeout(HANDSHAKE_DEADLINE, handshake) => result.unwrap_or(Err("handshake_timeout")),
         _ = shutdown.changed() => return,
     };
-    let Ok(Some(handshake)) = result else {
-        tracing::debug!(event = "handshake_failed", conn);
-        return;
+    let handshake = match result {
+        Ok(handshake) => handshake,
+        Err(reason) => {
+            hub.counters.rejected.add(reason);
+            tracing::debug!(event = "handshake_failed", conn);
+            return;
+        }
     };
     let (writer, reader, connection_id, session) = match handshake {
         Handshake::Legacy(writer, reader, id, session) => (writer, reader, id, session),

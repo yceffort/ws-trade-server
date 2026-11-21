@@ -75,20 +75,22 @@ async fn respond(
     });
     #[cfg(not(feature = "ha"))]
     let managed: Option<(bool, &str)> = None;
+    // 바깥 Option은 Prometheus 경로인지, 안쪽은 hub가 답했는지다. 답이 없으면 0이 아니라 503으로 미수집을 알린다.
+    let metrics = if first == b"GET /prometheus HTTP/1.1\r" { Some(prometheus(hub).await) } else { None };
+    // HA 수집 경로 하나로 일반 지표도 읽는다. hub가 답하지 않아도 HA 지표는 낸다.
     #[cfg(feature = "ha")]
-    let metrics = if first == b"GET /ha-metrics HTTP/1.1\r" {
-        match management {
-            Some(m) => Some(m.prometheus(hub).await),
-            None => None,
+    let metrics = match management {
+        Some(m) if first == b"GET /ha-metrics HTTP/1.1\r" => {
+            Some(Some(prometheus(hub).await.unwrap_or_default() + &m.prometheus(hub).await))
         }
-    } else {
-        None
+        _ => metrics,
     };
-    #[cfg(not(feature = "ha"))]
-    let metrics: Option<String> = None;
     let content_type = if metrics.is_some() { "text/plain; version=0.0.4" } else { "application/json" };
     let (status, body) = if let Some(metrics) = metrics {
-        ("200 OK", metrics)
+        match metrics {
+            Some(text) => ("200 OK", text),
+            None => ("503 Service Unavailable", String::new()),
+        }
     } else if let Some((healthy, phase)) = managed {
         (if healthy { "200 OK" } else { "503 Service Unavailable" }, serde_json::json!({"state":phase}).to_string())
     } else if first == b"GET /snapshots HTTP/1.1\r" {
@@ -109,6 +111,10 @@ async fn respond(
         body.len()
     );
     stream.write_all(response.as_bytes()).await
+}
+
+async fn prometheus(hub: &Hub) -> Option<String> {
+    Some(crate::metrics::prometheus(&hub.metrics().await?, &hub.counters))
 }
 
 #[cfg(test)]
@@ -142,5 +148,25 @@ mod tests {
         assert!(body["known"]["updated_at_ms"].as_u64().unwrap() > 0);
         assert_eq!(serde_json::from_str::<serde_json::Value>(&hub.snapshot().await.unwrap()).unwrap(), body);
         assert!(bind("0.0.0.0:0").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn prometheus_reports_unavailable_instead_of_zeros_when_the_hub_is_gone() {
+        let hub = Hub::spawn();
+        let listener = bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        spawn(
+            listener,
+            hub.clone(),
+            #[cfg(feature = "ha")]
+            None,
+        );
+        hub.stop().await;
+        let mut socket = TcpStream::connect(addr).await.unwrap();
+        socket.write_all(b"GET /prometheus HTTP/1.1\r\nHost: localhost\r\n\r\n").await.unwrap();
+        let mut response = String::new();
+        socket.read_to_string(&mut response).await.unwrap();
+        assert!(response.starts_with("HTTP/1.1 503"));
+        assert!(response.ends_with("\r\n\r\n"));
     }
 }

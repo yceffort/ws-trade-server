@@ -1,5 +1,8 @@
 use super::{idle, read, write};
-use crate::{Config, auth, hub::Hub};
+use crate::{
+    Config, auth,
+    hub::{Hub, SLOW_CONSUMER},
+};
 use futures_util::{Sink, Stream};
 use std::time::Duration;
 use tokio::sync::{oneshot, watch};
@@ -37,6 +40,7 @@ where
     let reason =
         if reason == "hub_closed" { rejection.or_else(|| kicked.try_recv().ok()).unwrap_or(reason) } else { reason };
     hub.disconnect(conn).await;
+    hub.counters.closed.add(reason);
     tracing::debug!(event = "connection_closed", conn, reason);
     reason
 }
@@ -46,7 +50,10 @@ async fn rejected(kicked: &mut oneshot::Receiver<&'static str>, rejection: &mut 
         Ok(reason) => {
             *rejection = Some(reason);
             // 정상 수신자는 ERROR를 읽을 여유를 주고, 막힌 쓰기는 이 기한에 취소한다.
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            // 느린 연결 차단은 보낼 ERROR가 없으므로 사유를 넘기기 전처럼 바로 끝낸다.
+            if reason != SLOW_CONSUMER {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
             reason
         }
         Err(_) => "hub_closed",
