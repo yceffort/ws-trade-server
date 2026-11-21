@@ -14,8 +14,10 @@ for (const host of ['', '0.0.0.0', '::1', '::']) {
     const lines = createInterface({ input: child.stderr })
     t.after(async () => { child.kill('SIGTERM'); await exited; lines.close() })
     const [line] = await once(lines, 'line')
-    assert(line.startsWith(`ws://${host || '127.0.0.1'}:`), line)
-    const port = line.match(/:(\d+)\/ws$/)?.[1]
+    const { level, target, fields } = JSON.parse(line)
+    assert.deepEqual([level, target, fields.event], ['INFO', 'edge', 'edge_started'])
+    assert(fields.url.startsWith(`ws://${host || '127.0.0.1'}:`), line)
+    const port = fields.url.match(/:(\d+)\/ws$/)?.[1]
     assert(port, line)
     await promisify(execFile)(process.execPath, [fileURLToPath(new URL('tcp-probe.mjs', import.meta.url))], {
       env: { ...env, WTS_EDGE_PORT: port }, timeout: 3000,

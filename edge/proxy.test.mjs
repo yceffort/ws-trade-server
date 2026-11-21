@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import WebSocket, { WebSocketServer } from 'ws'
 import http from 'node:http'
-import { startProxy } from './proxy.mjs'
+import net from 'node:net'
+import { REASONS, startProxy } from './proxy.mjs'
 import { certificate, echoServer } from './fixtures.mjs'
 
 test('HA route preserves its path and protocol and rejects mixed negotiations', { timeout: 10000 }, async (t) => {
@@ -41,6 +42,22 @@ test('upstream drain preserves only 503 and a bounded Retry-After', { timeout: 1
   assert.equal(response.headers['retry-after'], '7')
   assert.equal(response.headers['x-private'], undefined)
   response.destroy()
+  assert.equal(proxy.counts().upstream_unavailable, 1)
+})
+
+test('rejections and closes are counted once by fixed reasons only', { timeout: 10000 }, async (t) => {
+  const backend = await echoServer(); t.after(() => backend.close())
+  const proxy = await startProxy({ backend: backend.url }); t.after(() => proxy.close())
+  const base = `ws://127.0.0.1:${proxy.address.port}`
+  await assert.rejects(once(new WebSocket(`${base}/unknown`, 'v12.stomp'), 'open'), /404/)
+  await assert.rejects(once(new WebSocket(`${base}/ws`, 'wts.ha.v1'), 'open'), /400/)
+  const socket = new WebSocket(`${base}/ws`, 'v12.stomp')
+  await once(socket, 'open')
+  socket.close()
+  await once(socket, 'close')
+  while (proxy.counts().client_closed === 0) await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.deepEqual(Object.keys(proxy.counts()), REASONS)
+  assert.deepEqual(Object.fromEntries(Object.entries(proxy.counts()).filter(([, n]) => n > 0)), { not_found: 1, bad_protocol: 1, client_closed: 1 })
 })
 
 test('TLS verifies trust and preserves protocol, message boundaries and close', { timeout: 10000 }, async (t) => {
@@ -50,6 +67,11 @@ test('TLS verifies trust and preserves protocol, message boundaries and close', 
   const url = `wss://127.0.0.1:${proxy.address.port}/ws`
   const untrusted = new WebSocket(url, 'v12.stomp')
   await assert.rejects(once(untrusted, 'open'), /self.signed|certificate/)
+  // TLS가 아닌 요청은 핸드셰이크 실패로, 인증서를 믿지 않아 끊은 클라이언트는 중단으로 센다.
+  const plain = net.connect(proxy.address.port, '127.0.0.1', () => plain.end('GET /ws HTTP/1.1\r\n\r\n'))
+  await once(plain, 'close')
+  while (proxy.counts().tls_handshake_failed + proxy.counts().tls_aborted < 2) await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.deepEqual([proxy.counts().tls_aborted, proxy.counts().tls_handshake_failed], [1, 1])
   const socket = new WebSocket(url, 'v12.stomp', { ca: cert.tls.cert })
   await once(socket, 'open'); t.after(() => socket.terminate())
   assert.equal(socket.protocol, 'v12.stomp')
