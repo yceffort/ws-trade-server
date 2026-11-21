@@ -28,3 +28,5 @@ HA 기본 edge는 압축을 끄고 CPU request 250m/limit 2, memory request 128M
 재전송 중 TLS 프록시의 512MiB OOM을 추가로 관측했다. 프록시는 송신 대기가 64KiB에 도달하면 반대편 읽기를 pause하고 32KiB 미만이면 resume하며, 기존 1MiB 최종 상한은 유지한다. 16MiB 재전송과 일시 정지한 TLS 클라이언트의 회귀 시험은 수정 전 연결 종료를 재현했다. Kubernetes HA edge의 V8 old generation을 128MiB로 제한하지만 native/TLS/kernel 메모리까지 제한하는 값은 아니므로 전체 RSS와 cgroup OOM을 따로 확인한다.
 
 수정한 DELETE 도구의 30명 장애 시험에서 feed failover는 장애 주입부터 새 committed status까지 11,055ms였다. 30명 모두 적용 ID와 payload가 일치했다. 이후 broker 1대 종료 직후 oracle 조회가 일시 실패해 전체 시험은 중단됐으며 `bench/results/ha/kind-fault-partial.json`에 보관했다. 초기 gateway 종료 단계는 교체 Pod 안정화 전에 비교했으므로 재접속 검증으로 인정하지 않는다. 도구는 삭제된 UID가 사라지고 교체 Pod들이 15초 연속 Ready가 될 때까지 기다리며, oracle의 읽기 전용 조회는 설정한 복구 기한 안에서 재시도하도록 수정했다.
+
+다음 30명 실행에서는 gateway kill, feed failover, broker 1대 종료, quorum 손실, gateway 전체 재기동, 서비스 전체 재기동의 각 복구 뒤 committed ID와 payload 비교가 모두 통과했다. Feed failover는 10,506ms였고 quorum 손실 후에도 적용 누락과 중복은 0이었다. 최종 10분 전체 범위 조회는 15초 subprocess 제한으로 실패했으므로 전체 실행을 합격 처리하지 않았다. `bench/results/ha/kind-fault-six.json`에 단계별 근거와 최종 실패를 보관했다. 해당 실행의 action별 fault p99는 누적 표본이며 개별 장애 지연으로 인용하지 않는다. 최신 도구는 고유 fault ID로 분리하고 전체 검증 예산 안에서 큰 범위를 읽는다.

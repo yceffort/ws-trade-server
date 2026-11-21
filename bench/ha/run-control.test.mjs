@@ -30,8 +30,8 @@ for(const overlap of [null,'rollout-first','fault-first'])test(`control windows 
     })
   })
   try {
-    const oracle=join(directory,'oracle.mjs'),counter=join(directory,'head-called'),outage=join(directory,'oracle-outage')
-    writeFileSync(oracle,`import {existsSync,writeFileSync,unlinkSync} from 'node:fs';const outage=${JSON.stringify(outage)};if(existsSync(outage)){unlinkSync(outage);process.exit(1)}const counter=${JSON.stringify(counter)};if(process.argv[2]==='head'){const next=existsSync(counter)?'2':'1';writeFileSync(counter,'1');console.log(JSON.stringify({log_id:'test',next,topics:['a']}))}else console.log(JSON.stringify({log_id:'test',start:'1',through:'1',events:[{id:'demo/trades/epoch/1',topic:'a',offset:'1',body:{price:'1'}}]}));`)
+    const oracle=join(directory,'oracle.mjs'),counter=join(directory,'head-called'),outage=join(directory,'oracle-outage'),broken=join(directory,'oracle-broken')
+    writeFileSync(oracle,`import {existsSync,writeFileSync,unlinkSync} from 'node:fs';const broken=${JSON.stringify(broken)};if(existsSync(broken)){unlinkSync(broken);console.log('invalid-json');process.exit(0)}const outage=${JSON.stringify(outage)};if(existsSync(outage)){unlinkSync(outage);process.exit(1)}const counter=${JSON.stringify(counter)};if(process.argv[2]==='head'){const next=existsSync(counter)?'2':'1';writeFileSync(counter,'1');console.log(JSON.stringify({log_id:'test',next,topics:['a']}))}else console.log(JSON.stringify({log_id:'test',start:'1',through:'1',events:[{id:'demo/trades/epoch/1',topic:'a',offset:'1',body:{price:'1'}}]}));`)
     writeFileSync(join(directory,'token'),'Bearer synthetic')
     const socketPath=join(directory,'control.sock'),actionFile=join(directory,'action.mjs'),actionStarted=join(directory,'action-started')
     writeFileSync(actionFile,`import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(actionStarted)},'1');setTimeout(()=>console.log('{\"ok\":true}'),2000)`)
@@ -70,6 +70,11 @@ for(const overlap of [null,'rollout-first','fault-first'])test(`control windows 
     assert.equal((await call('/begin',second)).ok,true)
     const empty=await call('/verify',second)
     assert.equal(empty.ok,false);assert.equal(empty.reconnect_slo_status,'not-measured')
+    const third={...first,window:'third'}
+    assert.equal((await call('/begin',third)).ok,true)
+    writeFileSync(broken,'1')
+    assert.equal((await call('/verify',third)).ok,false)
+    assert.equal((await call('/begin',{...third,window:'rollback',rollback:true})).ok,true)
     child.kill('SIGTERM');await exited
   } finally {
     if(child?.exitCode===null){child.kill('SIGKILL');await once(child,'exit')}

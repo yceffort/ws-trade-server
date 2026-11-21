@@ -47,7 +47,7 @@ async function oracleCommand(argv,extra,deadline) {
   for(;;){
     const remaining=Math.floor(deadline-performance.now())
     if(remaining<=0)throw new Error('oracle recovery deadline')
-    try{return await command(argv,extra,Math.min(15000,remaining))}
+    try{return await command(argv,extra,remaining)}
     catch(error){if(error instanceof SyntaxError)throw error;if(performance.now()>=deadline)throw new Error('oracle recovery deadline');await delay(250)}
   }
 }
@@ -130,10 +130,14 @@ try {
         let text=''
         for await(const chunk of request){text+=chunk;if(text.length>16384)throw new Error('control input limit')}
         const input=JSON.parse(text)
-        const result=request.url==='/begin'?await begin(input):await verify(input)
+        let result
+        if(request.url==='/begin')result=await begin(input)
+        else {
+          try{result=await verify(input)}
+          finally{if(activeScope?.window===input.window&&input.window!==undefined)await mark(null)}
+        }
         if(request.url==='/verify'){
           verifications.push({slot:result.slot,planHash:result.planHash,window:result.window,rollback:result.rollback,ok:result.ok,reconnect_p99_ms:result.reconnect_p99_ms,reconnect_slo_status:result.reconnect_slo_status,verified_through:result.verified_through})
-          await mark(null)
         }
         response.writeHead(result.ok?200:409,{'content-type':'application/json'}).end(JSON.stringify(result))
       }catch(error){response.writeHead(409).end(JSON.stringify({ok:false,reason:error.code?'external-command-or-io-failed':error instanceof SyntaxError?'invalid-json':error.message}))}

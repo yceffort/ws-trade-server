@@ -1,0 +1,217 @@
+{
+  "ok": false,
+  "reason": "oracle recovery deadline",
+  "clients": 30,
+  "ready": 30,
+  "failures": [],
+  "diagnostics": {
+    "clients": 30,
+    "caught_up": 30,
+    "failures": 0,
+    "minimum_offset": "1123995",
+    "maximum_offset": "1124031",
+    "reasons": {
+      "connection-error": 30
+    },
+    "client_event_loop_p99_ms": 24.592383,
+    "client_event_loop_max_ms": 48.594943
+  },
+  "actions": [
+    {
+      "name": "gateway-kill",
+      "elapsed_ms": 22313.416089,
+      "result": {
+        "ok": true,
+        "action": "gateway-kill",
+        "elapsed_ms": 22287.957255999998,
+        "deleted": [
+          "wts-gateway-a-6f7597c885-8kjpb"
+        ]
+      },
+      "recovery": {
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 30,
+          "committed_events": 5430,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 521.6149779999978,
+        "fault_reconnect_samples": 11,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 1620.187668999999,
+        "client_event_loop_p99_ms": 24.608767,
+        "client_event_loop_max_ms": 38.764543,
+        "verified_through": "1057815"
+      }
+    },
+    {
+      "name": "feed-failover",
+      "elapsed_ms": 16235.035324000011,
+      "result": {
+        "ok": true,
+        "action": "feed-failover",
+        "elapsed_ms": 16211.745464,
+        "feed_failover_ms": 10506,
+        "old_pod": "wts-feed-66fc875bf-rlw44"
+      },
+      "recovery": {
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 30,
+          "committed_events": 11090,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 16584.96777100001,
+        "fault_reconnect_samples": 41,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 19632.80719600001,
+        "client_event_loop_p99_ms": 24.641535,
+        "client_event_loop_max_ms": 38.764543,
+        "verified_through": "1064259"
+      }
+    },
+    {
+      "name": "broker-one",
+      "elapsed_ms": 31321.31467199998,
+      "result": {
+        "ok": true,
+        "action": "broker-one",
+        "elapsed_ms": 31293.602158,
+        "deleted": [
+          "wts-broker-0"
+        ]
+      },
+      "recovery": {
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 30,
+          "committed_events": 19310,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 16584.96777100001,
+        "fault_reconnect_samples": 41,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 19632.80719600001,
+        "client_event_loop_p99_ms": 24.674303,
+        "client_event_loop_max_ms": 38.764543,
+        "verified_through": "1074471"
+      }
+    },
+    {
+      "name": "broker-quorum",
+      "elapsed_ms": 52919.70182800002,
+      "result": {
+        "ok": true,
+        "action": "broker-quorum",
+        "elapsed_ms": 52858.630347,
+        "quorum_pause_ms": 15000
+      },
+      "recovery": {
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 30,
+          "committed_events": 25950,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 62038.65692499999,
+        "fault_reconnect_samples": 71,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 62545.714517000015,
+        "client_event_loop_p99_ms": 24.559615,
+        "client_event_loop_max_ms": 38.764543,
+        "verified_through": "1081372"
+      }
+    },
+    {
+      "name": "gateway-restart",
+      "elapsed_ms": 22307.862844999996,
+      "result": {
+        "ok": true,
+        "action": "gateway-restart",
+        "elapsed_ms": 22269.005259,
+        "deleted": [
+          "wts-gateway-a-6f7597c885-wncgm",
+          "wts-gateway-b-69f6f9858f-lqpnm",
+          "wts-gateway-c-6f85b6597c-2f4s5"
+        ]
+      },
+      "recovery": {
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 30,
+          "committed_events": 32990,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 61978.408325,
+        "fault_reconnect_samples": 101,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 62270.277681999985,
+        "client_event_loop_p99_ms": 24.575999,
+        "client_event_loop_max_ms": 38.764543,
+        "verified_through": "1090900"
+      }
+    },
+    {
+      "name": "full-restart",
+      "elapsed_ms": 26934.909138999996,
+      "result": {
+        "ok": true,
+        "action": "full-restart",
+        "elapsed_ms": 26907.702921,
+        "restarted": [
+          "gateway",
+          "feed",
+          "broker"
+        ],
+        "persistent_volumes_retained": true
+      },
+      "recovery": {
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 30,
+          "committed_events": 40310,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 61978.408325,
+        "fault_reconnect_samples": 131,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 62270.277681999985,
+        "client_event_loop_p99_ms": 24.592383,
+        "client_event_loop_max_ms": 41.680895,
+        "verified_through": "1099684"
+      }
+    }
+  ],
+  "rollout_verifications": [],
+  "production_slo_proven": false
+}
