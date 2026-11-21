@@ -21,7 +21,7 @@ async function sample(){
   return await new Promise((resolve,reject)=>{
     const replies=[]
     const timer=setTimeout(()=>{requests.delete(id);reject(new Error('client worker sample deadline'))},5000)
-    requests.set(id,reply=>{replies.push(reply);if(replies.length===workers.length){clearTimeout(timer);requests.delete(id);resolve({clients:replies.flatMap(r=>r.clients),samples:replies.flatMap(r=>r.samples),client_event_loop_p99_ms:Math.max(...replies.map(r=>r.lag_p99_ms))})}})
+    requests.set(id,reply=>{replies.push(reply);if(replies.length===workers.length){clearTimeout(timer);requests.delete(id);resolve({clients:replies.flatMap(r=>r.clients),samples:replies.flatMap(r=>r.samples),client_event_loop_p99_ms:Math.max(...replies.map(r=>r.lag_p99_ms)),client_event_loop_max_ms:Math.max(...replies.map(r=>r.lag_max_ms))})}})
     workers.forEach(worker=>worker.postMessage({type:'sample',id}))
   })
 }
@@ -29,7 +29,7 @@ async function status() {
   const observed=await sample(),offsets=observed.clients.filter(c=>c.offset!==null).map(c=>BigInt(c.offset))
   const reasons={}
   for(const client of observed.clients)if(client.last_reason)reasons[client.last_reason]=(reasons[client.last_reason]??0)+1
-  return {clients:observed.clients.length,caught_up:observed.clients.filter(c=>c.caught_up).length,failures:failures.length,minimum_offset:offsets.length?String(offsets.reduce((a,b)=>a<b?a:b)):null,maximum_offset:offsets.length?String(offsets.reduce((a,b)=>a>b?a:b)):null,reasons,client_event_loop_p99_ms:observed.client_event_loop_p99_ms}
+  return {clients:observed.clients.length,caught_up:observed.clients.filter(c=>c.caught_up).length,failures:failures.length,minimum_offset:offsets.length?String(offsets.reduce((a,b)=>a<b?a:b)):null,maximum_offset:offsets.length?String(offsets.reduce((a,b)=>a>b?a:b)):null,reasons,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms}
 }
 async function verify(request={}) {
   const boundary=await command(config.headCommand)
@@ -48,7 +48,7 @@ async function verify(request={}) {
   const reconnect=percentile(observed.samples.filter(s=>s.disconnect_ms!==null).map(s=>s.disconnect_ms),.99)
   const recovery=percentile(observed.samples.filter(s=>s.fault_ms!==null).map(s=>s.fault_ms),.99)
   const slo=reconnect!==null&&reconnect<=5000
-  const result={...request,ok:comparison.ok&&(!config.requireReconnectSlo||slo),committed_missing:comparison.ok?0:null,duplicate_applies:comparison.ok?0:null,comparison,reconnect_samples:observed.samples.length,reconnect_p99_ms:reconnect,recovery_from_fault_p99_ms:recovery,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,verified_through:end.toString()}
+  const result={...request,ok:comparison.ok&&(!config.requireReconnectSlo||slo),committed_missing:comparison.ok?0:null,duplicate_applies:comparison.ok?0:null,comparison,reconnect_samples:observed.samples.length,reconnect_p99_ms:reconnect,recovery_from_fault_p99_ms:recovery,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms,verified_through:end.toString()}
   return result
 }
 try {

@@ -37,7 +37,7 @@ snapshot은 최대 512KiB이며 `snapshot-begin`, 32KiB 원본 바이트 단위�
 
 기본 HA 연결 한도는 10,000이다. replay worker 32개, 대기 요청 128개, 연결별 live buffer 1MiB, replay 요청 10,000개 레코드 또는 10MiB 또는 10초로 제한한다. 마지막 1초와 16KiB는 제어 프레임에 남긴다. 대기 중에는 live buffer를 만들지 않는다. worker가 취소되어도 blocking consumer가 끝날 때까지 permit을 반환하지 않는다. 고정 scope 밖 거래는 live 큐에 넣지 않고 마지막 위치와 구독 데이터 순번만 coalesce한다. 앞선 구독 데이터를 모두 전송해야 해당 위치의 checkpoint를 보낼 수 있다. 느린 연결만 종료하며 다른 연결을 기다리게 하지 않는다.
 
-서버와 클라이언트는 1초 heartbeat, 3초 수신 deadline을 쓴다. source가 stale이면 오류를 알리고 닫는다. 예제는 첫 재접속에 최대 500ms jitter를 적용하고 이후 실패에 최대 30초 지수 지연을 쓴다. 첫 checkpoint를 받지 못한 동일 위치의 재시도와 replay-limit 무진행은 3회에서 멈춘다. 진행 여부는 재서명된 cursor 문자열이 아니라 영속화한 offset 증가로 판단한다. `invalid-cursor`, `cursor-expired`, `start-out-of-range`, scope 및 인증 오류는 자동으로 다른 시작점으로 이동하지 않는다.
+서버와 클라이언트는 1초 heartbeat, 3초 수신 deadline을 쓴다. source가 stale이면 오류를 알리고 닫는다. 예제는 첫 재접속에 최대 500ms jitter를 적용하고 이후 실패에 최대 30초 지수 지연을 쓴다. replay-limit 때문에 동일 위치에서 진행하지 못한 재시도는 3회에서 멈춘다. 첫 checkpoint 이전의 일시적인 연결 실패는 재시도하며 재개 위치를 바꾸지 않는다. 진행 여부는 재서명된 cursor 문자열이 아니라 영속화한 offset 증가로 판단한다. `invalid-cursor`, `cursor-expired`, `start-out-of-range`, scope 및 인증 오류는 자동으로 다른 시작점으로 이동하지 않는다.
 
 `cargo test --features ha`, `npm test --prefix edge`, `node --test examples/ha-state.test.mjs`가 계약 검증과 영속화 경계를 검사한다. `deploy/ha/smoke.sh`는 실제 Kafka의 committed 입력을 기준으로 10,040건의 체결 ID 순서, 해시와 최종 상태를 비교하며 replay 제한, gateway 변경, checkpoint 직전 프로세스 SIGKILL, snapshot 전송 중 SIGKILL과 범위 오류를 시험한다. 단일 호스트 기능 시험이며 실제 LB 및 여러 장애 도메인의 복구 SLO 검증은 #52와 #53에서 수행한다.
 

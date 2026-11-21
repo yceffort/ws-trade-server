@@ -246,17 +246,21 @@ impl Kafka {
 
 struct Quiet;
 impl ClientContext for Quiet {
-    fn log(&self, level: RDKafkaLogLevel, _: &str, _: &str) {
+    fn log(&self, level: RDKafkaLogLevel, facility: &str, _: &str) {
         // 외부 라이브러리의 원문 로그에 인증 설정이나 payload가 섞이지 않게 오류 종류만 남긴다.
         if matches!(
             level,
             RDKafkaLogLevel::Emerg | RDKafkaLogLevel::Alert | RDKafkaLogLevel::Critical | RDKafkaLogLevel::Error
         ) {
-            tracing::warn!(event = "broker_client_error");
+            let category = match facility {
+                "FAIL" | "CONNECT" | "AUTH" | "OFFSET" | "MAXPOLL" | "SUBSCRIPTION" | "BROKERFAIL" | "CGRP" => facility,
+                _ => "other",
+            };
+            tracing::warn!(event = "broker_client_error", category);
         }
     }
-    fn error(&self, _: KafkaError, _: &str) {
-        tracing::warn!(event = "broker_client_error");
+    fn error(&self, error: KafkaError, _: &str) {
+        tracing::warn!(event = "broker_client_error", code = ?error.rdkafka_error_code());
     }
 }
 impl ConsumerContext for Quiet {}
