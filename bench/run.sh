@@ -100,7 +100,7 @@ if [ "$status" -ne 0 ]; then cat "$work/loadgen.err" >&2; echo "loadgen 실패($
 
 # 넘긴 정책 인자와 gateway의 누적 지표(src/metrics.rs). 지표는 curl 없이 bash의 /dev/tcp로 읽고 응답 머리를 뗀다.
 extra='{}'
-[ ${#gateway_extra[@]} -eq 0 ] || extra=$(printf '%s\n' "${gateway_extra[@]}" | jq -R . | jq -s '{args: .}')
+[ ${#gateway_extra[@]} -eq 0 ] || extra=$(jq -n '{args: $ARGS.positional}' --args -- "${gateway_extra[@]}")
 if [ -n "$metrics" ]; then
   response=$(exec 3<>"/dev/tcp/127.0.0.1/$http_port"; printf 'GET /metrics HTTP/1.1\r\nHost: localhost\r\n\r\n' >&3; cat <&3)
   body=${response#*$'\r\n\r\n'}
