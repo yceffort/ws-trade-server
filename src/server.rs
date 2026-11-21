@@ -105,7 +105,11 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
             listener,
             hub.clone(),
             #[cfg(feature = "ha")]
-            lifecycle.clone(),
+            lifecycle.clone().map(|lifecycle| crate::ha::Management {
+                lifecycle,
+                protocol: config.ha_protocol.clone(),
+                auth: config.ha_auth.clone(),
+            }),
         )
     });
     let auth_reload = config.auth.as_ref().and_then(crate::auth::Auth::reload);

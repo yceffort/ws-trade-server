@@ -48,6 +48,19 @@ async fn durable_client_recovers_across_gateways_and_replay_limits() {
         events
     }).await.unwrap();
     assert_eq!(expected.len(), 10040);
+    let oracle_kafka = reader.clone();
+    let oracle_source = source.clone();
+    let through = expected.last().unwrap()["offset"].as_str().unwrap().parse().unwrap();
+    let committed_oracle =
+        tokio::task::spawn_blocking(move || oracle(&oracle_kafka, &oracle_source, start, through).unwrap())
+            .await
+            .unwrap();
+    assert_eq!(committed_oracle.events.len(), expected.len());
+    for (actual, expected) in committed_oracle.events.iter().zip(&expected) {
+        assert_eq!(actual.id, expected["id"].as_str().unwrap());
+        assert_eq!(actual.body, expected["body"]);
+        assert_eq!(actual.offset.0.to_string(), expected["offset"].as_str().unwrap());
+    }
     let provider = if std::env::var("WTS_HA_SHARED_TEST").as_deref() == Ok("1") {
         Some(shared_auth::Provider::start(&source.topics).await)
     } else {

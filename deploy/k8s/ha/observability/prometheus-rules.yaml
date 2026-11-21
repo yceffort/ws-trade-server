@@ -1,0 +1,38 @@
+groups:
+  - name: wts-ha
+    rules:
+      - alert: WtsHaReadyReplicasLow
+        expr: sum by (namespace) (wts_ha_gateway_ready) < 3
+        for: 30s
+        labels: { severity: warning }
+        annotations: { summary: 'HA gateway Ready 수가 3 미만입니다. 배포를 중단하고 source와 broker freshness를 확인하세요.' }
+      - alert: WtsHaMetricsMissing
+        expr: up{job="wts-ha"} == 0 or absent(up{job="wts-ha"})
+        for: 30s
+        labels: { severity: critical }
+        annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }
+      - alert: WtsHaSourceStale
+        expr: wts_ha_source_age_seconds > 3 or wts_ha_broker_age_seconds > 3
+        for: 5s
+        labels: { severity: critical }
+        annotations: { summary: 'HA source 또는 broker 관측이 만료됐습니다.' }
+      - alert: WtsHaReplicaLag
+        expr: wts_ha_log_position_lag > 100
+        for: 10s
+        labels: { severity: warning }
+        annotations: { summary: 'HA log 위치 지연. Kafka control record를 포함하므로 이벤트 수가 아닙니다.' }
+      - alert: WtsHaReplayPressure
+        expr: wts_ha_replay_waiters > 96 or rate(wts_ha_replay_limits_total[5m]) > 0
+        for: 30s
+        labels: { severity: warning }
+        annotations: { summary: 'Replay 대기열 또는 budget 초과. 클라이언트 checkpoint 진행과 N-1 용량을 확인하세요.' }
+      - alert: WtsHaDrainOverdue
+        expr: wts_ha_drain_elapsed_seconds > 40
+        for: 5s
+        labels: { severity: critical }
+        annotations: { summary: 'Gateway drain 예산 초과. 다음 slot 변경을 멈추세요.' }
+      - alert: WtsHaPolicyStale
+        expr: wts_ha_policy_fresh == 0
+        for: 5s
+        labels: { severity: critical }
+        annotations: { summary: '공유 인증 정책 freshness 만료. 공급자 TLS와 정책 version을 확인하세요.' }

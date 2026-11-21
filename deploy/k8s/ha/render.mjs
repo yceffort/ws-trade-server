@@ -8,6 +8,7 @@ export function render(s) {
   if (!name.test(s.namespace) || !name.test(s.version) || s.version.length > 49 || s.zones.length !== 3 || new Set(s.zones).size !== 3 || s.zones.some(z => !name.test(z))) throw new Error('namespace/version/three distinct zones required')
   if (![s.gatewayImage,s.edgeImage].every(image => /^[\w./:-]+@sha256:[a-f0-9]{64}$/.test(image))) throw new Error('image digests required')
   for (const key of ['clientCIDRs','gatewayIngressCIDRs','policyCIDRs','apiCIDRs']) if (!Array.isArray(s[key]) || !s[key].length || s[key].some(c => !/^[0-9a-f.:]+\/\d{1,3}$/i.test(c))) throw new Error('explicit CIDRs required')
+  if (s.metricsNamespace && !name.test(s.metricsNamespace)) throw new Error('invalid metrics namespace')
   const objects = []
   const resource = (apiVersion,kind,name,fields={}) => ({apiVersion,kind,metadata:{name,namespace:s.namespace},...fields})
   const add = (...args) => { const object = resource(...args); objects.push(object); return object }
@@ -35,18 +36,23 @@ export function render(s) {
   ]})
   add('rbac.authorization.k8s.io/v1','RoleBinding','wts-rollout',{roleRef:{apiGroup:'rbac.authorization.k8s.io',kind:'Role',name:'wts-rollout'},subjects:[{kind:'ServiceAccount',name:'wts-rollout',namespace:s.namespace}]})
   add('v1','ConfigMap',configName,{immutable:true,data:{'source.json':JSON.stringify({log_id:'ha-v1',source_id:{provider:'synthetic',stream:'trades'},epoch:'epoch-1',start_seq:'1',topics:['/topic/v1/kr/stock/trade/A005930','/topic/v1/us/stock/trade/US19990122001']}),'lease.json':JSON.stringify({url:`https://kubernetes.default.svc/apis/coordination.k8s.io/v1/namespaces/${s.namespace}/leases/wts-feed`,token_file:'/var/run/lease/token',ca_file:'/var/run/lease/ca.crt',identity:'feed',duration_seconds:10})}})
+  if(s.metricsNamespace) objects.find(o=>o.kind==='ConfigMap'&&o.metadata.name===configName).data['metrics-proxy.mjs']=readFileSync(new URL('./metrics-proxy.mjs',import.meta.url),'utf8')
   for (const [index,slot] of ['a','b','c'].entries()) {
     const label = {...labels('gateway'),'wts-slot':slot}
     const edge = {name:'edge',image:s.edgeImage,imagePullPolicy:'IfNotPresent',restartPolicy:'Always',securityContext,
-      env:Object.entries({WTS_BACKEND:'ws://127.0.0.1:8080/experimental/ha/ws',WTS_EDGE_HOST:'0.0.0.0',WTS_EDGE_PORT:'8443',WTS_TLS_CERT_FILE:'/tls/cert.pem',WTS_TLS_KEY_FILE:'/tls/key.pem',WTS_COMPRESSION:'deflate'}).map(([name,value])=>({name,value})),
-      ports:[{name:'wss',containerPort:8443}],volumeMounts:[mount('tls','/tls')],resources:{requests:{cpu:'100m',memory:'64Mi'},limits:{cpu:'1',memory:'256Mi'}},
+      env:Object.entries({WTS_BACKEND:'ws://127.0.0.1:8080/experimental/ha/ws',WTS_EDGE_HOST:'0.0.0.0',WTS_EDGE_PORT:'8443',WTS_TLS_CERT_FILE:'/tls/cert.pem',WTS_TLS_KEY_FILE:'/tls/key.pem',WTS_COMPRESSION:'none'}).map(([name,value])=>({name,value})),
+      ports:[{name:'wss',containerPort:8443}],volumeMounts:[mount('tls','/tls')],resources:{requests:{cpu:'250m',memory:'128Mi'},limits:{cpu:'2',memory:'512Mi'}},
       startupProbe:{tcpSocket:{port:'wss'},periodSeconds:2,timeoutSeconds:1,failureThreshold:30},readinessProbe:{tcpSocket:{port:'wss'},periodSeconds:2,timeoutSeconds:1},livenessProbe:{tcpSocket:{port:'wss'},periodSeconds:10,timeoutSeconds:1}}
     const gateway = {name:'gateway',image:s.gatewayImage,imagePullPolicy:'IfNotPresent',securityContext,
       args:['gateway','--addr','127.0.0.1:8080','--http-addr','127.0.0.1:8081','--ha-kafka','/credentials/gateway.json','--ha-source','/source/source.json','--ha-cursor-keys','/credentials/cursor-keys.json','--ha-policy','/credentials/policy-client.json','--max-connections','10000'],
       volumeMounts:[mount('credentials','/credentials'),mount('source','/source')],resources:{requests:{cpu:'500m',memory:'256Mi'},limits:{cpu:'2',memory:'1Gi'}},
       startupProbe:{...probe('ha-live'),failureThreshold:30},readinessProbe:probe('ha-ready'),livenessProbe:{...probe('ha-live',10),failureThreshold:3},
       lifecycle:{preStop:{exec:{command:['sh','-c','container-probe ha-drain; sleep 20']}}}}
-    add('apps/v1','Deployment',`wts-gateway-${slot}`,{spec:{replicas:1,minReadySeconds:15,progressDeadlineSeconds:600,revisionHistoryLimit:3,strategy:{type:'RollingUpdate',rollingUpdate:{maxUnavailable:0,maxSurge:1}},selector:{matchLabels:label},template:{metadata:{labels:label,annotations:{'wts/config-version':s.version}},spec:{serviceAccountName:'wts-gateway',automountServiceAccountToken:false,terminationGracePeriodSeconds:60,securityContext:podSecurity,nodeSelector:{'topology.kubernetes.io/zone':s.zones[index]},affinity:anti('gateway'),initContainers:[edge],containers:[gateway],volumes:[secret('credentials',`wts-gateway-${s.version}`),secret('tls',`wts-tls-${s.version}`),{name:'source',configMap:{name:configName}}]}}}})
+    add('apps/v1','Deployment',`wts-gateway-${slot}`,{spec:{replicas:1,minReadySeconds:15,progressDeadlineSeconds:600,revisionHistoryLimit:3,strategy:{type:'RollingUpdate',rollingUpdate:{maxUnavailable:0,maxSurge:1}},selector:{matchLabels:label},template:{metadata:{labels:label,annotations:{'wts/config-version':s.version}},spec:{serviceAccountName:'wts-gateway',automountServiceAccountToken:false,terminationGracePeriodSeconds:60,securityContext:podSecurity,nodeSelector:{'topology.kubernetes.io/zone':s.zones[index]},affinity:anti('gateway'),initContainers:[edge,...(s.metricsNamespace?[{name:'metrics',image:s.edgeImage,restartPolicy:'Always',command:['node','/source/metrics-proxy.mjs'],securityContext,ports:[{name:'metrics',containerPort:9090}],volumeMounts:[mount('source','/source')],resources:{requests:{cpu:'25m',memory:'32Mi'},limits:{cpu:'100m',memory:'64Mi'}},startupProbe:{tcpSocket:{port:'metrics'},periodSeconds:2,failureThreshold:15}}]:[])],containers:[gateway],volumes:[secret('credentials',`wts-gateway-${s.version}`),secret('tls',`wts-tls-${s.version}`),{name:'source',configMap:{name:configName}}]}}}})
+  }
+  if(s.metricsNamespace){
+    add('v1','Service','wts-ha-metrics',{spec:{selector:labels('gateway'),ports:[{name:'metrics',port:9090,targetPort:'metrics'}]}})
+    add('networking.k8s.io/v1','NetworkPolicy','ha-metrics',{spec:{podSelector:selector('gateway'),policyTypes:['Ingress'],ingress:[{from:[{namespaceSelector:{matchLabels:{'kubernetes.io/metadata.name':s.metricsNamespace}}}],ports:[{protocol:'TCP',port:9090}]}]}})
   }
   add('policy/v1','PodDisruptionBudget','wts-gateway',{spec:{minAvailable:2,selector:selector('gateway')}})
   add('v1','Service','wts-gateway',{spec:{type:'LoadBalancer',externalTrafficPolicy:'Cluster',loadBalancerSourceRanges:s.clientCIDRs,selector:labels('gateway'),ports:[{name:'wss',port:443,targetPort:'wss'}]}})

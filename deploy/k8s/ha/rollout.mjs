@@ -26,6 +26,8 @@ export function target(template,plan) {
   next.metadata.annotations = {...next.metadata.annotations,'wts/config-version':plan.version}
   next.spec.containers.find(c=>c.name==='gateway').image = plan.gatewayImage
   next.spec.initContainers.find(c=>c.name==='edge').image = plan.edgeImage
+  const metrics=next.spec.initContainers.find(c=>c.name==='metrics')
+  if(metrics)metrics.image=plan.edgeImage
   next.spec.volumes.find(v=>v.name==='credentials').secret.secretName = `wts-gateway-${plan.version}`
   next.spec.volumes.find(v=>v.name==='tls').secret.secretName = `wts-tls-${plan.version}`
   next.spec.volumes.find(v=>v.name==='source').configMap.name = `wts-source-${plan.version}`

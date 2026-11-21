@@ -1,0 +1,67 @@
+# HA 수용 시험
+
+이 도구는 `read_committed` Kafka 기록을 기준으로 클라이언트가 상태와 cursor를 함께 fsync한 결과를 비교한다. `event_id` 수뿐 아니라 순서, 중복 적용, payload hash도 확인한다. oracle는 요청 시작 offset과 각 클라이언트의 구독 범위 안에서만 비교하며 Kafka transaction marker에 의한 offset 공백을 허용한다. 실제 운영 LB와 물리 장애 도메인 증거는 별도로 검토해야 하므로 보고서의 `production_slo_proven`은 항상 false다.
+
+## 준비와 실행
+
+`deploy/k8s/ha/README.md`에 따라 전용 `wts-ha*` namespace에 broker 3개, feed 2개, gateway 3개와 공유 인증을 준비한다. broker의 기존 PVC와 log_id를 보존하며 bootstrap Job을 재실행하지 않는다. 부하 시험은 해당 namespace에만 적용한다. 부하 클라이언트는 `wts-dev-client-<version>` Secret의 `token`과 `ca.crt`, gateway의 Kafka 읽기 전용 자격 증명을 사용한다. token 값에는 `Bearer ` 접두사가 있어야 한다. 운영 token을 저장소나 artifact에 넣지 않는다.
+
+```sh
+docker build -f deploy/ha/Dockerfile -t ws-trade-ha:acceptance .
+docker build -f edge/Dockerfile -t ws-trade-edge:acceptance .
+docker build -f bench/ha/Dockerfile --build-arg HA_IMAGE=ws-trade-ha:acceptance --build-arg EDGE_IMAGE=ws-trade-edge:acceptance -t ws-trade-ha-load:acceptance .
+# settings의 gatewayImage, edgeImage, loadImage는 접근 가능한 registry의 digest로 고정한다.
+node bench/ha/job-run.mjs CONTEXT settings.json options.json ./ha-results
+```
+
+`options.json` 기본값은 아래와 같다. Service 주소를 사용하는 시험과 실제 외부 LB URL을 사용하는 시험을 별도로 남긴다. 인증서의 SAN과 URL이 일치해야 한다. 측정용 부하 Pod는 서버와 분리된 노드에 두는 것이 좋으며, CPU throttling과 client event loop 지연도 결과와 함께 확인한다.
+
+```json
+{"clients":1000,"workers":4,"durationSeconds":600,"startupIntervalMs":20,"requireReconnectSlo":false}
+```
+
+`run.mjs`는 첫 committed 위치를 고정한 뒤 클라이언트들을 시작하고, 초기 catch-up을 60초 안에 완료해야 측정을 시작한다. 첫 접속 분산은 재접속 폭주 시험의 대체가 아니다. 재접속은 클라이언트의 소켓 종료 감지부터 다음 caught-up 직전까지 측정하며, 이전 checkpoint의 상태 저장과 cursor 적용을 기다린다. 장애 감지 이전의 네트워크 단절 시간은 이 값에 포함되지 않으므로 `recovery_from_fault_p99_ms`를 함께 본다. 초기 TLS handshake, 재시도 backoff, replay와 디스크 적용 비용이 모두 포함된다. 실행 도중 Worker가 실패하면 합격하지 않는다.
+
+부하 Job은 결과를 `/state/report.json`에 저장하고 수집을 위해 120초 기다린다. `job-run.mjs`는 보고서, Pod 재시작 정보와 gateway metrics를 로컬 출력 디렉터리에 저장한다. 이전 Job이 있으면 자동 삭제하지 않는다. 결과를 보관한 다음 그 전용 namespace의 `wts-ha-load` Job을 지우고 다시 실행한다. `emptyDir`의 상태 파일은 해당 시험 안에서만 durable하며 Pod를 지우면 사라진다. 클라이언트 프로세스 재시작과 디스크 복구는 별도 FileStore 시험으로 검증한다.
+
+## 배포와 rollback 게이트
+
+계획 배포는 `requireReconnectSlo:true`로 실행한다. 초기 catch-up 후 `/state/control.sock`가 생긴 것을 확인하고, 다음 verifyCommand를 기존 rollout plan에 지정한다. `KUBECONFIG`와 context를 명시해야 한다.
+
+```json
+{"verifyCommand":["node","/absolute/repo/bench/ha/kube-verify.mjs","CONTEXT","wts-ha"]}
+```
+
+`deploy/k8s/ha/rollout.mjs`는 각 슬롯의 안정화 후 부하 Job에 nonce, plan hash, slot을 전달한다. Job은 새 committed 경계를 고정하고 모든 클라이언트가 저장한 적용 결과를 비교한다. 누락, 중복 적용, payload 차이 또는 재접속 p99 5초 초과가 있으면 다음 슬롯을 변경하지 않는다. 정상 배포와 rollback 양쪽을 같은 부하 세션에서 실행한다. 새 설정 version에는 기존과 호환되는 cursor key, 인증 정책, source 설정이 있어야 한다. 같은 binary의 version 교체 시험으로 서로 다른 release의 N/N-1 호환성을 주장하지 않는다.
+
+## 장애 시험
+
+`enableFaults:true`는 전용 부하 ServiceAccount에 해당 namespace의 Pod 삭제, `wts-broker` StatefulSet 조회와 patch, `wts-feed` Lease 조회 권한을 추가한다. Pod 삭제 권한은 RBAC에서 label로 제한할 수 없으므로 namespace에 시험 대상만 두고 시험 후 Role과 RoleBinding도 제거한다. 일반 부하 실행은 이 권한과 token을 받지 않는다.
+
+```json
+{"clients":1000,"workers":4,"durationSeconds":600,"requireReconnectSlo":false,"enableFaults":true,"actions":[{"name":"gateway-kill","atSeconds":60,"command":["node","/app/bench/ha/kube-fault.mjs","gateway-kill","wts-ha"]},{"name":"feed-failover","atSeconds":180,"command":["node","/app/bench/ha/kube-fault.mjs","feed-failover","wts-ha"]},{"name":"broker-one","atSeconds":300,"command":["node","/app/bench/ha/kube-fault.mjs","broker-one","wts-ha"]}]}
+```
+
+`gateway-restart`는 gateway 전체, `full-restart`는 gateway와 feed와 broker 전체를 재기동하되 PVC를 보존한다. `broker-quorum`은 broker를 1개로 줄여 실제 Pod 종료를 확인하고 15초 후 3개로 복구한다. quorum이 없는 동안의 서비스 가용성에는 5초 목표를 적용하지 않는다. 종료된 Pod의 복구 시간과 마지막 committed 적용의 누락 여부를 확인한다. `finally` 복구도 실패할 수 있으므로 시험 후 broker replicas=3, Ready=3과 Lease를 확인해야 한다. 지속적인 broker 손실, quorum 부족 시 commit 거절과 이전 writer의 fencing은 `deploy/ha/smoke.sh`의 실제 Kafka 시험으로 별도 검증한다.
+
+```sh
+WTS_HA_ALLOW_FAULTS=dedicated-test-namespace node bench/ha/kind-fault.mjs wts-ha-test wts-ha node-drain
+WTS_HA_ALLOW_FAULTS=dedicated-test-namespace node bench/ha/kind-fault.mjs wts-ha-test wts-ha network-partition
+```
+
+kind 전용 장애 도구는 gateway가 있는 worker를 PDB를 존중해 drain하거나, 그 컨테이너의 kind network를 15초 분리했다가 같은 주소로 복구한다. 실험 후 cordon, network, broker quorum 상태를 확인한다. 한 호스트의 가상 노드 시험이며 실제 zone 단절이나 LB endpoint 제거 검증을 대신하지 않는다. 외부 LB 환경에서는 해당 플랫폼의 실제 노드와 네트워크 장애 주입 절차를 별도로 사용한다.
+
+## 회귀 범위
+
+| 경계 | 자동 검증 |
+| --- | --- |
+| committed ID, payload, 요청 범위, 조용한 topic, offset 공백 | `bench/ha/oracle.test.mjs`, `tests/ha_protocol.rs` |
+| snapshot 경계, 중간 chunk 단절, 첫 cursor 없는 대량 replay | `tests/ha_protocol.rs`, `examples/ha-state.test.mjs` |
+| cursor 만료, scope 변경, auth key rotation, 정책 만료와 권한 회수 | `src/ha/cursor.rs`, `src/ha/auth/policy/tests.rs`, HTTPS provider 시험 |
+| 같은 ID의 다른 payload, dedupe 창 만료, 이전 writer 재개, broker 1대와 다수 손실 | `tests/ha_broker.rs`, `deploy/ha/producer-failover.mjs` |
+| 드라이버 중단, 재시작, 검증 실패, 두 번째 slot 실패 rollback | `deploy/k8s/ha/rollout.test.mjs` |
+| 부하 상태에서 배포, rollback, 노드와 네트워크 장애 | 이 디렉터리의 실환경 도구와 외부 oracle |
+
+`.github/workflows/ha-acceptance.yml`은 수동 실행 전용이다. `ha-acceptance` environment에 `WTS_HA_KUBECONFIG` secret, `WTS_HA_CONTEXT`와 `WTS_HA_SETTINGS_JSON` 변수를 준비해야 한다. 미리 만든 전용 namespace와 digest 고정 이미지를 사용하며, 일반 CI가 운영 클러스터를 생성하거나 변경하지 않는다. 수동 workflow의 일반 장애 시험은 가용성 5초 합격 판정과 분리되어 있다. 계획 배포 p99 게이트는 위의 지속 부하와 직렬 rollout 연결로 실행한다.
+
+부하 Worker는 여러 클라이언트의 checkpoint를 10ms 단위의 append journal로 묶고 fsync가 끝난 뒤에만 적용 완료로 집계한다. 상태와 cursor는 같은 JSON record에 저장하며, 각 클라이언트의 다음 frame 처리는 해당 fsync를 기다린다. 16MiB마다 전체 최신 상태를 fsync와 atomic rename으로 압축한다. 재접속 시간에는 group commit 대기도 포함된다. 기본 예제의 개별 FileStore 동기 fsync와 이 부하 발생기의 저장 방식은 다르므로 클라이언트 디스크 비용을 함께 보고한다.

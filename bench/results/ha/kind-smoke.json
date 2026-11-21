@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "committed_missing": 0,
+  "duplicate_applies": 0,
+  "comparison": {
+    "ok": true,
+    "clients": 30,
+    "committed_events": 4160,
+    "failures": []
+  },
+  "reconnect_samples": 0,
+  "reconnect_p99_ms": null,
+  "recovery_from_fault_p99_ms": null,
+  "client_event_loop_p99_ms": 24.936447,
+  "verified_through": "243351",
+  "duration_ms": 41813.127751,
+  "clients": 30,
+  "actions": [],
+  "failures": [],
+  "environment": {
+    "kind": "in-cluster-service",
+    "physical_domains_verified": false,
+    "external_lb_verified": false
+  },
+  "measured_targets_met": false,
+  "production_slo_proven": false,
+  "external_evidence_review_required": true
+}

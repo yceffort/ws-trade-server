@@ -3,7 +3,7 @@ use super::{Writer, replay, send};
 use crate::hub::Hub;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::{sync::atomic::Ordering, time::Duration};
 use tokio::time::{Instant, interval};
 
 const BYTES: usize = 10 * 1024 * 1024;
@@ -53,6 +53,7 @@ impl Progress<'_> {
         {
             let cursor = self.protocol.keys.sign(self.log_id, position, &self.resume.topics, self.subject)?;
             self.total += send(writer, json!({"type":"checkpoint","request_id":self.resume.request_id,"cursor":cursor,"offset":position.to_string()}), deadline).await?;
+            self.protocol.counters.checkpoints.fetch_add(1, Ordering::Relaxed);
             self.checkpoint = Some(position);
             self.events = 0;
             self.bytes = 0;
@@ -93,6 +94,9 @@ impl Progress<'_> {
                 return Err("replay-limit");
             }
             let bytes = send(writer, value, deadline).await?;
+            if limited {
+                self.protocol.counters.replay_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
+            }
             self.total += bytes;
             self.bytes += bytes;
             if matches!(record, LogRecord::Trade(_)) {
@@ -119,6 +123,7 @@ pub(super) async fn run(
     subject: &str,
     resume: Resume,
 ) -> Result<(), &'static str> {
+    protocol.counters.resumes.fetch_add(1, Ordering::Relaxed);
     let waiting = protocol.waiting.clone().try_acquire_owned().map_err(|_| "retry-later")?;
     let permit = wait(writer, protocol.workers.clone().acquire_owned(), Instant::now() + Duration::from_secs(10))
         .await
@@ -211,6 +216,7 @@ pub(super) async fn run(
         };
         // live 큐가 찼어도 완료된 snapshot 경계를 먼저 저장해야 다음 요청이 replay로 전진한다.
         transmission.await?;
+        protocol.counters.snapshot_bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
         progress.position = Some(end);
         progress.checkpoint(writer, deadline).await?;
     } else {
@@ -244,6 +250,7 @@ pub(super) async fn run(
     progress.total +=
         send(writer, json!({"type":"caught-up","request_id":resume.request_id,"offset":end.to_string()}), deadline)
             .await?;
+    protocol.counters.caught_up.fetch_add(1, Ordering::Relaxed);
     let mut checkpoint_tick = interval(Duration::from_millis(250));
     let mut applied = 0;
     loop {

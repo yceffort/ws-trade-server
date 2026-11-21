@@ -94,6 +94,10 @@ fn read(path: &std::path::Path, max: usize) -> Result<Vec<u8>, &'static str> {
 }
 
 impl SharedAuth {
+    pub(crate) fn age_seconds(&self) -> Option<f64> {
+        self.cache.borrow().as_ref().map(|cache| cache.observed.elapsed().as_secs_f64())
+    }
+
     pub fn new(config: PolicyConfig) -> Result<Self, &'static str> {
         let url = reqwest::Url::parse(&config.url).map_err(|_| "policy-config")?;
         if url.scheme() != "https"

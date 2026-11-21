@@ -88,3 +88,23 @@ test('an asynchronous apply failure prevents queued checkpoints from advancing t
     assert.deepEqual(args.store.load(),saved)
   }finally{close(mock)}
 })
+
+test('transient admission failures before the first checkpoint remain retriable',async()=>{
+  const mock=await server(),controller=new AbortController()
+  let attempts=0
+  mock.on('connection',socket=>{
+    attempts++
+    socket.on('message',bytes=>{
+      const frame=JSON.parse(bytes)
+      if(frame.type==='connect')socket.send('{"type":"connected"}')
+      if(frame.type==='resume'){
+        if(attempts<5)socket.send('{"type":"error","code":"retry-later"}')
+        else controller.abort()
+      }
+    })
+  })
+  const random=Math.random;Math.random=()=>0
+  try{await runClient({...options(mock),signal:controller.signal});assert.equal(attempts,5)}
+  finally{Math.random=random;close(mock)}
+
+})
