@@ -207,7 +207,7 @@ enum Cmd<Q> {
     Subscribe { conn: u64, id: Arc<str>, topic: String, receipt: Option<String> },
     Unsubscribe { conn: u64, id: Arc<str>, receipt: Option<String> },
     Publish(String, Arc<str>),
-    Counts(oneshot::Sender<(u64, u64)>),
+    Counts(oneshot::Sender<(u64, u64, u64)>),
 }
 
 fn subscribe<Q>(conn: u64, id: &str, topic: &str) -> Cmd<Q> {
@@ -230,13 +230,15 @@ struct State<Q: Queue> {
     index: HashMap<String, Targets<Q::Sub>>,
     dropped: u64,
     kicked: u64,
+    receipts: u64,
 }
 
 impl<Q: Queue> Mini<Q> {
     fn spawn() -> Self {
         let (commands, mut inbox) = mpsc::channel(1024);
         tokio::spawn(async move {
-            let mut state = State::<Q> { clients: HashMap::new(), index: HashMap::new(), dropped: 0, kicked: 0 };
+            let mut state =
+                State::<Q> { clients: HashMap::new(), index: HashMap::new(), dropped: 0, kicked: 0, receipts: 0 };
             while let Some(command) = inbox.recv().await {
                 match command {
                     Cmd::Connect(conn, queue) => {
@@ -246,7 +248,7 @@ impl<Q: Queue> Mini<Q> {
                     Cmd::Unsubscribe { conn, id, receipt } => state.unsubscribe(conn, &id, receipt),
                     Cmd::Publish(topic, body) => state.publish(&topic, body),
                     Cmd::Counts(reply) => {
-                        let _ = reply.send((state.dropped, state.kicked));
+                        let _ = reply.send((state.dropped, state.kicked, state.receipts));
                     }
                 }
             }
@@ -262,8 +264,8 @@ impl<Q: Queue> Mini<Q> {
         let _ = self.0.blocking_send(command);
     }
 
-    // 앞서 보낸 명령을 hub가 다 처리한 뒤에 돌아온다. (버린 MESSAGE 수, 끊은 연결 수)
-    async fn counts(&self) -> (u64, u64) {
+    // 앞서 보낸 명령을 hub가 다 처리한 뒤에 돌아온다. (버린 MESSAGE 수, 끊은 연결 수, 큐에 넣은 RECEIPT 수)
+    async fn counts(&self) -> (u64, u64, u64) {
         let (reply, counts) = oneshot::channel();
         self.send(Cmd::Counts(reply)).await;
         counts.await.expect("hub가 돌고 있다")
@@ -310,11 +312,18 @@ impl<Q: Queue> State<Q> {
         }
     }
 
+    // 축소판의 제어 프레임은 RECEIPT뿐이다. 고리는 자리를 내려고 MESSAGE를 버릴 수 있다.
     fn control(&mut self, conn: u64, item: Outgoing) {
         let Some(client) = self.clients.get(&conn) else { return };
-        if let Push::Full = client.queue.push(item, None) {
-            self.kick(conn);
+        match client.queue.push(item, None) {
+            Push::Full => {
+                self.kick(conn);
+                return;
+            }
+            Push::Dropped => self.dropped += 1,
+            Push::Queued => {}
         }
+        self.receipts += 1;
     }
 
     fn kick(&mut self, conn: u64) {
@@ -680,7 +689,8 @@ struct Instance<'a> {
 
 // 명령 순서대로 구독을 다시 세우고, 받은 프레임이 그 구독의 규칙을 지키는지 본다.
 // 끝까지 살아 있는 최신 우선 구독 중 마지막 발행분을 받지 못한 수와 그런 구독의 수를 돌려준다.
-fn verify(log: &[Step], seen: &[Seen], kicked: bool) -> (u64, u64) {
+// accepted는 hub가 큐에 넣은 log의 RECEIPT 수다.
+fn verify(log: &[Step], seen: &[Seen], kicked: bool, accepted: usize) -> (u64, u64) {
     let mut instances: Vec<Instance> = Vec::new();
     let (mut active, mut owner, mut receipts) = ([None; 3], HashMap::new(), Vec::new());
     for step in log {
@@ -726,8 +736,8 @@ fn verify(log: &[Step], seen: &[Seen], kicked: bool) -> (u64, u64) {
             }
         }
     }
-    // 끊긴 연결은 그 앞까지만 받는다.
-    assert!(receipts.starts_with(&delivered) && (kicked || receipts.len() == delivered.len()), "불변식 3: RECEIPT");
+    // 끊긴 연결도 큐가 받아 둔 RECEIPT는 모두 받는다. 끊긴 뒤의 요청은 처리하지 않으므로 그 RECEIPT는 기대하지 않는다.
+    assert_eq!(delivered, receipts[..accepted], "불변식 3: RECEIPT");
     let (mut stale, mut checked) = (0, 0);
     for instance in &instances {
         if !kicked && !MIXED[instance.topic].starts_with(LATEST_FIRST) {
@@ -775,8 +785,10 @@ async fn check<Q: Queue>(name: &str, rounds: u32, steps: u64) {
         }
         hub.send(Cmd::Unsubscribe { conn: 0, id: "end".into(), receipt: Some("end".into()) }).await;
         let seen = consumer.await.expect("검사 수신 태스크");
-        let (round_dropped, round_kicked) = hub.counts().await;
-        let (round_stale, round_checked) = verify(&log, &seen, round_kicked > 0);
+        let (round_dropped, round_kicked, accepted) = hub.counts().await;
+        // 끊기지 않았으면 마지막 "end"도 큐에 들어갔다. 수신 태스크는 "end"를 목록에 넣지 않는다.
+        let accepted = accepted - u64::from(round_kicked == 0);
+        let (round_stale, round_checked) = verify(&log, &seen, round_kicked > 0, accepted as usize);
         kicked_rounds += u64::from(round_kicked > 0);
         frames += seen.len();
         dropped += round_dropped;
