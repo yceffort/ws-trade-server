@@ -71,6 +71,8 @@ impl State {
     }
 
     pub(super) fn publish(&mut self, topic: &str, body: Arc<str>) {
+        // 구독자마다 시계를 읽지 않도록 발행마다 한 번만 읽는다.
+        let published = Instant::now();
         self.published += 1;
         self.cache.record(topic, body.clone());
         let Some(targets) = self.index.get(topic) else {
@@ -85,18 +87,18 @@ impl State {
                 continue;
             }
             let message = match slot {
-                None => Outgoing::Message { subscription: id.clone(), body: body.clone() },
+                None => Outgoing::Message { subscription: id.clone(), body: body.clone(), published },
                 Some(slot) => {
                     // 칸이 차 있으면 그 표지가 아직 큐에 있다. 깊이가 K 아래로 내려갔어도 일반 MESSAGE로 넣으면
                     // 표지가 더 새 값을 먼저 내보내고 그 뒤에 더 오래된 MESSAGE가 나가므로 값만 바꾼다.
-                    if slot.replace(&body) {
+                    if slot.replace(&body, published) {
                         self.latest_skipped += 1;
                         continue;
                     }
                     if client.queue.max_capacity() - client.queue.capacity() < self.latest_first_depth {
-                        Outgoing::Message { subscription: id.clone(), body: body.clone() }
+                        Outgoing::Message { subscription: id.clone(), body: body.clone(), published }
                     } else {
-                        slot.fill(body.clone());
+                        slot.fill(body.clone(), published);
                         Outgoing::Latest { subscription: id.clone(), slot: slot.clone() }
                     }
                 }

@@ -1,6 +1,8 @@
 use crate::hub::Outgoing;
+use crate::metrics::Counters;
 use crate::stomp;
 use futures_util::{Sink, SinkExt};
+use std::time::Instant;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -16,10 +18,13 @@ pub(super) async fn write<W>(
     outgoing: &mut mpsc::Receiver<Outgoing>,
     connection_id: &str,
     seq: &mut u64,
+    counters: &Counters,
 ) -> Result<(), &'static str>
 where
     W: Sink<Message> + Unpin,
 {
+    // 묶음의 항목은 모두 이 시각 무렵 큐에서 꺼낸다. 시계는 묶음마다 처음과 끝에 한 번씩만 읽는다.
+    let started = Instant::now();
     let mut next = Some(first);
     let mut buffered = 0;
     while let Some(item) = next.take() {
@@ -32,16 +37,18 @@ where
             }
             Outgoing::Receipt { receipt_id, message } => stomp::receipt(&receipt_id, message),
             Outgoing::Denied { receipt_id, code } => stomp::denied(&receipt_id, code),
-            Outgoing::Message { subscription, body } => {
+            Outgoing::Message { subscription, body, published } => {
+                counters.queue_wait.observe(started.saturating_duration_since(published));
                 *seq += 1;
                 stomp::message(&format!("{connection_id}-{seq}"), &subscription, &body)
             }
             Outgoing::Latest { subscription, slot } => {
                 // 표지는 칸이 비어 있다가 채워질 때만 하나 들어가므로 칸은 비어 있지 않다. 비어 있으면 보낼 것도 순번도 없다.
-                let Some(body) = slot.take() else {
+                let Some((body, published)) = slot.take() else {
                     next = outgoing.try_recv().ok();
                     continue;
                 };
+                counters.queue_wait.observe(started.saturating_duration_since(published));
                 *seq += 1;
                 stomp::message(&format!("{connection_id}-{seq}"), &subscription, &body)
             }
@@ -53,7 +60,9 @@ where
             next = outgoing.try_recv().ok();
         }
     }
-    writer.flush().await.map_err(|_| "write_error")
+    writer.flush().await.map_err(|_| "write_error")?;
+    counters.socket_write.observe(started.elapsed());
+    Ok(())
 }
 
 #[cfg(test)]
@@ -103,15 +112,37 @@ mod tests {
     }
 
     fn message(body: &str) -> Outgoing {
-        Outgoing::Message { subscription: "0".into(), body: body.into() }
+        Outgoing::Message { subscription: "0".into(), body: body.into(), published: Instant::now() }
     }
 
     fn latest(body: Option<&str>) -> Outgoing {
         let slot = Arc::new(Slot::default());
         if let Some(body) = body {
-            slot.fill(body.into());
+            slot.fill(body.into(), Instant::now());
         }
         Outgoing::Latest { subscription: "0".into(), slot }
+    }
+
+    // 30ms 전에 발행된 두 건과 방금 발행된 한 건을 한 묶음으로 쓴다.
+    #[tokio::test]
+    async fn a_batch_records_each_message_wait_and_one_socket_write() {
+        let earlier = Instant::now() - std::time::Duration::from_millis(30);
+        let slot = Arc::new(Slot::default());
+        slot.fill("b".into(), earlier);
+        let mut outgoing = queue_of(vec![
+            Outgoing::Message { subscription: "0".into(), body: "a".into(), published: earlier },
+            Outgoing::Latest { subscription: "0".into(), slot },
+            message("c"),
+        ]);
+        let (mut socket, mut seq, counters) = (Recorder::default(), 0, Counters::default());
+        let first = outgoing.recv().await.unwrap();
+        write(&mut socket, first, &mut outgoing, "conn", &mut seq, &counters).await.unwrap();
+        let mut text = String::new();
+        counters.queue_wait.write(&mut text, "wait");
+        counters.socket_write.write(&mut text, "write");
+        assert!(text.contains("wait_bucket{le=\"0.025\"} 1\n"), "{text}");
+        assert!(text.contains("wait_bucket{le=\"0.05\"} 3\n"), "{text}");
+        assert!(text.contains("wait_count 3\n") && text.contains("write_count 1\n"), "{text}");
     }
 
     fn message_ids(socket: &Recorder) -> Vec<&str> {
@@ -127,7 +158,7 @@ mod tests {
         let mut outgoing = queue_of(vec![message("a"), message("b"), message("c")]);
         let (mut socket, mut seq) = (Recorder::default(), 0);
         let first = outgoing.recv().await.unwrap();
-        write(&mut socket, first, &mut outgoing, "conn", &mut seq).await.unwrap();
+        write(&mut socket, first, &mut outgoing, "conn", &mut seq, &Counters::default()).await.unwrap();
         assert_eq!(message_ids(&socket), ["conn-1", "conn-2", "conn-3"]);
         assert_eq!(socket.flushes, 1);
     }
@@ -138,7 +169,7 @@ mod tests {
         let mut outgoing = queue_of(vec![message("a"), latest(Some("b")), latest(None), message("c")]);
         let (mut socket, mut seq) = (Recorder::default(), 0);
         let first = outgoing.recv().await.unwrap();
-        write(&mut socket, first, &mut outgoing, "conn", &mut seq).await.unwrap();
+        write(&mut socket, first, &mut outgoing, "conn", &mut seq, &Counters::default()).await.unwrap();
         assert_eq!(message_ids(&socket), ["conn-1", "conn-2", "conn-3"]);
         let bodies: Vec<_> = socket.frames.iter().map(|frame| frame.rsplit_once("\n\n").unwrap().1).collect();
         assert_eq!(bodies, ["a\0", "b\0", "c\0"]);
@@ -150,7 +181,7 @@ mod tests {
         let mut outgoing = queue_of((0..MAX_BATCH + 2).map(|_| message("x")).collect());
         let (mut socket, mut seq) = (Recorder::default(), 0);
         let first = outgoing.recv().await.unwrap();
-        write(&mut socket, first, &mut outgoing, "conn", &mut seq).await.unwrap();
+        write(&mut socket, first, &mut outgoing, "conn", &mut seq, &Counters::default()).await.unwrap();
         assert_eq!((socket.frames.len(), socket.flushes, outgoing.len()), (MAX_BATCH, 1, 2));
     }
 
@@ -159,7 +190,7 @@ mod tests {
         let mut outgoing = queue_of(vec![message("a"), Outgoing::Error("too-many-subscriptions"), message("b")]);
         let (mut socket, mut seq) = (Recorder::default(), 0);
         let first = outgoing.recv().await.unwrap();
-        let result = write(&mut socket, first, &mut outgoing, "conn", &mut seq).await;
+        let result = write(&mut socket, first, &mut outgoing, "conn", &mut seq, &Counters::default()).await;
         assert_eq!(result, Err("too-many-subscriptions"));
         assert_eq!(message_ids(&socket), ["conn-1"]);
         assert!(socket.frames[1].starts_with("ERROR\n"), "{:?}", socket.frames);
@@ -172,7 +203,7 @@ mod tests {
         let mut outgoing = queue_of(vec![message("a"), Outgoing::Error("too-many-subscriptions")]);
         let (mut socket, mut seq) = (Recorder { broken: true, ..Recorder::default() }, 0);
         let first = outgoing.recv().await.unwrap();
-        let result = write(&mut socket, first, &mut outgoing, "conn", &mut seq).await;
+        let result = write(&mut socket, first, &mut outgoing, "conn", &mut seq, &Counters::default()).await;
         assert_eq!(result, Err("write_error"));
         assert_eq!(socket.frames.len(), 1, "쓰기가 실패한 소켓에 오류 통지를 더 쌓지 않는다");
     }

@@ -16,17 +16,20 @@ async fn get(addr: std::net::SocketAddr, path: &str) -> (String, String) {
     (head.into(), body.into())
 }
 
-// 표본 줄만 남긴다. 이름은 wts_ 접두사와 소문자, label은 reason 하나뿐이어야 한다.
+// 표본 줄만 남긴다. 이름은 wts_ 접두사와 소문자, label은 reason이나 histogram 경계(le) 하나뿐이어야 한다.
 fn samples(text: &str) -> Vec<(&str, &str)> {
     text.lines()
         .filter(|line| !line.starts_with('#'))
         .map(|line| {
             let (series, value) = line.split_once(' ').unwrap();
-            let name = series.split_once("{reason=\"").map_or(series, |(name, label)| {
-                assert!(
-                    label.ends_with("\"}")
-                        && label[..label.len() - 2].bytes().all(|b| b.is_ascii_lowercase() || b == b'_' || b == b'-')
-                );
+            let name = series.split_once('{').map_or(series, |(name, label)| {
+                match label.strip_suffix("\"}").and_then(|label| label.split_once("=\"")) {
+                    Some(("reason", reason)) => {
+                        assert!(reason.bytes().all(|b| b.is_ascii_lowercase() || b == b'_' || b == b'-'), "{line}")
+                    }
+                    Some(("le", bound)) => assert!(bound == "+Inf" || bound.parse::<f64>().is_ok(), "{line}"),
+                    _ => panic!("{line}"),
+                }
                 name
             });
             assert!(name.starts_with("wts_") && name.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'), "{line}");
@@ -141,13 +144,59 @@ async fn prometheus_counts_fixed_close_and_rejection_reasons_without_growing_ser
     .unwrap();
     assert_eq!(samples(&after).len(), samples(&before).len());
     let families: Vec<&str> = after.lines().filter_map(|line| line.strip_prefix("# TYPE ")).collect();
+    let histogram = |base: &str| families.iter().any(|family| *family == format!("{base} histogram"));
     for (series, _) in samples(&after) {
         let name = series.split('{').next().unwrap();
-        assert_eq!(families.iter().filter(|family| family.split(' ').next() == Some(name)).count(), 1, "{name}");
+        let family = ["_bucket", "_sum", "_count"]
+            .iter()
+            .find_map(|suffix| name.strip_suffix(suffix))
+            .filter(|base| histogram(base));
+        let family = family.unwrap_or(name);
+        assert_eq!(families.iter().filter(|line| line.split(' ').next() == Some(family)).count(), 1, "{name}");
     }
     let (_, json) = get(http, "/metrics").await;
     for key in serde_json::from_str::<serde_json::Value>(&json).unwrap().as_object().unwrap().keys() {
         assert!(samples(&after).iter().any(|(series, _)| *series == format!("wts_{key}")), "{key}");
     }
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn delivered_messages_fill_cumulative_wait_and_write_histograms() {
+    let server = start_managed(Config {
+        addr: "127.0.0.1:0".into(),
+        http_addr: Some("127.0.0.1:0".into()),
+        ..Config::default()
+    })
+    .await
+    .unwrap();
+    let (http, addr) = (server.http_addr.unwrap(), server.addr.to_string());
+    let mut reader = client::connect_stomp(&addr, "reader").await;
+    client::subscribe(&mut reader, "0", client::KR).await;
+    for n in 0..3 {
+        server.hub.publish(client::KR.into(), format!("{n}").into()).await;
+        assert_eq!(client::recv_frame(&mut reader).await.command, "MESSAGE");
+    }
+    let (_, text) = get(http, "/prometheus").await;
+    for name in ["wts_queue_wait_seconds", "wts_socket_write_seconds"] {
+        let buckets: Vec<u64> = samples(&text)
+            .iter()
+            .filter(|(series, _)| series.starts_with(&format!("{name}_bucket{{")))
+            .map(|(_, value)| value.parse().unwrap())
+            .collect();
+        assert!(buckets.windows(2).all(|pair| pair[0] <= pair[1]), "{name} {buckets:?}");
+        let count = samples(&text).iter().find(|(series, _)| *series == format!("{name}_count")).unwrap().1;
+        assert_eq!(buckets.last().unwrap().to_string(), count, "{name}");
+    }
+    // MESSAGE 세 건이 각각 한 번씩 큐 대기로 잡힌다. 소켓 쓰기는 RECEIPT를 포함한 묶음 수라 세 번 이상이다.
+    assert!(samples(&text).contains(&("wts_queue_wait_seconds_count", "3")));
+    let writes: u64 = samples(&text)
+        .iter()
+        .find(|(series, _)| *series == "wts_socket_write_seconds_count")
+        .unwrap()
+        .1
+        .parse()
+        .unwrap();
+    assert!(writes >= 3);
     server.shutdown().await;
 }
