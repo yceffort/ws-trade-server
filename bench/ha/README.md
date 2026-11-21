@@ -74,7 +74,7 @@ kind 전용 장애 도구는 부하 Pod가 없는 gateway worker만 골라 PDB�
 
 외부 LB를 시험할 때는 `urls`와 함께 `externalEgress: [{"cidr":"198.51.100.10/32","port":443}]`처럼 실제 LB 목적지 CIDR과 TCP 포트를 지정한다. DNS 이름의 주소가 여러 개이거나 바뀌면 허용 CIDR도 함께 관리한다. 내부 gateway 8443과 broker 9092 규칙은 유지하며 외부 목적지를 자동으로 전체 허용하지 않는다.
 
-배포 드라이버는 각 slot을 변경하기 전에 `phase=begin`과 고유 `window`를 oracle에 전달하고 워커의 측정 시작 응답을 기다린다. 검증에는 해당 window에서 시작한 계획 재접속만 포함한다. 이전 slot과 배포 전 재접속은 제외하며, 표본이 없으면 `not-measured`로 실패한다. 재시작은 journal의 window를 그대로 사용한다. 측정기가 교체되어 이전 표본을 잃었다면 재접속 SLO를 복원했다고 간주하지 않는다. 장애 표시는 해당 action 시작부터 committed 적용 복구 확인까지 유지하고 그 뒤 해제한다.
+배포 드라이버는 각 slot을 변경하기 전에 `phase=begin`과 고유 `window`를 oracle에 전달하고 워커의 측정 시작 응답을 기다린다. 검증에는 해당 window에서 시작한 계획 재접속만 포함한다. 이전 slot과 배포 전 재접속은 제외하며, 표본이 없으면 `not-measured`로 실패한다. 재시작은 journal의 window 식별자와 측정기에 이미 수집된 표본을 재사용한다. 오류/중단 시 `cancel`은 활성 측정만 해제하며 기존 표본은 삭제하지 않는다. 취소 이후에 시작한 재접속은 해당 window의 표본이 아니므로, 취소 구간에서 교체가 끝났다면 같은 plan을 재개해도 `not-measured`로 실패할 수 있다. 드라이버는 표본을 만들기 위해 이미 교체한 Pod를 다시 변경하지 않는다. 해당 slot을 검증할 표본이 없으면 다음 slot을 진행하지 말고 호환성을 확인한 이전 버전으로 rollback한 뒤 새 배포 시험을 수행한다. 측정기가 교체되어 이전 표본을 잃은 경우도 같다. 장애 표시는 해당 action 시작부터 committed 적용 복구 확인까지 유지하고 그 뒤 해제한다.
 
 `measured_targets_met`는 1,000 clients와 10분 이상, 계획 재접속 p99 5초 이하, forward/rollback 각각 3개 slot 검증, feed 장애 주입부터 새 committed status까지 30초 이하가 모두 측정된 경우에만 참이다. 하나라도 측정하지 않은 개별 기능 시험은 이 값을 참으로 기록하지 않는다. 운영 SLO 입증은 별도의 외부 환경 검토가 필요하다.
 

@@ -67,11 +67,28 @@ for(const overlap of [null,'rollout-first','fault-first'])test(`control windows 
     writeFileSync(outage,'temporary broker interruption')
     const verified=await call('/verify',first)
     assert.equal(verified.ok,true);assert.equal(verified.reconnect_samples,1)
+    assert.equal((await call('/begin',first)).ok,true)
+    assert.equal((await call('/cancel',first)).ok,true)
+    assert.equal((await call('/begin',first)).ok,true)
+    assert.equal((await call('/verify',first)).reconnect_samples,1)
     const second={...first,window:'b',slot:'wts-gateway-b',nonce:'second'}
     assert.equal((await call('/verify',second)).ok,false)
     assert.equal((await call('/begin',second)).ok,true)
     const empty=await call('/verify',second)
     assert.equal(empty.ok,false);assert.equal(empty.reconnect_slo_status,'not-measured')
+    assert.equal((await call('/begin',second)).ok,true)
+    assert.equal((await call('/cancel',second)).ok,true)
+    for(const socket of server.clients)socket.terminate()
+    for(let i=0;i<100&&connections<3;i++)await delay(20)
+    let resumed
+    for(let i=0;i<100;i++){
+      resumed=await call('/begin',second)
+      if(resumed.ok)break
+      await delay(20)
+    }
+    assert.equal(resumed.ok,true)
+    const unmeasured=await call('/verify',second)
+    assert.equal(unmeasured.ok,false);assert.equal(unmeasured.reconnect_slo_status,'not-measured')
     const third={...first,window:'third'}
     assert.equal((await call('/begin',third)).ok,true)
     writeFileSync(broken,'1')
