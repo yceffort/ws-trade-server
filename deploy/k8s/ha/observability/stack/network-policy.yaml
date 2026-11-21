@@ -1,0 +1,40 @@
+# 들어오는 연결은 기본 거부하고 스택 안의 경로만 연다. Grafana에는 Service로 들어오는 경로가 없고 port-forward로만 연다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: default-deny-ingress }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: loki-ingress }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/component: loki } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/component: alloy } }
+        - podSelector: { matchLabels: { app.kubernetes.io/component: grafana } }
+        - podSelector: { matchLabels: { app.kubernetes.io/component: prometheus } }
+      ports: [{ protocol: TCP, port: 3100 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: prometheus-ingress }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/component: prometheus } }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ podSelector: { matchLabels: { app.kubernetes.io/component: grafana } } }]
+      ports: [{ protocol: TCP, port: 9090 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: alloy-ingress }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/component: alloy } }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ podSelector: { matchLabels: { app.kubernetes.io/component: prometheus } } }]
+      ports: [{ protocol: TCP, port: 12345 }]

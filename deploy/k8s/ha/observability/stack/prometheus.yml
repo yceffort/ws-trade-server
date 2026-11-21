@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 5s
+rule_files:
+  - /etc/prometheus/prometheus-rules.yaml
+# HA gateway 수집 설정은 기존 scrape.yaml을 그대로 읽는다.
+scrape_config_files:
+  - /etc/prometheus/scrape.yaml
+scrape_configs:
+  # 수집기 자체의 전송 실패(Alloy의 loki_write_*)와 Loki의 수신 상태를 본다.
+  - job_name: wts-observability
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces: { own_namespace: true }
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_part_of, __meta_kubernetes_endpoint_port_name]
+        regex: wts-observability;metrics
+        action: keep
+      - source_labels: [__meta_kubernetes_service_name]
+        target_label: service

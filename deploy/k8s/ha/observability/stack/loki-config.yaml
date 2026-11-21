@@ -1,0 +1,48 @@
+# 단일 프로세스, 파일시스템 저장소의 개발용 설정이다. 복제와 객체 저장소는 쓰지 않는다.
+auth_enabled: false
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9095
+  log_level: warn
+common:
+  path_prefix: /var/loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: /var/loki/chunks
+      rules_directory: /var/loki/rules
+schema_config:
+  configs:
+    - from: 2026-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+# 72시간 보존과 수신 한도. 한도를 넘는 push는 거절되고 Alloy의 loki_write_dropped_entries_total로 드러난다.
+limits_config:
+  retention_period: 72h
+  ingestion_rate_mb: 4
+  ingestion_burst_size_mb: 8
+  per_stream_rate_limit: 1MB
+  per_stream_rate_limit_burst: 4MB
+  max_label_names_per_series: 10
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  allow_structured_metadata: true
+  # label은 Alloy가 정한 것만 둔다. container와 같은 값의 service_name을 자동으로 만들지 않는다.
+  discover_service_name: []
+# WAL 재생이 컨테이너 한도(512Mi)를 넘기 전에 flush하도록 상한을 그 75% 아래로 둔다. 기본값은 4GB다.
+ingester:
+  wal:
+    replay_memory_ceiling: 384MB
+compactor:
+  working_directory: /var/loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+analytics:
+  reporting_enabled: false
