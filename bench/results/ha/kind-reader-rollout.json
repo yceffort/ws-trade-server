@@ -1,0 +1,85 @@
+{
+  "ok": false,
+  "production_slo_proven": false,
+  "same_binary_version_rollout": true,
+  "states": {
+    "forward": {
+      "completed": 1,
+      "rollback": false,
+      "steps": [
+        {
+          "name": "wts-gateway-a",
+          "phase": "verified",
+          "report": {
+            "planHash": "98b90ca7652e959e206625d992993085db6d1dfc9486008a9823642b0d764afc",
+            "slot": "wts-gateway-a",
+            "nonce": "432c5a19-a24d-4d5c-9276-4b3ca3bc6a73",
+            "pods": [
+              {
+                "uid": "5b68e23d-b0c6-49ed-b5bc-f9b9a5bd26ae",
+                "name": "wts-gateway-a-557d7cf86-rqhmp",
+                "node": "wts-ha-issue52-worker"
+              },
+              {
+                "uid": "3887bfd3-dd6c-4725-82c7-fa24b4268143",
+                "name": "wts-gateway-b-7856665ccd-b2cjm",
+                "node": "wts-ha-issue52-worker3"
+              },
+              {
+                "uid": "ddbc5b8a-8e36-4376-9558-0b3ef71b1027",
+                "name": "wts-gateway-c-7b958759bd-72qzv",
+                "node": "wts-ha-issue52-worker6"
+              }
+            ],
+            "rollback": false,
+            "ok": true,
+            "committed_missing": 0,
+            "duplicate_applies": 0,
+            "comparison": {
+              "ok": true,
+              "clients": 1000,
+              "committed_events": 13840,
+              "failures": []
+            },
+            "reconnect_samples": 331,
+            "reconnect_p99_ms": 2797.041996,
+            "recovery_from_fault_p99_ms": null,
+            "client_event_loop_p99_ms": 119.209983,
+            "verified_through": "587679"
+          }
+        },
+        {
+          "name": "wts-gateway-b",
+          "phase": "patched",
+          "report": null
+        },
+        {
+          "name": "wts-gateway-c",
+          "phase": "pending",
+          "report": null
+        }
+      ]
+    },
+    "rollback": {
+      "completed": 0,
+      "rollback": true,
+      "steps": [
+        {
+          "name": "wts-gateway-b",
+          "phase": "patched",
+          "report": null
+        },
+        {
+          "name": "wts-gateway-a",
+          "phase": "pending",
+          "report": null
+        },
+        {
+          "name": "wts-gateway-c",
+          "phase": "pending",
+          "report": null
+        }
+      ]
+    }
+  }
+}

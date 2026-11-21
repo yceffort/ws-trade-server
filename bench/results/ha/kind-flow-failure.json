@@ -1,0 +1,75 @@
+{
+  "ok": false,
+  "reason": "clients did not apply the committed verification boundary",
+  "clients": 1000,
+  "ready": 942,
+  "failures": [
+    {
+      "type": "failed",
+      "client": 421,
+      "reason": "client-apply-failed"
+    },
+    {
+      "type": "failed",
+      "client": 17,
+      "reason": "client-apply-failed"
+    },
+    {
+      "type": "failed",
+      "client": 69,
+      "reason": "client-apply-failed"
+    },
+    {
+      "type": "failed",
+      "client": 181,
+      "reason": "client-apply-failed"
+    },
+    {
+      "type": "failed",
+      "client": 633,
+      "reason": "client-apply-failed"
+    },
+    {
+      "type": "failed",
+      "client": 765,
+      "reason": "client-apply-failed"
+    },
+    {
+      "type": "failed",
+      "client": 465,
+      "reason": "client-apply-failed"
+    },
+    {
+      "type": "failed",
+      "client": 509,
+      "reason": "client-apply-failed"
+    },
+    {
+      "type": "failed",
+      "client": 505,
+      "reason": "client-apply-failed"
+    },
+    {
+      "type": "failed",
+      "client": 349,
+      "reason": "client-apply-failed"
+    }
+  ],
+  "diagnostics": {
+    "clients": 1000,
+    "caught_up": 942,
+    "failures": 10,
+    "minimum_offset": "915710",
+    "maximum_offset": "918966",
+    "reasons": {
+      "connection-closed": 881,
+      "receive-deadline": 92,
+      "other": 10
+    },
+    "client_event_loop_p99_ms": 683.147263,
+    "client_event_loop_max_ms": 1583.349759
+  },
+  "actions": [],
+  "rollout_verifications": [],
+  "production_slo_proven": false
+}

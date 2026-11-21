@@ -1,6 +1,8 @@
 mod cache;
 mod metrics;
 use crate::metrics::{BridgeCounters, Metrics};
+#[cfg(feature = "ha")]
+mod replica;
 mod state;
 use crate::limits::{Limits, Rate};
 use crate::source::{AppliedRecord, Input, InputError, Publication};
@@ -45,6 +47,8 @@ impl Slot {
 }
 
 enum Command {
+    #[cfg(feature = "ha")]
+    Replica(Box<replica::Command>),
     #[cfg(test)]
     Pause {
         entered: oneshot::Sender<()>,
@@ -83,6 +87,8 @@ enum Command {
 pub struct Hub {
     commands: mpsc::Sender<Command>,
     log_drops: Arc<AtomicU64>,
+    #[cfg(feature = "ha")]
+    replica_status: tokio::sync::watch::Receiver<Option<crate::ha::ReplicaView>>,
     pub(crate) bridge: Arc<BridgeCounters>,
 }
 
@@ -105,6 +111,10 @@ struct Target {
 
 #[derive(Default)]
 struct State {
+    #[cfg(feature = "ha")]
+    replica: Option<crate::ha::Replica>,
+    #[cfg(feature = "ha")]
+    live: crate::ha::LiveSubscribers,
     limits: Limits,
     log_drops: Arc<AtomicU64>,
     bridge: Arc<BridgeCounters>,
@@ -150,6 +160,8 @@ impl Hub {
         latest_first_depth: usize,
     ) -> Hub {
         let (commands, mut inbox) = mpsc::channel(1024);
+        #[cfg(feature = "ha")]
+        let (replica_status_sender, replica_status) = tokio::sync::watch::channel(None);
         let bridge = Arc::new(BridgeCounters::default());
         let counters = bridge.clone();
         let log_drops = Arc::new(AtomicU64::new(0));
@@ -166,6 +178,11 @@ impl Hub {
             };
             while let Some(command) = inbox.recv().await {
                 match command {
+                    #[cfg(feature = "ha")]
+                    Command::Replica(command) => {
+                        state.replica(*command);
+                        replica_status_sender.send_replace(state.replica.as_ref().map(crate::ha::Replica::view));
+                    }
                     #[cfg(test)]
                     Command::Pause { entered, resume } => {
                         let _ = entered.send(());
@@ -202,6 +219,12 @@ impl Hub {
                         let _ = reply.send(state.cache.json());
                     }
                     Command::Publish { publication, reply } => {
+                        #[cfg(feature = "ha")]
+                        if state.replica.is_some() {
+                            // 복제 상태를 일반 publish로 우회하면 offset과 cache가 어긋난다.
+                            drop(reply);
+                            continue;
+                        }
                         state.publish(&publication.topic, publication.body);
                         if let Some(reply) = reply {
                             let _ = reply.send(publication.record);
@@ -210,7 +233,13 @@ impl Hub {
                 }
             }
         });
-        Hub { commands, bridge, log_drops }
+        Hub {
+            commands,
+            bridge,
+            log_drops,
+            #[cfg(feature = "ha")]
+            replica_status,
+        }
     }
 
     pub async fn connect(

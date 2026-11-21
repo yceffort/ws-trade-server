@@ -1,0 +1,45 @@
+{
+  "ok": false,
+  "reason": "initial client catchup failed",
+  "clients": 1000,
+  "ready": 245,
+  "log_id": "ha-v1",
+  "range_start": "1261565",
+  "failures": [],
+  "diagnostics": {
+    "clients": 1000,
+    "caught_up": 245,
+    "failures": 0,
+    "minimum_offset": "1261830",
+    "maximum_offset": "1268391",
+    "reasons": {
+      "connection-error": 861,
+      "source-stale": 14,
+      "receive-deadline": 25
+    },
+    "client_event_loop_p99_ms": 240.910335,
+    "client_event_loop_max_ms": 904.396799
+  },
+  "actions": [],
+  "rollout_verifications": [],
+  "production_slo_proven": false,
+  "environment": {
+    "kind": "single-host-kind-Service-TLS",
+    "physical_domains_verified": false,
+    "external_lb_verified": false,
+    "code_commit": "2d5fb98cda96c97cc7c437ade6db9650726369c1",
+    "images": {
+      "ws-trade-ha:issue53-final-head": "docker.io/library/ws-trade-ha@sha256:d013859fd4717437ab75846213da315d3e54bbafd8d56fa7b515760779da6307",
+      "ws-trade-edge:issue53-final-head": "docker.io/library/ws-trade-edge@sha256:dc9c9823a3fe11d8d8be8eece287fd8746cee6e58d9348a1b9c64232439dee87",
+      "ws-trade-ha-load:issue53-final-head": "docker.io/library/ws-trade-ha-load@sha256:1de2cc48897b72d2bd9b1da093377169be44f4d0a0be7ae31faa2ef9af798ca1"
+    }
+  },
+  "requested": {
+    "clients": 1000,
+    "workers": 8,
+    "durationSeconds": 900,
+    "startupIntervalMs": 5,
+    "recoveryDeadlineMs": 60000,
+    "requireReconnectSlo": true
+  }
+}

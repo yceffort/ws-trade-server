@@ -18,11 +18,11 @@ assert_eq!(applied.envelope.source_seq(), 42);
 assert_eq!(applied.position.offset(), 100);
 ```
 
-이 코드는 호출 형태를 설명하는 조각이다. source sequence는 원본 제공자가 지정한 안정적인 순번이며 `Trade.seq`, broker offset, 연결별 STOMP message-id와 다르다. 호출자는 재시도 때 같은 event를 유지해야 한다. 생성자의 원본 순번과 수신 시각은 SourceSeq와 ReceivedAtMs로 구분한다. runtime에서 broker 입력을 선택하는 CLI 및 consumer 수명 관리는 #47의 후속 작업이다.
+이 코드는 호출 형태를 설명하는 조각이다. source sequence는 원본 제공자가 지정한 안정적인 순번이며 `Trade.seq`, broker offset, 연결별 STOMP message-id와 다르다. 호출자는 재시도 때 같은 event를 유지해야 한다. 생성자의 원본 순번과 수신 시각은 SourceSeq와 ReceivedAtMs로 구분한다. producer CLI와 Kafka reader는 [#47 복제 로그](../deploy/ha/README.md)에 구현했다. [gateway 입력 선택과 consumer 수명 관리](ha-gateway.md)는 #48에서 연결했다.
 
 ## 식별자와 직렬화
 
-source_id는 provider namespace와 stream ID를 묶는다. log_id, namespace, stream, epoch는 각각 1~96자의 ASCII 영문자, 숫자, 점, 밑줄, 하이픈만 허용한다. event_id는 `provider/stream/epoch/source_seq`이며 구성 요소에 `/`가 없으므로 경계가 모호하지 않다. 다른 제공자의 같은 원본 순번도 서로 다른 이벤트가 된다. 최초 설정은 제공자당 stream 하나이며 BrokerAdapter 생성 시 중복 provider namespace를 거절한다. 설정 객체의 식별자는 생성 후 변경할 수 없다. 영구 namespace 할당 및 checkpoint와의 대조는 producer를 구현하는 #47에서 완성한다.
+source_id는 provider namespace와 stream ID를 묶는다. log_id, namespace, stream, epoch는 각각 1~96자의 ASCII 영문자, 숫자, 점, 밑줄, 하이픈만 허용한다. event_id는 `provider/stream/epoch/source_seq`이며 구성 요소에 `/`가 없으므로 경계가 모호하지 않다. 다른 제공자의 같은 원본 순번도 서로 다른 이벤트가 된다. 최초 설정은 제공자당 stream 하나이며 BrokerAdapter 생성 시 중복 provider namespace를 거절한다. 설정 객체의 식별자는 생성 후 변경할 수 없다. 영구 namespace와 checkpoint의 대조는 #47의 Publisher에서 수행한다.
 
 envelope JSON은 schema_version 1, log_id, source_id, source_epoch, source_seq, event_id, received_at_ms, trade를 가진다. source_seq와 received_at_ms는 십진 문자열이다. trade는 기존 `proto/feed.proto`의 Trade를 인코딩한 byte 배열이므로 원본 숫자를 JSON 부동소수점으로 바꾸지 않는다. 입력 bytes는 알 수 없는 protobuf 필드까지 그대로 보존하며, 디코딩한 값은 검증과 기존 본문 렌더링에 사용한다. 기존 protobuf 스키마와 `/ws` 본문은 바꾸지 않는다. 원본 체결 발생 시각은 Trade.traded_at_ms에 있다.
 
@@ -40,4 +40,4 @@ JSON 숫자로 보낸 sequence/offset, 부호, 앞자리 0, overflow, 지원하�
 
 ## 남은 HA 작업
 
-이 단계는 복제 로그, transaction/fencing, sequence 공백 및 중복 검증, durable checkpoint를 제공하지 않는다. Kafka producer/consumer와 이 보장은 #47, snapshot 복원과 전체 fan-out은 #48, 재접속 cursor는 #49에서 구현한다. 현재 구현만으로 무손실 또는 exactly-once 전송을 주장하지 않는다. 전체 구조와 순서는 [HA 설계](ha-design.md)와 [배포 계획](ha-rollout.md)에 있다.
+입력 어댑터만으로 복구를 보장하지 않는다. 복제 로그, transaction/fencing, sequence 공백 및 중복 검증, durable checkpoint는 [#47](../deploy/ha/README.md)에 구현했다. [snapshot 복원과 전체 fan-out](ha-gateway.md)은 #48에서 연결했다. 재접속 cursor는 #49에서 구현한다. 현재 구현만으로 무손실 또는 exactly-once 전송을 주장하지 않는다. 전체 구조와 순서는 [HA 설계](ha-design.md)와 [배포 계획](ha-rollout.md)에 있다.

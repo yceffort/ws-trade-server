@@ -1,0 +1,58 @@
+name: HA acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      enable_faults:
+        description: 'Run gateway, feed and single-broker faults in the dedicated test namespace'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ha-acceptance
+  cancel-in-progress: false
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    environment: ha-acceptance
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Prepare dedicated environment inputs
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.WTS_HA_KUBECONFIG }}
+          SETTINGS: ${{ vars.WTS_HA_SETTINGS_JSON }}
+          CONTEXT: ${{ vars.WTS_HA_CONTEXT }}
+          FAULTS: ${{ inputs.enable_faults }}
+        run: |
+          umask 077
+          test -n "$KUBECONFIG_CONTENT" && test -n "$SETTINGS" && test -n "$CONTEXT"
+          command -v kubectl
+          printf '%s' "$KUBECONFIG_CONTENT" > "$RUNNER_TEMP/ha-kubeconfig"
+          printf '%s' "$SETTINGS" > "$RUNNER_TEMP/ha-settings.json"
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs'
+          const settings=JSON.parse(process.env.SETTINGS), faults=process.env.FAULTS==='true'
+          const options={clients:1000,workers:4,durationSeconds:600,enableFaults:faults,requireReconnectSlo:false}
+          if(faults)options.actions=['gateway-kill','feed-failover','broker-one'].map((name,i)=>({name,atSeconds:60+i*120,command:['node','/app/bench/ha/kube-fault.mjs',name,settings.namespace]}))
+          writeFileSync(`${process.env.RUNNER_TEMP}/ha-options.json`,JSON.stringify(options))
+          JS
+      - name: Compare durable client applications with committed Kafka records
+        env:
+          KUBECONFIG: ${{ runner.temp }}/ha-kubeconfig
+          CONTEXT: ${{ vars.WTS_HA_CONTEXT }}
+        run: node bench/ha/job-run.mjs "$CONTEXT" "$RUNNER_TEMP/ha-settings.json" "$RUNNER_TEMP/ha-options.json" "$RUNNER_TEMP/ha-results"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ha-acceptance
+          path: ${{ runner.temp }}/ha-results
+          if-no-files-found: warn
+      - name: Remove runner credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/ha-kubeconfig" "$RUNNER_TEMP/ha-settings.json"

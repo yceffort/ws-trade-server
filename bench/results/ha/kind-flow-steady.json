@@ -1,0 +1,20 @@
+{
+  "ok": false,
+  "reason": "clients did not apply the committed verification boundary",
+  "clients": 1000,
+  "ready": 1000,
+  "failures": [],
+  "diagnostics": {
+    "clients": 1000,
+    "caught_up": 1000,
+    "failures": 0,
+    "minimum_offset": "1002941",
+    "maximum_offset": "1003382",
+    "reasons": {},
+    "client_event_loop_p99_ms": 381.419519,
+    "client_event_loop_max_ms": 886.571007
+  },
+  "actions": [],
+  "rollout_verifications": [],
+  "production_slo_proven": false
+}
