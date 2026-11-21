@@ -29,6 +29,7 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
       receiveTimer = setTimeout(() => { reason = 'receive-deadline'; stop() },3000)
       queued += data.length
       if (binary || queued > 1024 * 1024) { reason = 'client-overflow'; return stop() }
+      if (queued >= 64 * 1024) socket.pause()
       chain = chain.then(async () => {
         if (applyFailed) return
         const frame = JSON.parse(data.toString())
@@ -50,7 +51,7 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
           const ids = application.receive(frame)
           if (frame.type === 'checkpoint') await onCommit(store.load(), ids)
         }
-      }).catch(error => { applyFailed = true; reason = error.message === 'auth-invalid' ? error.message : 'client-apply-failed'; stop() }).finally(() => { queued -= data.length })
+      }).catch(error => { applyFailed = true; reason = error.message === 'auth-invalid' ? error.message : 'client-apply-failed'; stop() }).finally(() => { queued -= data.length; if (queued < 32 * 1024 && socket.isPaused) socket.resume() })
     })
     await closed
     clearInterval(timer)

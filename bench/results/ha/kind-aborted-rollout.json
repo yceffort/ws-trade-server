@@ -1,0 +1,59 @@
+{
+  "ok": false,
+  "production_slo_proven": false,
+  "reason": "load generator OOM",
+  "completed_slots": 1,
+  "verified_slots": [
+    {
+      "planHash": "b36b203bacb80af4edd34c6ccdc374e77e0322bd1bf7cb0f656ca0e533753810",
+      "slot": "wts-gateway-a",
+      "nonce": "5861e60d-e5d4-4c9e-bb22-7c01f30483b6",
+      "pods": [
+        {
+          "uid": "0a6bf45f-e043-417f-a332-cfba0c2f9877",
+          "name": "wts-gateway-a-5968dcb7d6-fdtz9",
+          "node": "wts-ha-issue52-worker"
+        },
+        {
+          "uid": "696daf9d-8cf3-4d6e-a2f9-3ae60a7fb14d",
+          "name": "wts-gateway-b-7cd7849898-wx62j",
+          "node": "wts-ha-issue52-worker4"
+        },
+        {
+          "uid": "1c0d7234-0e9a-4609-9453-c5233e7845bf",
+          "name": "wts-gateway-c-6d7875b556-jjtg2",
+          "node": "wts-ha-issue52-worker5"
+        }
+      ],
+      "rollback": false,
+      "ok": true,
+      "committed_missing": 0,
+      "duplicate_applies": 0,
+      "comparison": {
+        "ok": true,
+        "clients": 1000,
+        "committed_events": 10630,
+        "failures": []
+      },
+      "reconnect_samples": 314,
+      "reconnect_p99_ms": 2835.9272349999956,
+      "recovery_from_fault_p99_ms": null,
+      "client_event_loop_p99_ms": 370.409471,
+      "verified_through": "321603"
+    }
+  ],
+  "load_termination": [
+    {
+      "name": "load",
+      "state": {
+        "terminated": {
+          "containerID": "containerd://ebb8c4ce7ea9b6eb777d0dc7613a1995c12e528b742357aeb7d0146c4b39578b",
+          "exitCode": 137,
+          "finishedAt": "2026-11-21T01:47:40Z",
+          "reason": "OOMKilled",
+          "startedAt": "2026-11-21T01:43:57Z"
+        }
+      }
+    }
+  ]
+}

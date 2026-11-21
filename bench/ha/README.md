@@ -65,3 +65,5 @@ kind 전용 장애 도구는 gateway가 있는 worker를 PDB를 존중해 drain�
 `.github/workflows/ha-acceptance.yml`은 수동 실행 전용이다. `ha-acceptance` environment에 `WTS_HA_KUBECONFIG` secret, `WTS_HA_CONTEXT`와 `WTS_HA_SETTINGS_JSON` 변수를 준비해야 한다. 미리 만든 전용 namespace와 digest 고정 이미지를 사용하며, 일반 CI가 운영 클러스터를 생성하거나 변경하지 않는다. 수동 workflow의 일반 장애 시험은 가용성 5초 합격 판정과 분리되어 있다. 계획 배포 p99 게이트는 위의 지속 부하와 직렬 rollout 연결로 실행한다.
 
 부하 Worker는 여러 클라이언트의 checkpoint를 10ms 단위의 append journal로 묶고 fsync가 끝난 뒤에만 적용 완료로 집계한다. 상태와 cursor는 같은 JSON record에 저장하며, 각 클라이언트의 다음 frame 처리는 해당 fsync를 기다린다. 16MiB마다 전체 최신 상태를 fsync와 atomic rename으로 압축한다. 재접속 시간에는 group commit 대기도 포함된다. 기본 예제의 개별 FileStore 동기 fsync와 이 부하 발생기의 저장 방식은 다르므로 클라이언트 디스크 비용을 함께 보고한다.
+
+부하 Worker는 V8 heap 한도를 별도로 적용한다. 클라이언트 수신 대기열은 64KiB에서 socket pause, 32KiB 미만에서 resume하며 1MiB를 넘으면 연결을 닫는다. 백프레셔 때문에 heartbeat 또는 server live buffer 한계를 넘으면 재접속으로 처리하고, 이를 시험 실패 결과에서 숨기지 않는다.

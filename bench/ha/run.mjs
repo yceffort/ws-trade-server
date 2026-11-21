@@ -57,7 +57,7 @@ try {
   for(const value of config.urls){const url=new URL(value);if(url.protocol!=='wss:'&&!(url.protocol==='ws:'&&['127.0.0.1','localhost','[::1]'].includes(url.hostname))||url.pathname!=='/experimental/ha/ws'||url.username||url.password||url.search)throw new Error('invalid HA endpoint')}
   for(let index=0;index<Math.min(config.workers,config.clients);index++){
     const ids=Array.from({length:config.clients},(_,i)=>i).filter(i=>i%config.workers===index)
-    const worker=new Worker(new URL('./worker.mjs',import.meta.url),{workerData:{ids,config,head}})
+    const worker=new Worker(new URL('./worker.mjs',import.meta.url),{workerData:{ids,config,head},resourceLimits:{maxOldGenerationSizeMb:192,maxYoungGenerationSizeMb:32}})
     workers.push(worker)
     exits.push(new Promise(resolve=>worker.once('exit',resolve)))
     worker.on('message',message=>{
