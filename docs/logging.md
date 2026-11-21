@@ -30,3 +30,21 @@ WTS_LOG_FORMAT=text RUST_LOG=ws_trade_server::connection=debug,ws_trade_server=i
 요약 수집은 정상 종료와 병행하고 1초가 지나면 취소한다. SIGINT/SIGTERM에서는 gateway 종료 후 출력 guard를 정리한다. 강제 종료와 출력 장치 장애에서는 마지막 로그가 유실될 수 있다. 출력의 저장, 회전, 검색은 stderr를 받는 실행 환경에서 담당한다.
 
 체결마다 로그를 남기지 않는다. 링 유실과 디코딩 실패는 기존 메트릭을 증가시키고 요약 태스크가 증분을 출력한다. 인증 파일 오류는 실패 상태로 바뀔 때 한 번, 복구 시 한 번만 남긴다. 새 이벤트를 추가할 때도 원본 메시지나 사용자 입력 대신 고정된 사유 코드와 서버가 만든 식별자를 사용한다.
+
+## edge 로그
+
+TLS 프록시(`edge/run.mjs`)도 gateway JSON과 같은 모양(timestamp, level, target, fields.event)으로 stderr에 한 줄씩 쓴다. 이벤트는 `edge_started`(`fields.url`), `edge_summary`, `edge_stopped` 셋뿐이다. 연결마다 남기지 않고 10초마다 직전 요약 이후 늘어난 사유별 횟수만 `edge_summary`로 내며, 늘어난 것이 없으면 쓰지 않는다. 종료할 때는 남은 증분을 낸 뒤 `edge_stopped`를 쓴다. 클라이언트 주소, 헤더, 토큰, 본문은 남기지 않는다.
+
+| 사유 | 뜻 |
+| --- | --- |
+| `not_found`, `bad_protocol` | 경로가 없거나 하위 프로토콜이 맞지 않아 upgrade를 거절함 |
+| `upstream_unavailable`, `upstream_rejected` | gateway가 upgrade에 503 또는 그 밖의 응답을 줌 |
+| `upstream_error` | 클라이언트를 붙이기 전에 gateway 연결이 실패하거나 닫힘 |
+| `tls_aborted` | TLS를 끝내기 전에 끊김(`ECONNRESET`) |
+| `tls_handshake_failed` | TLS가 아닌 요청이나 지원하지 않는 버전 같은 핸드셰이크 오류 |
+| `upgrade_failed` | 웹소켓 upgrade 처리 중 예외 |
+| `client_closed`, `upstream_closed` | 붙은 연결을 클라이언트나 gateway가 먼저 닫음 |
+| `buffer_limit`, `relay_error` | 송신 버퍼 상한을 넘겼거나 중계 중 소켓 오류로 끊음 |
+| `shutdown` | 프록시 종료로 닫음 |
+
+붙은 연결 하나는 처음 알게 된 사유 하나로만 센다. `client_closed`, `upstream_closed`, `shutdown`, `tls_aborted`만 늘었으면 INFO, 그 밖의 사유가 있으면 WARN이다. TCP probe처럼 TLS를 시작하지 않고 끊은 연결과 서버 인증서를 믿지 않아 끊은 클라이언트는 둘 다 `ECONNRESET`이라 서버에서 가를 수 없으므로 함께 `tls_aborted`로 센다. HA 배포의 edge는 readiness probe가 2초, liveness probe가 10초마다 TCP로 붙으므로 Pod마다 10초에 6건이 기준선이고(kind에서 관측), 인증서 문제는 이 기준선보다 늘어나는 것으로 드러난다. 사유 이름과 요약 주기는 이 저장소의 실험 규약이다.

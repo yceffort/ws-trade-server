@@ -4,7 +4,7 @@ HA 기능은 `--features ha` 경로다. 기존 단일 프로세스 성능 수치
 
 ## 관측
 
-관리 endpoint는 gateway의 loopback에만 연다. `/ha-metrics`는 Prometheus text 형식이고 기존 `/metrics` JSON 형식은 유지한다. `/ha-metrics`에는 일반 gateway 지표(`GET /prometheus`와 같은 `wts_` 지표)도 함께 담으므로 같은 sidecar 하나로 연결 수, 송신 큐, 로그 폐기와 종료 사유를 수집한다. `settings.metricsNamespace`를 지정하면 metrics 전용 sidecar가 `/metrics` GET만 9090에서 제공한다. `/drain`과 인증 정보는 노출하지 않는다. CNI가 NetworkPolicy를 집행하는지 실제로 검증하고 해당 namespace의 Prometheus에서만 수집한다. 기본 수집 설정과 알림 예제는 `deploy/k8s/ha/observability/`에 있다.
+관리 endpoint는 gateway의 loopback에만 연다. `/ha-metrics`는 Prometheus text 형식이고 기존 `/metrics` JSON 형식은 유지한다. `/ha-metrics`에는 일반 gateway 지표(`GET /prometheus`와 같은 `wts_` 지표)도 함께 담으므로 같은 sidecar 하나로 연결 수, 송신 큐, 로그 폐기와 종료 사유를 수집한다. `settings.metricsNamespace`를 지정하면 metrics 전용 sidecar가 `/metrics` GET만 9090에서 제공한다. `/drain`과 인증 정보는 노출하지 않는다. CNI가 NetworkPolicy를 집행하는지 실제로 검증하고 해당 namespace의 Prometheus에서만 수집한다. 기본 수집 설정과 알림 예제는 `deploy/k8s/ha/observability/`에 있고, 같은 디렉터리의 [개발용 관측 스택](../deploy/k8s/ha/observability/README.md)이 Prometheus, Loki, Alloy, Grafana를 함께 띄운다.
 
 Ready 수, source와 broker 관측 나이, Kafka 위치 lag, replay worker와 대기 수, replay byte, checkpoint, slow client, drain 경과 시간, 정책 freshness, 고정 사유별 HA 연결 종료 수(`wts_ha_closed_total`)를 수집한다. Kafka 위치 lag는 transaction marker를 포함하므로 체결 건수나 초 단위 지연으로 해석하지 않는다. 프로세스가 살아 있어도 source가 멈추거나 정책이 만료되면 Ready는 false다. 휴장 상태에서도 committed source status가 갱신되는지 확인한다. scrape 누락을 정상으로 취급하지 않는다.
 
