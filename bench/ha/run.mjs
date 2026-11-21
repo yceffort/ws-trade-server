@@ -25,6 +25,12 @@ async function sample(){
     workers.forEach(worker=>worker.postMessage({type:'sample',id}))
   })
 }
+async function status() {
+  const observed=await sample(),offsets=observed.clients.filter(c=>c.offset!==null).map(c=>BigInt(c.offset))
+  const reasons={}
+  for(const client of observed.clients)if(client.last_reason)reasons[client.last_reason]=(reasons[client.last_reason]??0)+1
+  return {clients:observed.clients.length,caught_up:observed.clients.filter(c=>c.caught_up).length,failures:failures.length,minimum_offset:offsets.length?String(offsets.reduce((a,b)=>a<b?a:b)):null,maximum_offset:offsets.length?String(offsets.reduce((a,b)=>a>b?a:b)):null,reasons,client_event_loop_p99_ms:observed.client_event_loop_p99_ms}
+}
 async function verify(request={}) {
   const boundary=await command(config.headCommand)
   const end=BigInt(boundary.next)-1n
@@ -79,10 +85,7 @@ try {
     server=createServer(async(request,response)=>{
       try {
         if(request.method==='GET'&&request.url==='/status'){
-          const observed=await sample(),offsets=observed.clients.filter(c=>c.offset!==null).map(c=>BigInt(c.offset))
-          const reasons={}
-          for(const client of observed.clients)if(client.last_reason)reasons[client.last_reason]=(reasons[client.last_reason]??0)+1
-          response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({clients:observed.clients.length,caught_up:observed.clients.filter(c=>c.caught_up).length,failures:failures.length,minimum_offset:offsets.length?String(offsets.reduce((a,b)=>a<b?a:b)):null,maximum_offset:offsets.length?String(offsets.reduce((a,b)=>a>b?a:b)):null,reasons,client_event_loop_p99_ms:observed.client_event_loop_p99_ms}))
+          response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify(await status()))
           return
         }
         if(request.method!=='POST'||request.url!=='/verify')throw new Error('unknown control operation')
@@ -126,7 +129,10 @@ try {
   if(!report.ok)process.exitCode=1
 }catch(error){
   const reason=error.code?'external-command-or-io-failed':error.message
-  if(config?.output){mkdirSync(dirname(config.output),{recursive:true});writeFileSync(config.output,JSON.stringify({ok:false,reason,clients:config.clients,ready:ready.size,failures,production_slo_proven:false},null,2),{mode:0o600})}
+  if(config?.output){
+    const diagnostics=workers.length?await status().catch(()=>({unavailable:true})):null
+    mkdirSync(dirname(config.output),{recursive:true});writeFileSync(config.output,JSON.stringify({ok:false,reason,clients:config.clients,ready:ready.size,failures,diagnostics,production_slo_proven:false},null,2),{mode:0o600})
+  }
   console.error(reason);process.exitCode=1
 }
 finally{

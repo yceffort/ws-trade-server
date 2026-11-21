@@ -33,13 +33,13 @@ const tasks=ids.map(async id=>{
     await runClient({urls:config.urls,token:()=>readBounded(config.tokenFile,16384).toString('utf8').trim(),store:client.store,startAt:{log_id:head.log_id,partition:0,offset:head.next},signal:controller.signal,
       onAttempt(){client.attempts++;client.caughtUp=false;attemptAt=performance.now();pending=new Map()},
       onDisconnect(reason){lastDisconnected??=performance.now();client.disconnects++;client.caughtUp=false;client.lastReason=['source-stale','heartbeat-timeout','connection-error','connection-closed','draining','replay-limit','retry-later','receive-deadline','client-overflow'].includes(reason)?reason:'other';parentPort.postMessage({type:'not-ready',client:id})},
-      onFrame(frame){
+      onFrame(frame,socket){
         if(frame.type==='event'){
           const digest=payloadHash(frame.body)
           if(pending.has(frame.event_id)&&pending.get(frame.event_id)!==digest)throw new Error('same id with changed payload')
           pending.set(frame.event_id,digest)
         }
-        if(frame.type==='caught-up'){
+        if(frame.type==='caught-up'&&socket.readyState===1){
           if(initial){initial=false}
           else if(samples.length<100000){
             samples.push({client:id,attempt_ms:performance.now()-attemptAt,disconnect_ms:lastDisconnected===null?null:performance.now()-lastDisconnected,fault_ms:marking&&client.disconnects>client.disconnectBaseline?performance.now()-marking.at:null,scenario:marking?.name??null})
