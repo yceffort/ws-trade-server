@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync,writeFileSync,existsSync,rmSync } from 'node:fs'
+import { mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +9,7 @@ import { request } from 'node:http'
 import { once } from 'node:events'
 import { WebSocketServer } from '../../edge/node_modules/ws/wrapper.mjs'
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
-test('control windows measure a real reconnect and reject a later slot without one',{timeout:20000},async()=>{
+for(const overlap of [null,'rollout-first','fault-first'])test(`control windows and measurement ownership: ${overlap??'isolated reconnect'}`,{timeout:20000},async()=>{
   const directory=mkdtempSync(join(tmpdir(),'wts-control-'))
   const server=new WebSocketServer({host:'127.0.0.1',port:0,handleProtocols:()=>'wts.ha.v1'})
   await once(server,'listening')
@@ -33,8 +33,9 @@ test('control windows measure a real reconnect and reject a later slot without o
     const oracle=join(directory,'oracle.mjs'),counter=join(directory,'head-called'),outage=join(directory,'oracle-outage')
     writeFileSync(oracle,`import {existsSync,writeFileSync,unlinkSync} from 'node:fs';const outage=${JSON.stringify(outage)};if(existsSync(outage)){unlinkSync(outage);process.exit(1)}const counter=${JSON.stringify(counter)};if(process.argv[2]==='head'){const next=existsSync(counter)?'2':'1';writeFileSync(counter,'1');console.log(JSON.stringify({log_id:'test',next,topics:['a']}))}else console.log(JSON.stringify({log_id:'test',start:'1',through:'1',events:[{id:'demo/trades/epoch/1',topic:'a',offset:'1',body:{price:'1'}}]}));`)
     writeFileSync(join(directory,'token'),'Bearer synthetic')
-    const socketPath=join(directory,'control.sock')
-    writeFileSync(join(directory,'config.json'),JSON.stringify({clients:1,workers:1,durationSeconds:10,requireReconnectSlo:true,urls:[`ws://127.0.0.1:${server.address().port}/experimental/ha/ws`],stateDirectory:join(directory,'state'),controlSocket:socketPath,output:join(directory,'report.json'),tokenFile:join(directory,'token'),headCommand:[process.execPath,oracle,'head'],rangeCommand:[process.execPath,oracle,'range']}))
+    const socketPath=join(directory,'control.sock'),actionFile=join(directory,'action.mjs'),actionStarted=join(directory,'action-started')
+    writeFileSync(actionFile,`import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(actionStarted)},'1');setTimeout(()=>console.log('{\"ok\":true}'),2000)`)
+    writeFileSync(join(directory,'config.json'),JSON.stringify({clients:1,workers:1,durationSeconds:10,requireReconnectSlo:!overlap,actions:overlap?[{name:'synthetic',atSeconds:overlap==='rollout-first'?1:0,command:[process.execPath,actionFile]}]:[],urls:[`ws://127.0.0.1:${server.address().port}/experimental/ha/ws`],stateDirectory:join(directory,'state'),controlSocket:socketPath,output:join(directory,'report.json'),tokenFile:join(directory,'token'),headCommand:[process.execPath,oracle,'head'],rangeCommand:[process.execPath,oracle,'range']}))
     child=spawn(process.execPath,[fileURLToPath(new URL('./run.mjs',import.meta.url)),join(directory,'config.json')],{stdio:'ignore'})
     const exited=once(child,'exit')
     const call=(path,body)=>new Promise((resolve,reject)=>{
@@ -44,7 +45,21 @@ test('control windows measure a real reconnect and reject a later slot without o
     for(let i=0;i<100&&!existsSync(socketPath);i++)await delay(20)
     assert.ok(existsSync(socketPath))
     const first={window:'a',planHash:'plan',slot:'wts-gateway-a',rollback:false,nonce:'first'}
+    if(overlap==='fault-first'){
+      for(let i=0;i<100&&!existsSync(actionStarted);i++)await delay(20)
+      assert.ok(existsSync(actionStarted))
+      const rejected=await call('/begin',first)
+      assert.equal(rejected.ok,false);assert.match(rejected.reason,/another measurement/)
+      child.kill('SIGTERM');await exited;return
+    }
     assert.equal((await call('/begin',first)).ok,true)
+    if(overlap==='rollout-first'){
+      await exited
+      assert.equal(existsSync(actionStarted),false)
+      assert.match(JSON.parse(readFileSync(join(directory,'report.json'))).reason,/overlaps rollout/)
+      return
+    }
+    assert.equal((await call('/begin',{...first,window:'conflicting'})).ok,false)
     for(const socket of server.clients)socket.terminate()
     for(let i=0;i<100&&connections<2;i++)await delay(20)
     writeFileSync(outage,'temporary broker interruption')

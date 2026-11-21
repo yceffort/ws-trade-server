@@ -14,6 +14,7 @@ const workers=[],exits=[],requests=new Map(),ready=new Set(),failures=[],verific
 const windows=new Map()
 let server,config,stopped=false,activeScope=null
 async function mark(scope) {
+  if(scope)activeScope=scope
   const id=randomUUID()
   await new Promise((resolve,reject)=>{
     let replies=0
