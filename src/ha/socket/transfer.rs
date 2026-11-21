@@ -193,6 +193,8 @@ pub(super) async fn run(
     let mut heartbeat = interval(Duration::from_secs(1));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     heartbeat.tick().await;
+    // replay가 끝에 닿은 시간은 caught-up까지 보낸 resume만 센다.
+    let mut replay_elapsed = None;
     if resume.snapshot {
         drop(reader);
         let mut topics = std::collections::BTreeMap::new();
@@ -250,7 +252,7 @@ pub(super) async fn run(
                         if let Err(code) = progress.record(writer, offset, &record, data_deadline, true).await { break Err(code); }
                     }
                     Some(replay::Item::End(position)) => {
-                        protocol.counters.replay.0.observe(replay_started.elapsed());
+                        replay_elapsed = Some(replay_started.elapsed());
                         progress.position = Some(position);
                         break Ok(());
                     }
@@ -271,6 +273,9 @@ pub(super) async fn run(
             .await?;
     protocol.counters.caught_up.fetch_add(1, Ordering::Relaxed);
     protocol.counters.catch_up.0.observe(started.elapsed());
+    if let Some(elapsed) = replay_elapsed {
+        protocol.counters.replay.0.observe(elapsed);
+    }
     let mut checkpoint_tick = interval(Duration::from_millis(250));
     let mut applied = 0;
     loop {

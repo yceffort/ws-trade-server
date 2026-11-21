@@ -71,7 +71,7 @@ pub(crate) struct Counters {
     pub closes: Closes,
     // resume 처리를 시작한 때부터 caught-up을 보낼 때까지. worker 대기와 snapshot 또는 replay 전송을 포함한다.
     pub catch_up: Recovery,
-    // replay를 시작한 때부터 요청 시점의 끝 위치에 닿을 때까지. 클라이언트가 적용한 시각이 아니다.
+    // replay를 시작한 때부터 live 구독을 붙인 시점의 끝 위치에 닿을 때까지. caught-up을 보낸 resume만 센다.
     pub replay: Recovery,
 }
 pub(crate) struct Connection(Arc<Counters>);
