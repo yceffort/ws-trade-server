@@ -1,5 +1,8 @@
 use super::{Lifecycle, Protocol, SharedAuth};
-use crate::{hub::Hub, metrics::Reasons};
+use crate::{
+    hub::Hub,
+    metrics::{Histogram, Reasons},
+};
 use std::{
     fmt::Write,
     sync::{
@@ -41,6 +44,16 @@ impl Default for Closes {
     }
 }
 
+// 복구 지연의 경계(초). replay와 snapshot 전송은 10초 기한 안에 끝나야 한다.
+const RECOVERY_BOUNDS: &[f64] = &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0];
+
+pub(crate) struct Recovery(pub Histogram);
+impl Default for Recovery {
+    fn default() -> Self {
+        Self(Histogram::new(RECOVERY_BOUNDS))
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Counters {
     pub connections: AtomicU64,
@@ -56,6 +69,10 @@ pub(crate) struct Counters {
     pub drain_notices: AtomicU64,
     pub auth_errors: AtomicU64,
     pub closes: Closes,
+    // resume 처리를 시작한 때부터 caught-up을 보낼 때까지. worker 대기와 snapshot 또는 replay 전송을 포함한다.
+    pub catch_up: Recovery,
+    // replay를 시작한 때부터 요청 시점의 끝 위치에 닿을 때까지. 클라이언트가 적용한 시각이 아니다.
+    pub replay: Recovery,
 }
 pub(crate) struct Connection(Arc<Counters>);
 impl Drop for Connection {
@@ -132,6 +149,8 @@ impl Management {
         let _ = writeln!(output, "wts_ha_gateway_phase{{phase=\"{:?}\"}} 1", self.lifecycle.phase());
         if let Some(protocol) = &self.protocol {
             protocol.counters.closes.0.write(&mut output, "wts_ha_closed_total");
+            protocol.counters.catch_up.0.write(&mut output, "wts_ha_catch_up_seconds");
+            protocol.counters.replay.0.write(&mut output, "wts_ha_replay_seconds");
         }
         output
     }
@@ -152,5 +171,17 @@ mod tests {
         assert!(output.contains("wts_ha_closed_total{reason=\"slow-client\"} 1\n"));
         assert!(output.contains("wts_ha_closed_total{reason=\"other\"} 1\n"));
         assert_eq!(counters.slow_clients.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn recovery_histograms_use_the_ten_second_bounds() {
+        let counters = Counters::default();
+        counters.catch_up.0.observe(std::time::Duration::from_millis(1200));
+        let mut output = String::new();
+        counters.catch_up.0.write(&mut output, "wts_ha_catch_up_seconds");
+        assert!(output.contains("wts_ha_catch_up_seconds_bucket{le=\"1\"} 0\n"));
+        assert!(output.contains("wts_ha_catch_up_seconds_bucket{le=\"2.5\"} 1\n"));
+        assert!(output.contains("wts_ha_catch_up_seconds_bucket{le=\"10\"} 1\n"));
+        assert!(output.contains("wts_ha_catch_up_seconds_sum 1.2\nwts_ha_catch_up_seconds_count 1\n"));
     }
 }

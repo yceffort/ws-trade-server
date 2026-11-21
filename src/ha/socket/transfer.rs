@@ -138,6 +138,7 @@ pub(super) async fn run(
     resume: Resume,
 ) -> Result<(), &'static str> {
     protocol.counters.resumes.fetch_add(1, Ordering::Relaxed);
+    let started = Instant::now();
     let waiting = protocol.waiting.clone().try_acquire_owned().map_err(|_| "retry-later")?;
     let permit = wait(writer, protocol.workers.clone().acquire_owned(), Instant::now() + Duration::from_secs(10))
         .await
@@ -234,6 +235,7 @@ pub(super) async fn run(
         progress.position = Some(end);
         progress.checkpoint(writer, deadline).await?;
     } else {
+        let replay_started = Instant::now();
         let mut replay = replay::Replay::spawn(reader, input.source.clone(), end, data_deadline);
         let mut checkpoint_tick = interval(Duration::from_millis(250));
         let result = loop {
@@ -247,7 +249,11 @@ pub(super) async fn run(
                     Some(replay::Item::Record(offset, record)) => {
                         if let Err(code) = progress.record(writer, offset, &record, data_deadline, true).await { break Err(code); }
                     }
-                    Some(replay::Item::End(position)) => { progress.position = Some(position); break Ok(()); }
+                    Some(replay::Item::End(position)) => {
+                        protocol.counters.replay.0.observe(replay_started.elapsed());
+                        progress.position = Some(position);
+                        break Ok(());
+                    }
                     Some(replay::Item::Failed(code)) => break Err(code),
                     None => break Err("source-error"),
                 },
@@ -264,6 +270,7 @@ pub(super) async fn run(
         send(writer, json!({"type":"caught-up","request_id":resume.request_id,"offset":end.to_string()}), deadline)
             .await?;
     protocol.counters.caught_up.fetch_add(1, Ordering::Relaxed);
+    protocol.counters.catch_up.0.observe(started.elapsed());
     let mut checkpoint_tick = interval(Duration::from_millis(250));
     let mut applied = 0;
     loop {
