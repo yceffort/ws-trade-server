@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer,request } from 'node:http'
-import { requestBody,responseJson,faultPods,restoreReplicas } from './kube-fault.mjs'
+import { requestBody,responseJson,faultPods,restoreReplicas,recoveredPods } from './kube-fault.mjs'
 
 test('DELETE transmits zero grace and identity preconditions in the HTTP body',async()=>{
   const expected={apiVersion:'v1',kind:'DeleteOptions',gracePeriodSeconds:0,preconditions:{uid:'synthetic-pod',resourceVersion:'123'}}
@@ -51,4 +51,14 @@ test('fault targets exclude terminated history but quorum waits for deletion',()
   const pods=[pod('failed','Failed'),pod('done','Succeeded'),pod('live','Running'),pod('deleting','Failed','now')]
   assert.deepEqual(faultPods(pods).map(p=>p.metadata.name),['live'])
   assert.deepEqual(faultPods(pods,true).map(p=>p.metadata.name),['live','deleting'])
+})
+
+test('fault completion waits for fresh stable replacement Pods',()=>{
+  const now=Date.now(),old=new Set(['old'])
+  const pod={metadata:{uid:'new'},status:{phase:'Running',conditions:[{type:'Ready',status:'True',lastTransitionTime:new Date(now-15000).toISOString()}]}}
+  assert.equal(recoveredPods([pod],old,1,now),true)
+  assert.equal(recoveredPods([pod],old,2,now),false)
+  assert.equal(recoveredPods([{...pod,metadata:{uid:'old'}}],old,1,now),false)
+  assert.equal(recoveredPods([{...pod,metadata:{uid:'new',deletionTimestamp:'now'}}],old,1,now),false)
+  assert.equal(recoveredPods([pod],old,1,now-1),false)
 })

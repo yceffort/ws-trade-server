@@ -35,6 +35,12 @@ export async function restoreReplicas(api,path,uid) {
     catch(error){if(error.status!==409||attempt===4)throw error;await delay(100)}
   }
 }
+export function recoveredPods(pods,removed,count,now=Date.now()) {
+  return pods.length===count&&pods.every(p=>{
+    const ready=p.status?.conditions?.find(c=>c.type==='Ready'),since=Date.parse(ready?.lastTransitionTime)
+    return !p.metadata.deletionTimestamp&&!removed.has(p.metadata.uid)&&p.status?.phase==='Running'&&ready?.status==='True'&&Number.isFinite(since)&&now-since>=15000
+  })
+}
 async function api(method,path,body){
   const token=readFileSync('/var/run/chaos/token','utf8').trim()
   const {data,headers}=requestBody(method,body)
@@ -54,6 +60,13 @@ async function head(){const{stdout}=await exec('/app/ha-oracle',['head','/creden
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)try {
   if(!allowed.has(action)||!/^wts-ha(?:-[a-z0-9-]+)?$/.test(namespace)||process.env.WTS_HA_ALLOW_FAULTS!=='dedicated-test-namespace')throw new Error('dedicated test namespace and fault opt-in required')
   const started=performance.now()
+  const removed=new Map()
+  const deleteTarget=async pod=>{
+    const component=pod.metadata.labels['app.kubernetes.io/component']
+    if(!removed.has(component))removed.set(component,new Set())
+    removed.get(component).add(pod.metadata.uid)
+    return remove(pod)
+  }
   let details={}
   if(action==='feed-failover'){
     const leasePath=`s/coordination.k8s.io/v1/namespaces/${namespace}/leases/wts-feed`
@@ -61,7 +74,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)try {
     const feed=(await list('feed')).find(p=>before.spec.holderIdentity?.startsWith(p.metadata.uid))
     if(!feed)throw new Error('active feed not found')
     const deleted=Date.now()
-    await remove(feed)
+    await deleteTarget(feed)
     const deadline=performance.now()+30000
     let current
     while(performance.now()<deadline){
@@ -88,19 +101,28 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)try {
       await delay(15000)
     } finally {await restoreReplicas(api,path,before.metadata.uid)}
     details={quorum_pause_ms:15000}
+    removed.set('broker',new Set())
   }else if(action==='full-restart'){
     for(const component of ['gateway','feed','broker']){
       const pods=await list(component)
       if(!pods.length)throw new Error('no fault target')
-      for(const pod of pods)await remove(pod)
+      for(const pod of pods)await deleteTarget(pod)
     }
     details={restarted:['gateway','feed','broker'],persistent_volumes_retained:true}
   }else{
     const pods=await list(action==='broker-one'?'broker':'gateway')
     if(!pods.length)throw new Error('no fault target')
     const targets=action==='gateway-restart'?pods:[pods.sort((a,b)=>a.metadata.name.localeCompare(b.metadata.name))[0]]
-    for(const pod of targets)await remove(pod)
+    for(const pod of targets)await deleteTarget(pod)
     details={deleted:targets.map(p=>p.metadata.name)}
+  }
+  const deadline=performance.now()+90000
+  for(const [component,old] of removed){
+    const count=component==='feed'?2:3
+    while(!recoveredPods(await list(component,true),old,count)){
+      if(performance.now()>=deadline)throw new Error('fault replacement readiness deadline')
+      await delay(500)
+    }
   }
   console.log(JSON.stringify({ok:true,action,elapsed_ms:performance.now()-started,...details}))
 }catch(error){console.error(error.code?'HA fault cluster or oracle operation failed':error.message);process.exitCode=1}

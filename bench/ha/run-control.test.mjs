@@ -30,8 +30,8 @@ test('control windows measure a real reconnect and reject a later slot without o
     })
   })
   try {
-    const oracle=join(directory,'oracle.mjs'),counter=join(directory,'head-called')
-    writeFileSync(oracle,`import {existsSync,writeFileSync} from 'node:fs';const counter=${JSON.stringify(counter)};if(process.argv[2]==='head'){const next=existsSync(counter)?'2':'1';writeFileSync(counter,'1');console.log(JSON.stringify({log_id:'test',next,topics:['a']}))}else console.log(JSON.stringify({log_id:'test',start:'1',through:'1',events:[{id:'demo/trades/epoch/1',topic:'a',offset:'1',body:{price:'1'}}]}));`)
+    const oracle=join(directory,'oracle.mjs'),counter=join(directory,'head-called'),outage=join(directory,'oracle-outage')
+    writeFileSync(oracle,`import {existsSync,writeFileSync,unlinkSync} from 'node:fs';const outage=${JSON.stringify(outage)};if(existsSync(outage)){unlinkSync(outage);process.exit(1)}const counter=${JSON.stringify(counter)};if(process.argv[2]==='head'){const next=existsSync(counter)?'2':'1';writeFileSync(counter,'1');console.log(JSON.stringify({log_id:'test',next,topics:['a']}))}else console.log(JSON.stringify({log_id:'test',start:'1',through:'1',events:[{id:'demo/trades/epoch/1',topic:'a',offset:'1',body:{price:'1'}}]}));`)
     writeFileSync(join(directory,'token'),'Bearer synthetic')
     const socketPath=join(directory,'control.sock')
     writeFileSync(join(directory,'config.json'),JSON.stringify({clients:1,workers:1,durationSeconds:10,requireReconnectSlo:true,urls:[`ws://127.0.0.1:${server.address().port}/experimental/ha/ws`],stateDirectory:join(directory,'state'),controlSocket:socketPath,output:join(directory,'report.json'),tokenFile:join(directory,'token'),headCommand:[process.execPath,oracle,'head'],rangeCommand:[process.execPath,oracle,'range']}))
@@ -47,6 +47,7 @@ test('control windows measure a real reconnect and reject a later slot without o
     assert.equal((await call('/begin',first)).ok,true)
     for(const socket of server.clients)socket.terminate()
     for(let i=0;i<100&&connections<2;i++)await delay(20)
+    writeFileSync(outage,'temporary broker interruption')
     const verified=await call('/verify',first)
     assert.equal(verified.ok,true);assert.equal(verified.reconnect_samples,1)
     const second={...first,window:'b',slot:'wts-gateway-b',nonce:'second'}

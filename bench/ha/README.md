@@ -77,3 +77,5 @@ kind 전용 장애 도구는 부하 Pod가 없는 gateway worker만 골라 PDB�
 배포 드라이버는 각 slot을 변경하기 전에 `phase=begin`과 고유 `window`를 oracle에 전달하고 워커의 측정 시작 응답을 기다린다. 검증에는 해당 window에서 시작한 계획 재접속만 포함한다. 이전 slot과 배포 전 재접속은 제외하며, 표본이 없으면 `not-measured`로 실패한다. 재시작은 journal의 window를 그대로 사용한다. 측정기가 교체되어 이전 표본을 잃었다면 재접속 SLO를 복원했다고 간주하지 않는다. 장애 표시는 해당 action 시작부터 committed 적용 복구 확인까지 유지하고 그 뒤 해제한다.
 
 `measured_targets_met`는 1,000 clients와 10분 이상, 계획 재접속 p99 5초 이하, forward/rollback 각각 3개 slot 검증, feed 장애 주입부터 새 committed status까지 30초 이하가 모두 측정된 경우에만 참이다. 하나라도 측정하지 않은 개별 기능 시험은 이 값을 참으로 기록하지 않는다. 운영 SLO 입증은 별도의 외부 환경 검토가 필요하다.
+
+계획 재접속 p99 5초는 클라이언트의 실제 disconnect부터 durable caught-up까지의 표본에 적용한다. 장애 후 read-only oracle 조회와 committed 경계 적용을 기다리는 `recoveryDeadlineMs`는 별도 검증 예산으로 기본 60,000ms이며 1~60,000 정수만 허용한다. 이 기한을 늘려도 5초를 넘은 계획 재접속 표본은 통과하지 않는다. oracle 조회가 일시 실패하면 같은 기한 안에서 재시도한다. 장애 주입 명령 자체는 자동 재시도하지 않는다.

@@ -42,6 +42,14 @@ async function command(argv,extra=[],timeout=90000){
   const {stdout}=await exec(argv[0],[...argv.slice(1),...extra],{timeout,maxBuffer:128*1024*1024})
   return JSON.parse(stdout)
 }
+async function oracleCommand(argv,extra,deadline) {
+  for(;;){
+    const remaining=Math.floor(deadline-performance.now())
+    if(remaining<=0)throw new Error('oracle recovery deadline')
+    try{return await command(argv,extra,Math.min(15000,remaining))}
+    catch(error){if(error instanceof SyntaxError)throw error;if(performance.now()>=deadline)throw new Error('oracle recovery deadline');await delay(250)}
+  }
+}
 async function sample(){
   const id=randomUUID()
   return await new Promise((resolve,reject)=>{
@@ -59,9 +67,9 @@ async function status() {
 }
 async function verify(request={},requireSlo=config.requireReconnectSlo) {
   if(request.window!==undefined&&windows.get(request.window)!==windowKey(request))throw new Error('measurement window was not started')
-  const boundary=await command(config.headCommand)
-  const end=BigInt(boundary.next)-1n
   const deadline=performance.now()+config.recoveryDeadlineMs
+  const boundary=await oracleCommand(config.headCommand,[],deadline)
+  const end=BigInt(boundary.next)-1n
   let observed
   do {
     observed=await sample()
@@ -70,7 +78,7 @@ async function verify(request={},requireSlo=config.requireReconnectSlo) {
   }while(performance.now()<deadline)
   if(observed.clients.some(c=>c.failed||!c.caught_up||c.offset===null||BigInt(c.offset)<end))throw new Error('clients did not apply the committed verification boundary')
   const maximum=observed.clients.reduce((n,c)=>BigInt(c.offset)>n?BigInt(c.offset):n,0n)
-  const oracle=await command(config.rangeCommand,[config.start,maximum.toString()])
+  const oracle=await oracleCommand(config.rangeCommand,[config.start,maximum.toString()],deadline)
   const comparison=compare(oracle,observed.clients)
   const reconnect=reconnectMetrics(observed.samples,request.window)
   const recovery=percentile(observed.samples.filter(s=>s.fault_ms!==null).map(s=>s.fault_ms),.99)
@@ -80,8 +88,9 @@ async function verify(request={},requireSlo=config.requireReconnectSlo) {
 }
 try {
   config=JSON.parse(readFileSync(process.argv[2]))
-  config.clients??=1000;config.workers??=4;config.durationSeconds??=600;config.recoveryDeadlineMs??=5000;config.requireReconnectSlo??=true;config.startupIntervalMs??=10
+  config.clients??=1000;config.workers??=4;config.durationSeconds??=600;config.recoveryDeadlineMs??=60000;config.requireReconnectSlo??=true;config.startupIntervalMs??=10
   if(!Number.isInteger(config.clients)||config.clients<1||config.clients>10000||!Number.isInteger(config.workers)||config.workers<1||config.workers>16||config.durationSeconds<10||config.durationSeconds>900)throw new Error('invalid load limits')
+  if(!Number.isInteger(config.recoveryDeadlineMs)||config.recoveryDeadlineMs<1||config.recoveryDeadlineMs>60000)throw new Error('invalid recovery deadline')
   if(!config.stateDirectory||existsSync(config.stateDirectory))throw new Error('fresh durable state directory required')
   config.stateDirectory=resolve(config.stateDirectory);mkdirSync(config.stateDirectory,{recursive:true,mode:0o700});chmodSync(config.stateDirectory,0o700)
   config.tokenFile=resolve(config.tokenFile)

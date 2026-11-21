@@ -8,8 +8,9 @@ export function loadJob(s,options={}) {
   const namespace=s.namespace,name='wts-ha-load',labels={'app.kubernetes.io/part-of':'wts-ha','app.kubernetes.io/component':'ha-load'}
   const resource=(apiVersion,kind,name,fields)=>({apiVersion,kind,metadata:{name,namespace},...fields})
   const podPeer=component=>({podSelector:{matchLabels:{'app.kubernetes.io/part-of':'wts-ha','app.kubernetes.io/component':component}}})
-  const config={clients:1000,workers:4,durationSeconds:600,recoveryDeadlineMs:5000,requireReconnectSlo:true,urls:[`wss://wts-gateway.${namespace}.svc/experimental/ha/ws`],environment:{kind:'in-cluster-service',physical_domains_verified:false,external_lb_verified:false},...options,
+  const config={clients:1000,workers:4,durationSeconds:600,recoveryDeadlineMs:60000,requireReconnectSlo:true,urls:[`wss://wts-gateway.${namespace}.svc/experimental/ha/ws`],environment:{kind:'in-cluster-service',physical_domains_verified:false,external_lb_verified:false},...options,
     stateDirectory:'/state/clients',controlSocket:'/state/control.sock',output:'/state/report.json',tokenFile:'/client/token',headCommand:['/app/ha-oracle','head','/credentials/gateway.json','/source/source.json'],rangeCommand:['/app/ha-oracle','range','/credentials/gateway.json','/source/source.json']}
+  if(!Number.isInteger(config.recoveryDeadlineMs)||config.recoveryDeadlineMs<1||config.recoveryDeadlineMs>60000)throw new Error('invalid recovery deadline')
   const duration=config.durationSeconds
   if(!Number.isInteger(duration)||duration<10||duration>900)throw new Error('durationSeconds must be an integer from 10 to 900')
   const fault=Boolean(config.enableFaults);delete config.enableFaults
