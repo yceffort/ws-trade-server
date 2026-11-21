@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
-import { request } from 'node:http'
+import { request,Agent } from 'node:http'
 import { once } from 'node:events'
 import { WebSocketServer } from '../../edge/node_modules/ws/wrapper.mjs'
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
@@ -14,6 +14,7 @@ for(const overlap of [null,'rollout-first','fault-first'])test(`control windows 
   const server=new WebSocketServer({host:'127.0.0.1',port:0,handleProtocols:()=>'wts.ha.v1'})
   await once(server,'listening')
   let child,connections=0
+  const agent=new Agent({keepAlive:true,maxSockets:1})
   const timers=new Set()
   server.on('connection',socket=>{
     connections++
@@ -39,7 +40,7 @@ for(const overlap of [null,'rollout-first','fault-first'])test(`control windows 
     child=spawn(process.execPath,[fileURLToPath(new URL('./run.mjs',import.meta.url)),join(directory,'config.json')],{stdio:'ignore'})
     const exited=once(child,'exit')
     const call=(path,body)=>new Promise((resolve,reject)=>{
-      const data=JSON.stringify(body),req=request({socketPath,path,method:'POST',headers:{'content-length':Buffer.byteLength(data)},timeout:5000},res=>{let text='';res.on('data',chunk=>text+=chunk);res.on('end',()=>{try{resolve(JSON.parse(text))}catch(error){reject(error)}});res.on('error',reject)})
+      const data=JSON.stringify(body),req=request({agent,socketPath,path,method:'POST',headers:{'content-length':Buffer.byteLength(data)},timeout:5000},res=>{let text='';res.on('data',chunk=>text+=chunk);res.on('end',()=>{try{resolve(JSON.parse(text))}catch(error){reject(error)}});res.on('error',reject)})
       req.on('error',reject);req.on('timeout',()=>req.destroy(new Error('test control deadline')));req.end(data)
     })
     for(let i=0;i<100&&!existsSync(socketPath);i++)await delay(20)
@@ -59,6 +60,7 @@ for(const overlap of [null,'rollout-first','fault-first'])test(`control windows 
       assert.match(JSON.parse(readFileSync(join(directory,'report.json'))).reason,/overlaps rollout/)
       return
     }
+    assert.equal((await call('/verify',{...first,slot:'wts-gateway-b'})).ok,false)
     assert.equal((await call('/begin',{...first,window:'conflicting'})).ok,false)
     for(const socket of server.clients)socket.terminate()
     for(let i=0;i<100&&connections<2;i++)await delay(20)
@@ -77,6 +79,7 @@ for(const overlap of [null,'rollout-first','fault-first'])test(`control windows 
     assert.equal((await call('/begin',{...third,window:'rollback',rollback:true})).ok,true)
     child.kill('SIGTERM');await exited
   } finally {
+    agent.destroy()
     if(child?.exitCode===null){child.kill('SIGKILL');await once(child,'exit')}
     for(const timer of timers)clearInterval(timer)
     for(const socket of server.clients)socket.terminate()

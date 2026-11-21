@@ -32,3 +32,7 @@ HA 기본 edge는 압축을 끄고 CPU request 250m/limit 2, memory request 128M
 다음 30명 실행에서는 gateway kill, feed failover, broker 1대 종료, quorum 손실, gateway 전체 재기동, 서비스 전체 재기동의 각 복구 뒤 committed ID와 payload 비교가 모두 통과했다. Feed failover는 10,506ms였고 quorum 손실 후에도 적용 누락과 중복은 0이었다. 최종 10분 전체 범위 조회는 15초 subprocess 제한으로 실패했으므로 전체 실행을 합격 처리하지 않았다. `bench/results/ha/kind-fault-six.json`에 단계별 근거와 최종 실패를 보관했다. 해당 실행의 action별 fault p99는 누적 표본이며 개별 장애 지연으로 인용하지 않는다. 최신 도구는 고유 fault ID로 분리하고 전체 검증 예산 안에서 큰 범위를 읽는다.
 
 재전송 write timeout 뒤 checkpoint 위치가 후퇴할 수 있는 경로를 별도로 재현했다. Sink에 이벤트가 enqueue된 뒤 flush가 취소되면 전송 실패 전 위치로 checkpoint를 만들 수 있었다. 실제 WebSocket Sink 회귀에서 수정 전 이벤트 뒤의 오래된 checkpoint가 확인됐으며, 수정 후 전송 오류에서는 checkpoint를 추가하지 않는다. replay 용량 제한처럼 송신이 완료된 경계는 기존대로 checkpoint를 보존한다. 앞선 일반 적용 오류 10개의 상세 원인은 남아 있지 않아 모두 이 경로 때문이라고 단정하지 않는다.
+
+checkpoint 전송 오류 수정 커밋 `2d5fb98`과 고정 이미지로 1,000명 초기 접속을 다시 시험했다. 4 workers/20ms, 4 workers/5ms, 8 workers/5ms 세 설정 모두 60초 안에 전원이 catch-up하지 못했다. 5ms/4 workers 실행은 진단 시 978명이 caught-up이었으며 나머지 실행도 적용 오류와 부하 Pod OOM은 없었다. 세 실행의 설정과 이미지 digest, 결과, cgroup 근거를 `bench/results/ha/kind-final-1000-*.json`과 같은 이름의 cgroup 파일에 보관했다. 초기 접속 실패로 이 실행들에서는 rollout을 시작하지 않았다. 1,000명 SLO는 충족했다고 판단하지 않으며 병목 분석과 자원 분리 환경 측정을 #53에 남긴다.
+
+이 표와 artifact는 각 커밋 시점의 실행을 보존한다. 이후 최종 이미지의 30명 배포/rollback/장애 기능 검증과 노드 시험 결과, 실행 설정, image digest는 [#53의 검증 기록](https://github.com/yceffort/ws-trade-server/issues/53)에 추가한다. 기능 검증 통과를 1,000명 용량 검증이나 실제 외부 LB/물리 장애 도메인 검증으로 대신하지 않는다.

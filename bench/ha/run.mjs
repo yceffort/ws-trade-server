@@ -66,8 +66,11 @@ async function status() {
   for(const client of observed.clients)if(client.last_reason)reasons[client.last_reason]=(reasons[client.last_reason]??0)+1
   return {clients:observed.clients.length,caught_up:observed.clients.filter(c=>c.caught_up).length,failures:failures.length,minimum_offset:offsets.length?String(offsets.reduce((a,b)=>a<b?a:b)):null,maximum_offset:offsets.length?String(offsets.reduce((a,b)=>a>b?a:b)):null,reasons,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms}
 }
-async function verify(request={},requireSlo=config.requireReconnectSlo) {
+function requireWindow(request) {
   if(request.window!==undefined&&windows.get(request.window)!==windowKey(request))throw new Error('measurement window was not started')
+}
+async function verify(request={},requireSlo=config.requireReconnectSlo) {
+  requireWindow(request)
   const deadline=performance.now()+config.recoveryDeadlineMs
   const boundary=await oracleCommand(config.headCommand,[],deadline)
   const end=BigInt(boundary.next)-1n
@@ -133,6 +136,7 @@ try {
         let result
         if(request.url==='/begin')result=await begin(input)
         else {
+          requireWindow(input)
           try{result=await verify(input)}
           finally{if(activeScope?.window===input.window&&input.window!==undefined)await mark(null)}
         }
