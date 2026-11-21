@@ -1,6 +1,8 @@
 mod envelope;
 use crate::{hub::Hub, pb::Trade};
 pub use envelope::{Envelope, MAX_ENVELOPE_BYTES, Position, ReceivedAtMs, SourceId, SourceSeq};
+#[cfg(feature = "ha")]
+pub(crate) use envelope::{decimal, identifier};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

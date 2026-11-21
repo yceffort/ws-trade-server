@@ -4,9 +4,28 @@ use ws_trade_server::{Config, default_ring_path, logging, start_managed};
 fn parse_args() -> Option<Config> {
     let mut config = Config { ring: Some(default_ring_path()), ..Config::default() };
     let mut args = std::env::args().skip(1);
+    #[cfg(feature = "ha")]
+    let (mut kafka, mut source) = (None, None);
+    #[cfg(feature = "ha")]
+    let mut explicit_ring = false;
     while let Some(flag) = args.next() {
         let value = args.next()?;
         match flag.as_str() {
+            #[cfg(feature = "ha")]
+            "--ha-kafka" => {
+                kafka = Some(read_ha_config(&value)?);
+                config.ring = None;
+            }
+            #[cfg(feature = "ha")]
+            "--ha-source" => source = Some(read_ha_config(&value)?),
+            #[cfg(feature = "ha")]
+            "--ha-policy" => {
+                config.ha_auth = Some(ws_trade_server::ha::SharedAuth::new(read_ha_config(&value)?).ok()?);
+            }
+            #[cfg(feature = "ha")]
+            "--ha-cursor-keys" => {
+                config.ha_protocol = Some(ws_trade_server::ha::Protocol::new(read_ha_config(&value)?).ok()?)
+            }
             "--max-connections" => config.limits.connections = value.parse().ok()?,
             "--max-subscriptions" => config.limits.subscriptions = value.parse().ok()?,
             "--max-commands-per-sec" => config.limits.commands_per_second = value.parse().ok()?,
@@ -24,7 +43,13 @@ fn parse_args() -> Option<Config> {
                 );
             }
             "--addr" => config.addr = value,
-            "--ring" => config.ring = Some(value.into()),
+            "--ring" => {
+                config.ring = Some(value.into());
+                #[cfg(feature = "ha")]
+                {
+                    explicit_ring = true;
+                }
+            }
             "--poll-us" => config.poll_us = value.parse().ok()?,
             "--idle-ms" => {
                 let millis = value.parse::<u64>().ok()?;
@@ -33,7 +58,29 @@ fn parse_args() -> Option<Config> {
             _ => return None,
         }
     }
+    #[cfg(feature = "ha")]
+    match (kafka, source) {
+        (Some(kafka), Some(source)) => {
+            if explicit_ring {
+                return None;
+            }
+            config.ha = Some(ws_trade_server::ha::ReplicaInput { kafka, source });
+        }
+        (None, None) => {}
+        _ => return None,
+    }
     Some(config)
+}
+
+#[cfg(feature = "ha")]
+fn read_ha_config<T: serde::de::DeserializeOwned>(path: &str) -> Option<T> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path).ok()?.take(65537).read_to_end(&mut bytes).ok()?;
+    if bytes.len() > 65536 {
+        return None;
+    }
+    serde_json::from_slice(&bytes).ok()
 }
 
 #[tokio::main]
@@ -53,6 +100,13 @@ async fn main() -> ExitCode {
         Ok(server) => {
             tracing::info!(target: "ws_trade_server::gateway", event = "gateway_started", addr = %server.addr, http_addr = ?server.http_addr);
             let reporter = logging.reporter(server.hub.clone());
+            #[cfg(feature = "ha")]
+            if let Some(life) = &server.lifecycle {
+                tokio::select! { _ = wait_for_signal() => {}, _ = life.stopped() => {} }
+            } else {
+                wait_for_signal().await;
+            }
+            #[cfg(not(feature = "ha"))]
             wait_for_signal().await;
             tracing::info!(target: "ws_trade_server::gateway", event = "shutdown_requested");
             tokio::join!(server.shutdown(), reporter.finish());
