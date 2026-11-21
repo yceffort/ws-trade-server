@@ -64,6 +64,10 @@ export async function drive(api,plan,verify,{rollback=false,stop=()=>false}={}) 
       journal = {planHash,rollback:false,plan,completed:0,steps}
       await api.save(journal)
     }
+    for (const step of journal.steps.slice(0,journal.completed)) {
+      const current = await api.deployment(step.name)
+      if (hash(current.spec.template) !== hash(step.target)) throw new Error('completed slot template changed; manual reconciliation required')
+    }
     for (let index=journal.completed; index<journal.steps.length; index++) {
       if (stop()) throw new Error('rollout interrupted before next slot')
       const step = journal.steps[index]

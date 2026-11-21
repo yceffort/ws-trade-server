@@ -34,6 +34,19 @@ test('interruption after patch resumes same slot without patching or skipping va
   await drive(api,plan,accepted)
   assert.deepEqual(api.changes,['wts-gateway-a','wts-gateway-b','wts-gateway-c'])
 })
+test('resume stops before another patch if an already verified slot drifted',async()=>{
+  const api=fixture()
+  await assert.rejects(drive(api,plan,async request=>{
+    if(request.slot==='wts-gateway-b')throw new Error('oracle unavailable')
+    return accepted(request)
+  }),/oracle unavailable/)
+  const current=await api.deployment('wts-gateway-a')
+  await api.patch('wts-gateway-a',current.metadata.resourceVersion,api.state.steps[0].before)
+  const changes=[...api.changes]
+  await assert.rejects(drive(api,plan,accepted),/completed slot template changed/)
+  assert.deepEqual(api.changes,changes)
+  assert.equal(api.state.completed,1)
+})
 test('failed replay validation, concurrent drivers, and changed templates fail closed',async()=>{
   const api=fixture()
   await assert.rejects(drive(api,plan,request=>({...accepted(request),committed_missing:1})),/validation failed/)
