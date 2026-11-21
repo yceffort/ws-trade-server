@@ -210,8 +210,12 @@ enum Cmd<Q> {
     Subscribe { conn: u64, id: Arc<str>, topic: String, receipt: Option<String> },
     Unsubscribe { conn: u64, id: Arc<str>, receipt: Option<String> },
     Publish(String, Arc<str>),
+    Track(Inserted),
     Counts(oneshot::Sender<(u64, u64, u64)>),
 }
+
+// n번째 발행분을 hub가 큐에 넣으려 한 시각. 연결이 하나인 밀린 수신자 측정에서만 쓴다.
+type Inserted = Arc<Mutex<Vec<Instant>>>;
 
 fn subscribe<Q>(conn: u64, id: &str, topic: &str) -> Cmd<Q> {
     Cmd::Subscribe { conn, id: id.into(), topic: topic.into(), receipt: None }
@@ -234,14 +238,21 @@ struct State<Q: Queue> {
     dropped: u64,
     kicked: u64,
     receipts: u64,
+    inserted: Option<Inserted>,
 }
 
 impl<Q: Queue> Mini<Q> {
     fn spawn() -> Self {
         let (commands, mut inbox) = mpsc::channel(1024);
         tokio::spawn(async move {
-            let mut state =
-                State::<Q> { clients: HashMap::new(), index: HashMap::new(), dropped: 0, kicked: 0, receipts: 0 };
+            let mut state = State::<Q> {
+                clients: HashMap::new(),
+                index: HashMap::new(),
+                dropped: 0,
+                kicked: 0,
+                receipts: 0,
+                inserted: None,
+            };
             while let Some(command) = inbox.recv().await {
                 match command {
                     Cmd::Connect(conn, queue) => {
@@ -250,6 +261,7 @@ impl<Q: Queue> Mini<Q> {
                     Cmd::Subscribe { conn, id, topic, receipt } => state.subscribe(conn, id, topic, receipt),
                     Cmd::Unsubscribe { conn, id, receipt } => state.unsubscribe(conn, &id, receipt),
                     Cmd::Publish(topic, body) => state.publish(&topic, body),
+                    Cmd::Track(inserted) => state.inserted = Some(inserted),
                     Cmd::Counts(reply) => {
                         let _ = reply.send((state.dropped, state.kicked, state.receipts));
                     }
@@ -298,6 +310,10 @@ impl<Q: Queue> State<Q> {
     }
 
     fn publish(&mut self, topic: &str, body: Arc<str>) {
+        // 받을 구독이 없거나 연결이 끊겼어도 적어야 n번째 칸이 n번째 발행분과 맞는다. 큐에 넣기까지는 색인 조회만 남는다.
+        if let Some(inserted) = &self.inserted {
+            inserted.lock().unwrap().push(Instant::now());
+        }
         let latest = topic.starts_with(LATEST_FIRST);
         let Some(targets) = self.index.get(topic) else { return };
         let mut full = Vec::new();
@@ -509,14 +525,13 @@ async fn fanout_hub(connections: u64, samples: u64) -> Latency {
 
 const SYMBOLS: [&str; 3] = ["/latest/a", "/latest/b", "/latest/c"];
 
-// n번째 발행분의 발행 시각. 발행 스레드가 넣기 전에 적는다.
-type Sent = Arc<Mutex<Vec<Instant>>>;
-
 // 한 연결이 세 종목을 구독한다. MESSAGE를 꺼낼 때마다 소켓 쓰기를 흉내 내며 service 동안 워커를 붙든다.
-async fn lane<Q: Queue>(service: Duration, sent: Sent) -> (Mini<Q>, JoinHandle<Vec<(u64, Instant)>>) {
+async fn lane<Q: Queue>(service: Duration) -> (Mini<Q>, JoinHandle<Vec<(u64, Instant)>>) {
     let hub = Mini::<Q>::spawn();
     let (queue, mut rx) = Q::open(CAPACITY);
+    let inserted = Inserted::default();
     hub.send(Cmd::Connect(0, queue)).await;
+    hub.send(Cmd::Track(inserted.clone())).await;
     for topic in SYMBOLS {
         hub.send(subscribe(0, topic, topic)).await;
     }
@@ -525,7 +540,7 @@ async fn lane<Q: Queue>(service: Duration, sent: Sent) -> (Mini<Q>, JoinHandle<V
         let (mut got, mut free_at) = (Vec::new(), Instant::now());
         loop {
             // 기다리지 않고 꺼냈으면 앞 프레임이 끝났어야 할 시각부터 잰다. 스레드가 운영체제에 잠깐 밀려도 처리 속도는 service로 유지된다.
-            // 그 시각보다 늦게 발행된 프레임은 발행 시각부터 잰다. 발행 전의 빈 시간을 처리에 쓰면 큐가 실제보다 빨리 빈다.
+            // 그 시각보다 늦게 큐에 들어온 프레임은 들어온 시각부터 잰다. 도착 전의 빈 시간을 처리에 쓰면 큐가 실제보다 빨리 빈다.
             let (item, queued) = match rx.pop().now_or_never() {
                 Some(item) => (item, true),
                 None => (rx.pop().await, false),
@@ -534,7 +549,7 @@ async fn lane<Q: Queue>(service: Duration, sent: Sent) -> (Mini<Q>, JoinHandle<V
             if let Outgoing::Message { body, .. } = item {
                 let (n, now) = (number(&body), Instant::now());
                 got.push((n, now));
-                let start = if queued { free_at.max(sent.lock().unwrap()[n as usize]) } else { now };
+                let start = if queued { free_at.max(inserted.lock().unwrap()[n as usize]) } else { now };
                 free_at = start + service;
                 spin_until(free_at);
             }
@@ -544,24 +559,21 @@ async fn lane<Q: Queue>(service: Duration, sent: Sent) -> (Mini<Q>, JoinHandle<V
     (hub, task)
 }
 
-// 종목마다 초당 rate건을 지수 분포 간격으로 발행하고(loadgen과 같다) 발행 시각을 sent에 적는다.
+// 종목마다 초당 rate건을 지수 분포 간격으로 발행하고(loadgen과 같다) 발행 시각을 돌려준다.
 // 링 브리지처럼 런타임 밖의 스레드에서 부른다.
-fn publish_poisson(rate: f64, seconds: f64, sent: &Mutex<Vec<Instant>>, mut publish: impl FnMut(&str, Arc<str>)) {
+fn publish_poisson(rate: f64, seconds: f64, mut publish: impl FnMut(&str, Arc<str>)) -> Vec<Instant> {
     let interval = 1.0 / (rate * SYMBOLS.len() as f64);
     let start = Instant::now();
-    let mut at = 0.0;
+    let (mut at, mut sent) = (0.0, Vec::new());
     loop {
         at += -(1.0 - rand::random::<f64>()).ln() * interval;
         if at >= seconds {
-            break;
+            break sent;
         }
         spin_until(start + Duration::from_secs_f64(at));
         // 여러 방식에 차례로 넣으므로 첫 방식에 넣기 전에 잰다. 넣은 뒤에 재면 먼저 넣은 방식의 지연이 짧게 잡힌다.
-        let n = {
-            let mut sent = sent.lock().unwrap();
-            sent.push(Instant::now());
-            sent.len() as u64 - 1
-        };
+        let n = sent.len() as u64;
+        sent.push(Instant::now());
         publish(SYMBOLS[rand::random_range(0..SYMBOLS.len())], body(n));
     }
 }
@@ -569,27 +581,23 @@ fn publish_poisson(rate: f64, seconds: f64, sent: &Mutex<Vec<Instant>>, mut publ
 // 처리 시간은 평균 발행 간격의 ratio배다. 모든 방식에 같은 발행분을 같은 시각에 넣는다.
 async fn lagging(rate: f64, ratio: f64, seconds: f64) {
     let service = Duration::from_secs_f64(ratio / (rate * SYMBOLS.len() as f64));
-    let sent = Sent::default();
-    let (now, now_task) = lane::<Current>(service, sent.clone()).await;
-    let (ring, ring_task) = lane::<RingTx>(service, sent.clone()).await;
-    let (slot, slot_task) = lane::<SlotTx>(service, sent.clone()).await;
-    let (k8, k8_task) = lane::<DepthTx<8>>(service, sent.clone()).await;
-    let (k64, k64_task) = lane::<DepthTx<64>>(service, sent.clone()).await;
-    let table = sent.clone();
-    let (now, ring, slot, k8, k64) = tokio::task::spawn_blocking(move || {
-        publish_poisson(rate, seconds, &table, |topic, body| {
+    let (now, now_task) = lane::<Current>(service).await;
+    let (ring, ring_task) = lane::<RingTx>(service).await;
+    let (slot, slot_task) = lane::<SlotTx>(service).await;
+    let (k8, k8_task) = lane::<DepthTx<8>>(service).await;
+    let (k64, k64_task) = lane::<DepthTx<64>>(service).await;
+    let (now, ring, slot, k8, k64, sent) = tokio::task::spawn_blocking(move || {
+        let sent = publish_poisson(rate, seconds, |topic, body| {
             now.send_blocking(Cmd::Publish(topic.into(), body.clone()));
             ring.send_blocking(Cmd::Publish(topic.into(), body.clone()));
             slot.send_blocking(Cmd::Publish(topic.into(), body.clone()));
             k8.send_blocking(Cmd::Publish(topic.into(), body.clone()));
             k64.send_blocking(Cmd::Publish(topic.into(), body));
         });
-        (now, ring, slot, k8, k64)
+        (now, ring, slot, k8, k64, sent)
     })
     .await
     .expect("발행 스레드");
-    // 발행은 끝났다. 잠금을 쥔 채 수신 태스크를 기다리면 그 태스크가 표를 읽지 못하므로 복사해 둔다.
-    let sent = sent.lock().unwrap().clone();
     let kicked =
         [now.counts().await.1, ring.counts().await.1, slot.counts().await.1, k8.counts().await.1, k64.counts().await.1];
     drop((now, ring, slot, k8, k64));
@@ -639,9 +647,8 @@ async fn keep_up<Q: Queue>(name: &str, connections: u64, rate: f64, seconds: f64
     hub.counts().await;
     let (cpu, start) = (cpu_seconds(), Instant::now());
     let (hub, sent) = tokio::task::spawn_blocking(move || {
-        let sent = Mutex::default();
-        publish_poisson(rate, seconds, &sent, |topic, body| hub.send_blocking(Cmd::Publish(topic.into(), body)));
-        (hub, sent.into_inner().unwrap().len() as u64)
+        let sent = publish_poisson(rate, seconds, |topic, body| hub.send_blocking(Cmd::Publish(topic.into(), body)));
+        (hub, sent.len() as u64)
     })
     .await
     .expect("발행 스레드");
