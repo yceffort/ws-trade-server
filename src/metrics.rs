@@ -31,6 +31,7 @@ pub struct Metrics {
     pub published_total: u64,
     pub enqueued_frames_total: u64,
     pub slow_disconnections_total: u64,
+    pub latest_skipped_total: u64,
     pub ring_overruns_total: u64,
     pub sequence_missing_total: u64,
     pub sequence_resets_total: u64,

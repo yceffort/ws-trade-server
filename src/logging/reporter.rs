@@ -61,6 +61,7 @@ pub(super) fn summary(now: Metrics, previous: Option<Metrics>) {
         commands_queued = now.commands_queued,
         published_total = now.published_total,
         enqueued_frames_total = now.enqueued_frames_total,
+        latest_skipped_total = now.latest_skipped_total,
         logs_dropped_total = now.logs_dropped_total
     );
     let delta = |get: fn(Metrics) -> u64| get(now).saturating_sub(previous.map_or(0, get));

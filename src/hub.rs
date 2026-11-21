@@ -7,9 +7,9 @@ mod state;
 use crate::limits::{Limits, Rate};
 use crate::source::{AppliedRecord, Input, InputError, Publication};
 use cache::Cache;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{
-    Arc,
+    Arc, Mutex, PoisonError,
     atomic::{AtomicU64, Ordering},
 };
 use tokio::sync::mpsc::error::TrySendError;
@@ -21,6 +21,29 @@ pub enum Outgoing {
     // 연결은 그대로 두고 구독 하나만 거절한다.
     Denied { receipt_id: String, code: &'static str },
     Message { subscription: Arc<str>, body: Arc<str> },
+    // 최신 우선 topic의 표지. 쓰는 쪽이 꺼낼 때 칸에 든 가장 최근 본문을 MESSAGE로 쓴다.
+    Latest { subscription: Arc<str>, slot: Arc<Slot> },
+}
+
+// 최신 우선 구독 하나의 대기 칸. 칸이 비어 있다가 채워질 때만 송신 큐에 표지가 하나 들어간다.
+#[derive(Default)]
+pub struct Slot(Mutex<Option<Arc<str>>>);
+
+impl Slot {
+    // 잠근 채 패닉하는 코드가 없어 독이 들 일은 없지만, 연결 태스크가 패닉하지 않도록 값을 그대로 쓴다.
+    pub fn take(&self) -> Option<Arc<str>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).take()
+    }
+
+    // 칸이 차 있을 때만 값을 바꾸고 true를 돌려준다. 비어 있으면 그대로 둔다.
+    pub(crate) fn replace(&self, body: &Arc<str>) -> bool {
+        let mut pending = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        pending.as_mut().map(|value| *value = body.clone()).is_some()
+    }
+
+    pub(crate) fn fill(&self, body: Arc<str>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(body);
+    }
 }
 
 enum Command {
@@ -79,6 +102,13 @@ struct Client {
     closing: bool,
 }
 
+struct Target {
+    conn: u64,
+    id: Arc<str>,
+    // 최신 우선 topic의 구독에만 있다. 끊기 정책 topic은 할당도 잠금도 하지 않는다.
+    slot: Option<Arc<Slot>>,
+}
+
 #[derive(Default)]
 struct State {
     #[cfg(feature = "ha")]
@@ -91,9 +121,12 @@ struct State {
     published: u64,
     enqueued: u64,
     slow_disconnections: u64,
+    latest_skipped: u64,
+    latest_first: HashSet<String>,
+    latest_first_depth: usize,
     cache: Cache,
     clients: HashMap<u64, Client>,
-    index: HashMap<String, Vec<(u64, Arc<str>)>>,
+    index: HashMap<String, Vec<Target>>,
 }
 
 // 접두사 뒤 첫 구간이 소유자다. 소유자 구간이 비어도 공개 topic으로 새지 않게 개인 topic으로 남긴다.
@@ -115,6 +148,18 @@ impl Hub {
     }
 
     pub fn configured(limits: Limits, topics: Vec<String>) -> Hub {
+        Self::with_latest_first(limits, topics, Vec::new(), 0)
+    }
+
+    // latest_first_topics에 정확히 같은 topic만 최신 우선 정책이다. 나머지는 송신 큐가 차면 연결을 끊는다.
+    // 최신 우선 topic도 큐에 latest_first_depth건 미만이 쌓여 있으면 일반 MESSAGE로 넣고, 넘을 때만 칸으로 접는다.
+    // 개인 topic은 목록에 있어도 뺀다. 합치면 주문 생성처럼 뒤의 이벤트로 대신할 수 없는 이벤트가 사라진다.
+    pub fn with_latest_first(
+        limits: Limits,
+        topics: Vec<String>,
+        latest_first_topics: Vec<String>,
+        latest_first_depth: usize,
+    ) -> Hub {
         let (commands, mut inbox) = mpsc::channel(1024);
         #[cfg(feature = "ha")]
         let (replica_status_sender, replica_status) = tokio::sync::watch::channel(None);
@@ -123,8 +168,15 @@ impl Hub {
         let log_drops = Arc::new(AtomicU64::new(0));
         let drops = log_drops.clone();
         tokio::spawn(async move {
-            let mut state =
-                State { limits, log_drops: drops, bridge: counters, cache: Cache::new(topics), ..State::default() };
+            let mut state = State {
+                limits,
+                log_drops: drops,
+                bridge: counters,
+                cache: Cache::new(topics),
+                latest_first: latest_first_topics.into_iter().filter(|topic| personal_owner(topic).is_none()).collect(),
+                latest_first_depth,
+                ..State::default()
+            };
             while let Some(command) = inbox.recv().await {
                 match command {
                     #[cfg(feature = "ha")]

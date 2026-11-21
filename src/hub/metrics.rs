@@ -18,6 +18,7 @@ impl State {
             published_total: self.published,
             enqueued_frames_total: self.enqueued,
             slow_disconnections_total: self.slow_disconnections,
+            latest_skipped_total: self.latest_skipped,
             ring_overruns_total: self.bridge.ring_overruns.load(Ordering::Relaxed),
             sequence_missing_total: self.bridge.sequence_missing.load(Ordering::Relaxed),
             sequence_resets_total: self.bridge.sequence_resets.load(Ordering::Relaxed),

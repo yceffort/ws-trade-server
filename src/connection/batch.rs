@@ -36,6 +36,15 @@ where
                 *seq += 1;
                 stomp::message(&format!("{connection_id}-{seq}"), &subscription, &body)
             }
+            Outgoing::Latest { subscription, slot } => {
+                // 표지는 칸이 비어 있다가 채워질 때만 하나 들어가므로 칸은 비어 있지 않다. 비어 있으면 보낼 것도 순번도 없다.
+                let Some(body) = slot.take() else {
+                    next = outgoing.try_recv().ok();
+                    continue;
+                };
+                *seq += 1;
+                stomp::message(&format!("{connection_id}-{seq}"), &subscription, &body)
+            }
         };
         writer.feed(Message::text(text)).await.map_err(|_| "write_error")?;
         buffered += 1;
@@ -50,7 +59,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hub::Slot;
     use std::pin::Pin;
+    use std::sync::Arc;
     use std::task::{Context, Poll};
 
     // 받은 프레임과 flush 횟수만 적어 두는 가짜 소켓. flush 한 번이 소켓 쓰기 한 번에 해당한다.
@@ -95,6 +106,14 @@ mod tests {
         Outgoing::Message { subscription: "0".into(), body: body.into() }
     }
 
+    fn latest(body: Option<&str>) -> Outgoing {
+        let slot = Arc::new(Slot::default());
+        if let Some(body) = body {
+            slot.fill(body.into());
+        }
+        Outgoing::Latest { subscription: "0".into(), slot }
+    }
+
     fn message_ids(socket: &Recorder) -> Vec<&str> {
         socket
             .frames
@@ -110,6 +129,19 @@ mod tests {
         let first = outgoing.recv().await.unwrap();
         write(&mut socket, first, &mut outgoing, "conn", &mut seq).await.unwrap();
         assert_eq!(message_ids(&socket), ["conn-1", "conn-2", "conn-3"]);
+        assert_eq!(socket.flushes, 1);
+    }
+
+    // 표지는 꺼낼 때 칸의 값으로 MESSAGE가 된다. 빈 칸은 프레임도 순번도 만들지 않는다.
+    #[tokio::test]
+    async fn latest_markers_share_the_message_id_sequence() {
+        let mut outgoing = queue_of(vec![message("a"), latest(Some("b")), latest(None), message("c")]);
+        let (mut socket, mut seq) = (Recorder::default(), 0);
+        let first = outgoing.recv().await.unwrap();
+        write(&mut socket, first, &mut outgoing, "conn", &mut seq).await.unwrap();
+        assert_eq!(message_ids(&socket), ["conn-1", "conn-2", "conn-3"]);
+        let bodies: Vec<_> = socket.frames.iter().map(|frame| frame.rsplit_once("\n\n").unwrap().1).collect();
+        assert_eq!(bodies, ["a\0", "b\0", "c\0"]);
         assert_eq!(socket.flushes, 1);
     }
 
