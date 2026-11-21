@@ -1,5 +1,7 @@
 import { createServer,get } from 'node:http'
 import { pathToFileURL } from 'node:url'
+import { realpathSync } from 'node:fs'
+export const isMain=(url,entry=process.argv[1])=>Boolean(entry&&url===pathToFileURL(realpathSync(entry)).href)
 export function startMetrics({backend='http://127.0.0.1:8081/ha-metrics',host='0.0.0.0',port=9090}={}) {
 const server=createServer((request,response)=>{
   if(request.method!=='GET'||request.url!=='/metrics'){response.writeHead(404).end();return}
@@ -17,7 +19,7 @@ server.maxConnections=16;server.headersTimeout=3000;server.requestTimeout=3000;s
 server.listen(port,host)
 return server
 }
-if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href){
+if(isMain(import.meta.url)){
   const server=startMetrics()
   process.once('SIGTERM',()=>{server.close();server.closeAllConnections()})
 }

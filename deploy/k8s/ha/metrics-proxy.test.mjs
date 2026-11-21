@@ -2,7 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
-import { startMetrics } from './metrics-proxy.mjs'
+import { mkdtempSync,symlinkSync,rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { startMetrics,isMain } from './metrics-proxy.mjs'
 test('metrics proxy never forwards management paths or mutations',async()=>{
   const paths=[]
   const backend=createServer((request,response)=>{paths.push([request.method,request.url]);response.end('wts_ha_gateway_ready 1\n')}).listen(0,'127.0.0.1')
@@ -16,4 +20,11 @@ test('metrics proxy never forwards management paths or mutations',async()=>{
     assert.equal(response.status,200);assert.equal(await response.text(),'wts_ha_gateway_ready 1\n')
     assert.deepEqual(paths,[['GET','/ha-metrics']])
   }finally{proxy.close();proxy.closeAllConnections();backend.close();backend.closeAllConnections()}
+})
+
+test('projected ConfigMap symlinks are recognized as the CLI entry point',()=>{
+  const directory=mkdtempSync(join(tmpdir(),'ha-metrics-')),entry=join(directory,'metrics-proxy.mjs')
+  const module=new URL('./metrics-proxy.mjs',import.meta.url)
+  try{symlinkSync(fileURLToPath(module),entry);assert.equal(isMain(module.href,entry),true);assert.equal(isMain(import.meta.url,entry),false)}
+  finally{rmSync(directory,{recursive:true,force:true})}
 })
