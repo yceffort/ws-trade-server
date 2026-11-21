@@ -1,0 +1,14 @@
+scrape_configs:
+  - job_name: wts-ha
+    scrape_interval: 5s
+    scrape_timeout: 2s
+    kubernetes_sd_configs:
+      - role: endpoints
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        regex: wts-ha-metrics;metrics
+        action: keep
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod

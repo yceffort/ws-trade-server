@@ -3,18 +3,28 @@ import { Application, FileStore, readBounded } from './ha-state.mjs'
 
 const terminal = new Set(['cursor-expired', 'invalid-cursor', 'invalid-resume', 'start-out-of-range', 'forbidden-scope', 'auth-invalid', 'auth-expired', 'auth-revoked'])
 
-export async function runClient({ urls, token, store, startAt, signal, onCommit = () => {}, onFrame = () => {} }) {
+export async function runClient({ urls, token, store, startAt, signal, onCommit = () => {}, onFrame = () => {}, onAttempt = () => {}, onDisconnect = () => {} }) {
   const { default: WebSocket } = await import('../edge/node_modules/ws/wrapper.mjs')
   let failures = 0, noProgress = 0, attempt = 0
   while (!signal?.aborted) {
     const before = store.load()
     const application = new Application(store)
     const socket = new WebSocket(urls[attempt++ % urls.length], 'wts.ha.v1', { handshakeTimeout: 3000, maxPayload: 48 * 1024 })
+    onAttempt(socket)
     let queued = 0, chain = Promise.resolve(), reason = 'connection-closed', ready = false, applyFailed = false
-    const closed = new Promise(resolve => socket.once('close', resolve))
+    let applyError
+    const closed = new Promise(resolve => socket.once('close', () => { onDisconnect(reason); resolve() }))
     const stop = () => socket.terminate()
     signal?.addEventListener('abort', stop, { once: true })
-    let receiveTimer = setTimeout(() => { reason = 'receive-deadline'; stop() },3000)
+    let receiveTimer
+    const receiveDeadline = () => {
+      clearTimeout(receiveTimer)
+      receiveTimer = setTimeout(() => {
+        if (queued > 0 && socket.isPaused) receiveDeadline()
+        else { reason = 'receive-deadline'; stop() }
+      },3000)
+    }
+    receiveDeadline()
     const timer = setInterval(() => {
       if (ready && socket.readyState === WebSocket.OPEN) socket.send('{"type":"heartbeat"}')
     }, 1000)
@@ -24,10 +34,10 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
       catch { reason = 'auth-invalid'; stop() }
     })
     socket.on('message', (data, binary) => {
-      clearTimeout(receiveTimer)
-      receiveTimer = setTimeout(() => { reason = 'receive-deadline'; stop() },3000)
+      receiveDeadline()
       queued += data.length
       if (binary || queued > 1024 * 1024) { reason = 'client-overflow'; return stop() }
+      if (queued >= 64 * 1024) socket.pause()
       chain = chain.then(async () => {
         if (applyFailed) return
         const frame = JSON.parse(data.toString())
@@ -49,7 +59,12 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
           const ids = application.receive(frame)
           if (frame.type === 'checkpoint') await onCommit(store.load(), ids)
         }
-      }).catch(error => { applyFailed = true; reason = error.message === 'auth-invalid' ? error.message : 'client-apply-failed'; stop() }).finally(() => { queued -= data.length })
+      }).catch(error => { applyFailed = true; applyError = error; reason = error.message === 'auth-invalid' ? error.message : 'client-apply-failed'; stop() }).finally(() => {
+        queued -= data.length
+        if (queued < 32 * 1024 && socket.isPaused && socket.readyState === WebSocket.OPEN) {
+          socket.resume(); receiveDeadline()
+        }
+      })
     })
     await closed
     clearInterval(timer)
@@ -59,8 +74,8 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
     if (signal?.aborted) return store.load()
     const after = store.load()
     const progressed = after.offset !== null && (before.offset === null || BigInt(after.offset) > BigInt(before.offset))
-    if (terminal.has(reason) || reason === 'client-apply-failed') throw new Error(reason)
-    if (!progressed && (!after.cursor || reason === 'replay-limit')) {
+    if (terminal.has(reason) || reason === 'client-apply-failed') throw new Error(reason, { cause: applyError })
+    if (!progressed && reason === 'replay-limit') {
       if (++noProgress >= 3) throw new Error('no-checkpoint-progress')
     } else noProgress = 0
     failures = progressed ? 0 : Math.min(failures + 1, 6)

@@ -1,0 +1,67 @@
+{
+  "ok": false,
+  "production_slo_proven": false,
+  "forward_completed": 0,
+  "steps": [
+    {
+      "name": "wts-gateway-a",
+      "phase": "patched"
+    },
+    {
+      "name": "wts-gateway-b",
+      "phase": "pending"
+    },
+    {
+      "name": "wts-gateway-c",
+      "phase": "pending"
+    }
+  ],
+  "restarted_pods": [
+    {
+      "name": "wts-gateway-c-6b5d499468-hmrrl",
+      "uid": "c42ab782-273e-4c76-b0ba-0bc8ef5b299e",
+      "node": "wts-ha-issue52-worker5",
+      "phase": "Running",
+      "containers": [
+        {
+          "name": "edge",
+          "restarts": 1,
+          "state": {
+            "running": {
+              "startedAt": "2026-11-21T02:51:56Z"
+            }
+          },
+          "lastState": {
+            "terminated": {
+              "containerID": "containerd://62663c2f88e5ff57971610336de7b9814ce1ee48f792fa1fded4cb04563fc970",
+              "exitCode": 137,
+              "finishedAt": "2026-11-21T02:51:55Z",
+              "reason": "OOMKilled",
+              "startedAt": "2026-11-21T02:48:28Z"
+            }
+          }
+        },
+        {
+          "name": "metrics",
+          "restarts": 0,
+          "state": {
+            "running": {
+              "startedAt": "2026-11-21T02:48:30Z"
+            }
+          },
+          "lastState": {}
+        },
+        {
+          "name": "gateway",
+          "restarts": 0,
+          "state": {
+            "running": {
+              "startedAt": "2026-11-21T02:48:32Z"
+            }
+          },
+          "lastState": {}
+        }
+      ]
+    }
+  ]
+}

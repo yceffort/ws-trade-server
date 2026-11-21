@@ -91,3 +91,52 @@ test('control frames use the same bounded send budget', { timeout: 10000 }, asyn
     await closed
   }
 })
+
+test('a paused TLS client drains a replay burst without overflowing the proxy', { timeout: 10000 }, async (t) => {
+  const cert = certificate(); t.after(cert.close)
+  const backend = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await once(backend, 'listening')
+  t.after(async () => { for (const socket of backend.clients) socket.terminate(); await new Promise(resolve => backend.close(resolve)) })
+  backend.on('connection', socket => socket.once('message', () => {
+    const payload = Buffer.alloc(32 * 1024, 7)
+    for (let i = 0; i < 512; i++) socket.send(payload)
+  }))
+  const proxy = await startProxy({ backend: `ws://127.0.0.1:${backend.address().port}/ws`, tls: cert.tls, maxBuffer: 128 * 1024 })
+  t.after(() => proxy.close())
+  const socket = new WebSocket(`wss://127.0.0.1:${proxy.address.port}/ws`, 'v12.stomp', { ca: cert.tls.cert })
+  t.after(() => socket.terminate()); await once(socket, 'open')
+  let count = 0
+  const received = new Promise((resolve, reject) => {
+    socket.on('message', data => {
+      assert.equal(data.length, 32 * 1024)
+      assert.equal(data[0], 7)
+      if (++count === 512) resolve()
+    })
+    socket.once('close', () => { if (count !== 512) reject(new Error(`replay closed at ${count}`)) })
+    socket.once('error', reject)
+  })
+  socket.pause(); socket.send('replay')
+  const timer = setTimeout(() => socket.resume(), 300)
+  t.after(() => clearTimeout(timer))
+  await received
+  assert.equal(socket.readyState, WebSocket.OPEN)
+})
+
+test('abandoning a paused replay releases the backend close handshake', { timeout: 10000 }, async (t) => {
+  const backend = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await once(backend, 'listening')
+  t.after(async () => { for (const socket of backend.clients) socket.terminate(); await new Promise(resolve => backend.close(resolve)) })
+  const proxy = await startProxy({ backend: `ws://127.0.0.1:${backend.address().port}/ws`, maxBuffer: 128 * 1024 })
+  t.after(() => proxy.close())
+  const connected = once(backend, 'connection')
+  const socket = new WebSocket(`ws://127.0.0.1:${proxy.address.port}/ws`, 'v12.stomp')
+  t.after(() => socket.terminate()); await once(socket, 'open')
+  const [upstream] = await connected
+  socket.pause()
+  const payload = Buffer.alloc(32 * 1024)
+  for (let i = 0; i < 512; i++) upstream.send(payload)
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const closed = once(upstream, 'close', { signal: AbortSignal.timeout(2000) })
+  socket.terminate()
+  await closed
+})

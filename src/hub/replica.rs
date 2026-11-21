@@ -111,8 +111,17 @@ impl State {
 
 impl Hub {
     pub(crate) fn replica_ready(&self) -> bool {
-        self.replica_status.has_changed().is_ok()
-            && self.replica_status.borrow().as_ref().is_some_and(|view| view.ready(true))
+        self.replica_health(true).0
+    }
+
+    pub(crate) fn replica_health(&self, dependencies_ready: bool) -> (bool, bool) {
+        if self.replica_status.has_changed().is_err() {
+            return (false, true);
+        }
+        self.replica_status
+            .borrow()
+            .as_ref()
+            .map_or((false, false), |view| (view.ready(dependencies_ready), view.failed))
     }
 
     pub async fn follow_replica(
@@ -205,10 +214,11 @@ mod tests {
         paused.await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
         for _ in 0..10000 {
-            assert!(hub.replica_ready());
+            assert_eq!(hub.replica_health(true), (true, false));
+            assert_eq!(hub.replica_health(false), (false, false));
         }
         resume.send(()).unwrap();
         hub.stop().await;
-        assert!(!hub.replica_ready());
+        assert_eq!(hub.replica_health(true), (false, true));
     }
 }

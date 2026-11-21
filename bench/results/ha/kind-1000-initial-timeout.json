@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "reason": "initial client catchup failed",
+  "clients": 1000,
+  "ready": 602,
+  "failures": [],
+  "production_slo_proven": false
+}

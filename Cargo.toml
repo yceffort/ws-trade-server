@@ -11,6 +11,11 @@ name = "ha-feed"
 path = "src/bin/ha-feed.rs"
 required-features = ["ha"]
 
+[[bin]]
+name = "ha-oracle"
+path = "src/bin/ha-oracle.rs"
+required-features = ["ha"]
+
 [dependencies]
 ring = { version = "0.17.14", optional = true }
 base64 = { version = "0.22.1", optional = true }

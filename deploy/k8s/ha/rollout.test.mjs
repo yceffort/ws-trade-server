@@ -161,3 +161,34 @@ test('kubectl diagnostics distinguish lock conflicts without echoing credential 
   }
   assert.match(kubectlFailure({killed:true},'').message,/Deadline/)
 })
+
+test('measurement acknowledgement precedes every patch and windows survive retry',async()=>{
+  const api=fixture(),begun=new Map(),patch=api.patch.bind(api)
+  const begin=async request=>{begun.set(request.slot,request.window)}
+  api.patch=async(...args)=>{assert.ok(begun.has(args[0]));return patch(...args)}
+  await assert.rejects(drive(api,plan,()=>{throw new Error('oracle unavailable')},{begin}),/oracle unavailable/)
+  const first=begun.get('wts-gateway-a')
+  await drive(api,plan,request=>{assert.equal(request.window,begun.get(request.slot));return accepted(request)},{begin})
+  assert.equal(begun.get('wts-gateway-a'),first)
+  assert.equal(new Set(begun.values()).size,3)
+  const untouched=fixture()
+  await assert.rejects(drive(untouched,plan,accepted,{begin:()=>{throw new Error('measurement unavailable')}}),/measurement unavailable/)
+  assert.deepEqual(untouched.changes,[])
+})
+
+test('failed stabilization cancels its measurement and releases the rollout lock',async()=>{
+  const api=fixture(),cancelled=[]
+  api.settled=async()=>{throw new Error('stabilization failed')}
+  await assert.rejects(drive(api,plan,accepted,{cancel:request=>cancelled.push(request)}),/stabilization failed/)
+  assert.equal(cancelled.length,1);assert.equal(cancelled[0].window,api.state.steps[0].window)
+  assert.equal(cancelled[0].phase,'cancel');assert.equal(api.owner,null)
+  await assert.rejects(drive(api,plan,accepted,{cancel:()=>{throw new Error('control unavailable')}}),/control unavailable/)
+  assert.equal(api.owner,null)
+})
+test('rollback cancels an interrupted forward measurement before opening a new one',async()=>{
+  const api=fixture(),cancelled=[]
+  await assert.rejects(drive(api,plan,()=>{throw new Error('interrupted')}),/interrupted/)
+  const abandoned=api.state.steps[0].window
+  await drive(api,plan,accepted,{rollback:true,cancel:request=>cancelled.push(request),begin:request=>{assert.equal(cancelled[0].window,abandoned);assert.notEqual(request.window,abandoned)}})
+  assert.equal(api.state.completed,3);assert.equal(api.owner,null)
+})

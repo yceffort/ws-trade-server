@@ -1,0 +1,11 @@
+60497920
+1129934848
+usage_usec 1376523344
+user_usec 1306382631
+system_usec 70140712
+nice_usec 0
+nr_periods 6371
+nr_throttled 78
+throttled_usec 1925930
+nr_bursts 0
+burst_usec 0

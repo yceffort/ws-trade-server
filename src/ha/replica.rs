@@ -35,6 +35,15 @@ pub struct ReplicaView {
 }
 
 impl ReplicaView {
+    pub(crate) fn source_age_seconds(&self) -> f64 {
+        self.snapshot.status.as_ref().map_or(f64::NAN, |status| {
+            self.source_seen.elapsed().as_secs_f64().max(now_ms().saturating_sub(status.at_ms.0) as f64 / 1000.0)
+        })
+    }
+    pub(crate) fn broker_age_seconds(&self) -> Option<f64> {
+        Some(self.broker_seen?.elapsed().as_secs_f64().max(self.log_seen?.elapsed().as_secs_f64()))
+    }
+
     pub fn ready(&self, policy_fresh: bool) -> bool {
         let now = now_ms();
         !self.failed

@@ -1,0 +1,24 @@
+rule_files:
+  - prometheus-rules.yaml
+evaluation_interval: 10s
+tests:
+  - interval: 10s
+    input_series:
+      - series: 'up{job="wts-ha",namespace="other",instance="gateway"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 40s
+        alertname: WtsHaMetricsMissing
+        exp_alerts:
+          - exp_labels: { namespace: wts-ha, severity: critical }
+            exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }
+  - interval: 10s
+    input_series:
+      - series: 'up{job="wts-ha",namespace="wts-ha",instance="gateway"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 40s
+        alertname: WtsHaMetricsMissing
+        exp_alerts:
+          - exp_labels: { job: wts-ha, namespace: wts-ha, instance: gateway, severity: critical }
+            exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }

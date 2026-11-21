@@ -43,18 +43,27 @@ export async function startProxy({ backend, tls, host = '127.0.0.1', port = 0, m
         wss.handleUpgrade(request, socket, head, (ws) => {
           client = ws
           const relay = (source, target) => {
+            const highWater = Math.min(maxBuffer, 64 * 1024)
+            const sent = error => {
+              if (error) return terminate()
+              if (target.bufferedAmount < highWater / 2 && source.readyState === WebSocket.OPEN && source.isPaused) source.resume()
+            }
             source.on('message', (data, binary) => {
               if (target.readyState !== WebSocket.OPEN) return
               if (target.bufferedAmount + data.length > maxBuffer) return terminate()
-              target.send(data, { binary }, (error) => { if (error) terminate() })
+              target.send(data, { binary }, sent)
+              if (target.bufferedAmount >= highWater) source.pause()
             })
             for (const control of ['ping', 'pong']) source.on(control, (data) => {
               if (target.readyState !== WebSocket.OPEN) return
               if (target.bufferedAmount + data.length + 14 > maxBuffer) return terminate()
-              target[control](data)
+              target[control](data, undefined, sent)
             })
             source.on('close', (code, reason) => {
-              if (target.readyState === WebSocket.OPEN) target.close(code === 1005 || code === 1006 ? 1001 : code, reason)
+              if (target.readyState === WebSocket.OPEN) {
+                target.resume()
+                target.close(code === 1005 || code === 1006 ? 1001 : code, reason)
+              }
             })
             source.on('error', terminate)
           }

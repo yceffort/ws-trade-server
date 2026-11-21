@@ -5,6 +5,7 @@ use tokio::sync::Semaphore;
 
 #[derive(Clone)]
 pub struct Protocol {
+    pub(crate) counters: Arc<super::metrics::Counters>,
     pub(crate) keys: Arc<CursorKeys>,
     pub(crate) workers: Arc<Semaphore>,
     pub(crate) waiting: Arc<Semaphore>,
@@ -17,7 +18,12 @@ impl Protocol {
 
     pub fn new(keys: CursorKeys) -> Result<Self, &'static str> {
         keys.validate()?;
-        Ok(Self { keys: Arc::new(keys), workers: Arc::new(Semaphore::new(32)), waiting: Arc::new(Semaphore::new(128)) })
+        Ok(Self {
+            counters: Arc::default(),
+            keys: Arc::new(keys),
+            workers: Arc::new(Semaphore::new(32)),
+            waiting: Arc::new(Semaphore::new(128)),
+        })
     }
 }
 

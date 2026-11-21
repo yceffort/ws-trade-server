@@ -81,6 +81,7 @@ pub(crate) async fn serve_socket(
     conn: u64,
     mut shutdown: watch::Receiver<bool>,
 ) {
+    let _connection = config.ha_protocol.as_ref().map(|protocol| protocol.counters.connection());
     let (mut writer, mut reader) = socket.split();
     let handshake = async {
         let Request::Connect { token } = request(&mut reader).await? else {
@@ -135,6 +136,9 @@ pub(crate) async fn serve_socket(
         }
         Err(reason) => reason,
     };
+    if let Some(protocol) = &config.ha_protocol {
+        protocol.counters.closed(reason);
+    }
     hub.unfollow_replica(conn);
     let frame = if reason == "draining" {
         json!({"type":"draining","retry_after_ms":0})

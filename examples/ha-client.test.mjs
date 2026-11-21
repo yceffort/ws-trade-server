@@ -88,3 +88,46 @@ test('an asynchronous apply failure prevents queued checkpoints from advancing t
     assert.deepEqual(args.store.load(),saved)
   }finally{close(mock)}
 })
+
+test('transient admission failures before the first checkpoint remain retriable',async()=>{
+  const mock=await server(),controller=new AbortController()
+  let attempts=0
+  mock.on('connection',socket=>{
+    attempts++
+    socket.on('message',bytes=>{
+      const frame=JSON.parse(bytes)
+      if(frame.type==='connect')socket.send('{"type":"connected"}')
+      if(frame.type==='resume'){
+        if(attempts<5)socket.send('{"type":"error","code":"retry-later"}')
+        else controller.abort()
+      }
+    })
+  })
+  const random=Math.random;Math.random=()=>0
+  try{await runClient({...options(mock),signal:controller.signal});assert.equal(attempts,5)}
+  finally{Math.random=random;close(mock)}
+
+})
+
+test('durable apply backpressure pauses burst input and resumes without losing events',async()=>{
+  const mock=await server(),controller=new AbortController(),args=options(mock)
+  let attempts=0,pauses=0
+  mock.on('connection',socket=>{
+    attempts++
+    socket.on('message',bytes=>{
+      const frame=JSON.parse(bytes)
+      if(frame.type==='connect')socket.send('{"type":"connected"}')
+      if(frame.type==='resume'){
+        for(let i=1;i<=2000;i++){
+          socket.send(JSON.stringify({type:'event',event_id:`demo/trades/epoch/${i}`,topic:'a',position:{log_id:'test',partition:0,offset:String(i)},body:{padding:'x'.repeat(900)}}))
+          if(i%100===0)socket.send(JSON.stringify({type:'checkpoint',offset:String(i),cursor:`cursor-${i}`}))
+        }
+      }
+    })
+  })
+  const timeout=setTimeout(()=>controller.abort(),10000)
+  try{
+    await runClient({...args,signal:controller.signal,onAttempt(socket){const pause=socket.pause.bind(socket);socket.pause=()=>{pauses++;pause()}},async onCommit(state){await new Promise(resolve=>setTimeout(resolve,state.count==='100'?3600:10));if(state.count==='2000')controller.abort()}})
+    assert.equal(args.store.load().count,'2000');assert.equal(attempts,1);assert.ok(pauses>0)
+  }finally{clearTimeout(timeout);close(mock)}
+})

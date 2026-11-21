@@ -15,7 +15,7 @@ pub async fn bind(addr: &str) -> io::Result<TcpListener> {
 pub fn spawn(
     listener: TcpListener,
     hub: Hub,
-    #[cfg(feature = "ha")] lifecycle: Option<crate::ha::Lifecycle>,
+    #[cfg(feature = "ha")] management: Option<crate::ha::Management>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
@@ -34,7 +34,7 @@ pub fn spawn(
                     stream,
                     &hub,
                     #[cfg(feature = "ha")]
-                    lifecycle.as_ref(),
+                    management.as_ref(),
                 ),
             )
             .await;
@@ -45,7 +45,7 @@ pub fn spawn(
 async fn respond(
     mut stream: TcpStream,
     hub: &Hub,
-    #[cfg(feature = "ha")] lifecycle: Option<&crate::ha::Lifecycle>,
+    #[cfg(feature = "ha")] management: Option<&crate::ha::Management>,
 ) -> io::Result<()> {
     let mut bytes = [0; 8192];
     let mut size = 0;
@@ -64,7 +64,7 @@ async fn respond(
     }
     let first = bytes[..size].split(|b| *b == b'\n').next().unwrap_or_default();
     #[cfg(feature = "ha")]
-    let managed = lifecycle.and_then(|life| match first {
+    let managed = management.map(|m| &m.lifecycle).and_then(|life| match first {
         b"GET /livez HTTP/1.1\r" => Some((life.phase() != crate::ha::Phase::Stopped, life.phase())),
         b"GET /readyz HTTP/1.1\r" => Some((life.ready(), life.phase())),
         b"POST /drain HTTP/1.1\r" => {
@@ -75,7 +75,21 @@ async fn respond(
     });
     #[cfg(not(feature = "ha"))]
     let managed: Option<(bool, &str)> = None;
-    let (status, body) = if let Some((healthy, phase)) = managed {
+    #[cfg(feature = "ha")]
+    let metrics = if first == b"GET /ha-metrics HTTP/1.1\r" {
+        match management {
+            Some(m) => Some(m.prometheus(hub).await),
+            None => None,
+        }
+    } else {
+        None
+    };
+    #[cfg(not(feature = "ha"))]
+    let metrics: Option<String> = None;
+    let content_type = if metrics.is_some() { "text/plain; version=0.0.4" } else { "application/json" };
+    let (status, body) = if let Some(metrics) = metrics {
+        ("200 OK", metrics)
+    } else if let Some((healthy, phase)) = managed {
         (if healthy { "200 OK" } else { "503 Service Unavailable" }, serde_json::json!({"state":phase}).to_string())
     } else if first == b"GET /snapshots HTTP/1.1\r" {
         match hub.snapshot().await {
@@ -91,7 +105,7 @@ async fn respond(
         ("404 Not Found", "{}".into())
     };
     let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(response.as_bytes()).await

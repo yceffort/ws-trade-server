@@ -65,6 +65,10 @@ async fn readiness_and_upgrade_share_drain_state_while_existing_stream_and_http_
     let addr = server.addr;
     let http = server.http_addr.unwrap();
     assert!(request(http, "GET", "/livez").await.starts_with("HTTP/1.1 200"));
+    let metrics = request(http, "GET", "/ha-metrics").await;
+    assert!(metrics.contains("text/plain; version=0.0.4"));
+    assert!(metrics.contains("wts_ha_gateway_ready 0"));
+    assert!(!metrics.contains("Bearer"));
     assert!(request(http, "GET", "/readyz").await.starts_with("HTTP/1.1 503"));
     rejected(addr).await;
     assert!(probe(http, "ha-live").await);
