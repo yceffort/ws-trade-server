@@ -145,8 +145,7 @@ async fn read_heartbeats(reader: &mut Reader) -> &'static str {
 async fn monitor(hub: &Hub) -> &'static str {
     loop {
         tokio::time::sleep(Duration::from_millis(250)).await;
-        let view = timeout(Duration::from_secs(1), hub.replica_view()).await;
-        if !matches!(view, Ok(Ok(view)) if view.ready(true)) {
+        if !hub.replica_ready() {
             return "source-stale";
         }
     }

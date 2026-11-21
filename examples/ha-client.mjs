@@ -10,7 +10,7 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
     const before = store.load()
     const application = new Application(store)
     const socket = new WebSocket(urls[attempt++ % urls.length], 'wts.ha.v1', { handshakeTimeout: 3000, maxPayload: 48 * 1024 })
-    let queued = 0, chain = Promise.resolve(), reason = 'connection-closed', ready = false
+    let queued = 0, chain = Promise.resolve(), reason = 'connection-closed', ready = false, applyFailed = false
     const closed = new Promise(resolve => socket.once('close', resolve))
     const stop = () => socket.terminate()
     signal?.addEventListener('abort', stop, { once: true })
@@ -29,6 +29,7 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
       queued += data.length
       if (binary || queued > 1024 * 1024) { reason = 'client-overflow'; return stop() }
       chain = chain.then(async () => {
+        if (applyFailed) return
         const frame = JSON.parse(data.toString())
         await onFrame(frame, socket)
         if (!ready && !['connected', 'error', 'heartbeat'].includes(frame.type)) throw new Error('connect-required')
@@ -48,7 +49,7 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
           const ids = application.receive(frame)
           if (frame.type === 'checkpoint') await onCommit(store.load(), ids)
         }
-      }).catch(error => { reason = error.message === 'auth-invalid' ? error.message : 'client-apply-failed'; stop() }).finally(() => { queued -= data.length })
+      }).catch(error => { applyFailed = true; reason = error.message === 'auth-invalid' ? error.message : 'client-apply-failed'; stop() }).finally(() => { queued -= data.length })
     })
     await closed
     clearInterval(timer)

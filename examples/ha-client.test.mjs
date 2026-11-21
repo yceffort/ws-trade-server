@@ -71,3 +71,20 @@ test('newly signed cursors at the same offset still count as no progress',async 
   try { await assert.rejects(runClient(args),/no-checkpoint-progress/); assert.equal(attempts,3); assert.equal(args.store.load().offset,'5') }
   finally { Math.random=random; close(mock) }
 })
+
+test('an asynchronous apply failure prevents queued checkpoints from advancing the cursor',async()=>{
+  const mock=await server(),args=options(mock)
+  const saved={...args.store.load(),offset:'5',cursor:'saved-5'};args.store.commit(saved)
+  mock.on('connection',socket=>socket.on('message',bytes=>{
+    const frame=JSON.parse(bytes)
+    if(frame.type==='connect')socket.send('{"type":"connected"}')
+    if(frame.type==='resume'){
+      socket.send(JSON.stringify({type:'event',event_id:'demo/trades/epoch/6',topic:'a',position:{log_id:'test',partition:0,offset:'6'},body:{price:42}}))
+      socket.send('{"type":"checkpoint","offset":"6","cursor":"must-not-save"}')
+    }
+  }))
+  try{
+    await assert.rejects(runClient({...args,async onFrame(frame){if(frame.type==='event'){await new Promise(resolve=>setTimeout(resolve,20));throw new Error('apply failed')}}}),/client-apply-failed/)
+    assert.deepEqual(args.store.load(),saved)
+  }finally{close(mock)}
+})

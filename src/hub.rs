@@ -64,6 +64,8 @@ enum Command {
 pub struct Hub {
     commands: mpsc::Sender<Command>,
     log_drops: Arc<AtomicU64>,
+    #[cfg(feature = "ha")]
+    replica_status: tokio::sync::watch::Receiver<Option<crate::ha::ReplicaView>>,
     pub(crate) bridge: Arc<BridgeCounters>,
 }
 
@@ -114,6 +116,8 @@ impl Hub {
 
     pub fn configured(limits: Limits, topics: Vec<String>) -> Hub {
         let (commands, mut inbox) = mpsc::channel(1024);
+        #[cfg(feature = "ha")]
+        let (replica_status_sender, replica_status) = tokio::sync::watch::channel(None);
         let bridge = Arc::new(BridgeCounters::default());
         let counters = bridge.clone();
         let log_drops = Arc::new(AtomicU64::new(0));
@@ -124,7 +128,10 @@ impl Hub {
             while let Some(command) = inbox.recv().await {
                 match command {
                     #[cfg(feature = "ha")]
-                    Command::Replica(command) => state.replica(*command),
+                    Command::Replica(command) => {
+                        state.replica(*command);
+                        replica_status_sender.send_replace(state.replica.as_ref().map(crate::ha::Replica::view));
+                    }
                     #[cfg(test)]
                     Command::Pause { entered, resume } => {
                         let _ = entered.send(());
@@ -175,7 +182,13 @@ impl Hub {
                 }
             }
         });
-        Hub { commands, bridge, log_drops }
+        Hub {
+            commands,
+            bridge,
+            log_drops,
+            #[cfg(feature = "ha")]
+            replica_status,
+        }
     }
 
     pub async fn connect(

@@ -96,6 +96,11 @@ impl State {
 }
 
 impl Hub {
+    pub(crate) fn replica_ready(&self) -> bool {
+        self.replica_status.has_changed().is_ok()
+            && self.replica_status.borrow().as_ref().is_some_and(|view| view.ready(true))
+    }
+
     pub async fn follow_replica(
         &self,
         id: u64,
@@ -150,5 +155,46 @@ impl Hub {
 
     pub(crate) async fn fail_replica(&self) {
         let _ = self.replica_command(Command::Fail).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn cached_freshness_reads_do_not_wait_for_the_actor() {
+        let config = SourceConfig {
+            log_id: "test-log".into(),
+            source_id: crate::source::SourceId::new("demo".into(), "trades".into()).unwrap(),
+            epoch: "epoch-1".into(),
+            start_seq: crate::ha::Number(1),
+            topics: vec!["/topic/v1/kr/stock/trade/DEMO".into()],
+        };
+        let mut snapshot = Snapshot::empty(&config).unwrap();
+        snapshot
+            .apply(
+                &LogRecord::Status(crate::ha::SourceStatus::new(
+                    &config,
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
+                    false,
+                )),
+                0,
+                &config,
+            )
+            .unwrap();
+        let hub = Hub::spawn();
+        hub.restore_replica(config, snapshot).await.unwrap();
+        hub.replica_observation(1, 1, std::time::Instant::now()).await.unwrap();
+        let (entered, paused) = oneshot::channel();
+        let (resume, resumed) = oneshot::channel();
+        hub.commands.send(crate::hub::Command::Pause { entered, resume: resumed }).await.unwrap();
+        paused.await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        for _ in 0..10000 {
+            assert!(hub.replica_ready());
+        }
+        resume.send(()).unwrap();
+        hub.stop().await;
+        assert!(!hub.replica_ready());
     }
 }

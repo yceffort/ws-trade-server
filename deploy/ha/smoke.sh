@@ -25,6 +25,7 @@ cargo build --locked --features ha --bins
 deploy/ha/bootstrap.sh
 cargo test --locked --features ha --test ha_broker synthetic_checkpoint_fencing_and_snapshot_are_atomic -- --ignored --nocapture
 cargo test --locked --features ha --test ha_broker recovery_survives_more_than_4096_aborted_positions -- --ignored --nocapture
+cargo test --locked --features ha --lib cancelled_reader_releases_its_permit_after_native_cleanup -- --ignored --nocapture
 cargo test --locked --features ha --test ha_replica -- --ignored --nocapture
 cargo test --locked --features ha --test ha_protocol -- --ignored --nocapture
 mkdir -p deploy/local/ha/results

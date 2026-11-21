@@ -1,4 +1,4 @@
-use super::super::{EVENTS, LogRecord, MAX_STATE_BYTES, Protocol, ReplicaInput, digest, protocol::Resume};
+use super::super::{LogRecord, MAX_STATE_BYTES, Protocol, ReplicaInput, digest, protocol::Resume};
 use super::{Writer, replay, send};
 use crate::hub::Hub;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -129,19 +129,13 @@ pub(super) async fn run(
     let data_deadline = deadline - Duration::from_secs(1);
     let kafka = input.kafka.clone();
     let start = resume.start;
-    // 취소된 요청도 blocking reader가 끝날 때까지 worker permit을 소유한다.
-    let opened = tokio::task::spawn_blocking(move || {
-        let reader = kafka.reader(EVENTS, start)?;
-        Ok::<_, super::super::Error>((reader, permit))
-    });
-    let (reader, permit) =
-        wait(writer, opened, data_deadline).await?.map_err(|_| "source-error")?.map_err(|error| {
-            if matches!(error, super::super::Error::InvalidState) {
-                if resume.cursor { "cursor-expired" } else { "start-out-of-range" }
-            } else {
-                replay::error(error)
-            }
-        })?;
+    let reader = wait(writer, replay::Reader::open(kafka, start, permit), data_deadline).await?.map_err(|error| {
+        if matches!(error, super::super::Error::InvalidState) {
+            if resume.cursor { "cursor-expired" } else { "start-out-of-range" }
+        } else {
+            replay::error(error)
+        }
+    })?;
     let (low, stable) = reader.bounds();
     if start.is_some_and(|n| n < low || n > stable) {
         return Err(if resume.cursor { "cursor-expired" } else { "start-out-of-range" });
@@ -180,6 +174,7 @@ pub(super) async fn run(
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     heartbeat.tick().await;
     if resume.snapshot {
+        drop(reader);
         let mut topics = std::collections::BTreeMap::new();
         for topic in &resume.topics {
             let value = match view.snapshot.topics.get(topic).ok_or("forbidden-scope")? {
@@ -214,17 +209,12 @@ pub(super) async fn run(
         .await?;
             Ok::<_, &'static str>(())
         };
-        tokio::select! {
-            biased;
-            reason = &mut live.failed => return Err(reason.unwrap_or("source-error")),
-            result = transmission => result?,
-        }
+        // live 큐가 찼어도 완료된 snapshot 경계를 먼저 저장해야 다음 요청이 replay로 전진한다.
+        transmission.await?;
         progress.position = Some(end);
         progress.checkpoint(writer, deadline).await?;
-        drop(reader);
-        drop(permit);
     } else {
-        let mut replay = replay::Replay::spawn(reader, input.source.clone(), end, data_deadline, permit);
+        let mut replay = replay::Replay::spawn(reader, input.source.clone(), end, data_deadline);
         let mut checkpoint_tick = interval(Duration::from_millis(250));
         let result = loop {
             tokio::select! {
@@ -247,7 +237,7 @@ pub(super) async fn run(
         result?;
     }
     match live.failed.try_recv() {
-        Ok(reason) => return Err(reason),
+        Ok(reason) => return Err(if resume.snapshot { "replay-limit" } else { reason }),
         Err(tokio::sync::oneshot::error::TryRecvError::Closed) => return Err("source-error"),
         Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
     }
