@@ -5,6 +5,14 @@ import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 
 const destination = fileURLToPath(new URL('../local/ha', import.meta.url))
+function prepareProtocol(directory) {
+  const keys = join(directory, 'cursor-keys.json')
+  if (!existsSync(keys)) writeFileSync(keys, JSON.stringify({ current: 'dev-1', keys: { 'dev-1': { secret: randomBytes(32).toString('base64url'), retain_until: Math.floor(Date.now() / 1000) + 7 * 86400 } } }), { mode: 0o600 })
+  const tokenPath = join(directory, 'client-token')
+  if (!existsSync(tokenPath)) writeFileSync(tokenPath, randomBytes(32).toString('hex'), { mode: 0o600 })
+  const auth = join(directory, 'auth.json')
+  if (!existsSync(auth)) writeFileSync(auth, JSON.stringify([{ token: readFileSync(tokenPath, 'utf8'), principal: 'ha-demo', expires_at: Math.floor(Date.now() / 1000) + 86400 }]), { mode: 0o600 })
+}
 function prepareLease(directory) {
   const token = join(directory, 'lease-token')
   if (!existsSync(token)) writeFileSync(token, randomBytes(32).toString('hex'), { mode: 0o600 })
@@ -16,6 +24,7 @@ function prepareLease(directory) {
 if (existsSync(join(destination, 'ready'))) {
   chmodSync(destination, 0o700)
   prepareLease(destination)
+  prepareProtocol(destination)
   console.log('기존 HA 개발 인증 자료를 사용합니다.')
   process.exit(0)
 }
@@ -72,6 +81,7 @@ try {
   }
   writeFileSync(join(staging, 'source.json'), JSON.stringify({ log_id: 'demo-v1', source_id: { provider: 'demo', stream: 'trades' }, epoch: 'epoch-1', start_seq: '1', topics: ['/topic/v1/kr/stock/trade/A005930', '/topic/v1/us/stock/trade/US19990122001'] }, null, 2))
   prepareLease(staging)
+  prepareProtocol(staging)
   writeFileSync(join(staging, 'ready'), '1\n')
   renameSync(staging, destination)
   console.log('HA 개발용 CA, broker 인증서와 역할별 설정을 생성했습니다.')

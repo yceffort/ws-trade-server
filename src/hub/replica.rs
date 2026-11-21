@@ -8,6 +8,8 @@ pub(super) enum Command {
     Boundary(u64, u64, oneshot::Sender<Result<(), Error>>),
     Observed(u64, u64, std::time::Instant, oneshot::Sender<Result<(), Error>>),
     View(oneshot::Sender<Result<ReplicaView, Error>>),
+    Follow(u64, Vec<String>, oneshot::Sender<Result<(ReplicaView, crate::ha::LiveStream), &'static str>>),
+    Unfollow(u64),
     Fail,
 }
 
@@ -47,6 +49,9 @@ impl State {
                 {
                     replica.fail();
                 }
+                if matches!(result, Ok(true)) {
+                    self.live.publish(offset, record);
+                }
                 let _ = reply.send(result);
             }
             Command::Boundary(next, log_end, reply) => {
@@ -68,6 +73,19 @@ impl State {
             Command::View(reply) => {
                 let _ = reply.send(self.replica.as_ref().map(Replica::view).ok_or(Error::InvalidState));
             }
+            Command::Follow(id, topics, reply) => {
+                let result = self.replica.as_ref().map(Replica::view).ok_or("retry-later").and_then(|view| {
+                    if !view.ready(true) {
+                        return Err("source-stale");
+                    }
+                    if topics.iter().any(|topic| !view.snapshot.topics.contains_key(topic)) {
+                        return Err("forbidden-scope");
+                    }
+                    Ok((view, self.live.attach(id, topics)?))
+                });
+                let _ = reply.send(result);
+            }
+            Command::Unfollow(id) => self.live.detach(id),
             Command::Fail => {
                 if let Some(replica) = &mut self.replica {
                     replica.fail();
@@ -78,6 +96,24 @@ impl State {
 }
 
 impl Hub {
+    pub(crate) fn replica_ready(&self) -> bool {
+        self.replica_status.has_changed().is_ok()
+            && self.replica_status.borrow().as_ref().is_some_and(|view| view.ready(true))
+    }
+
+    pub async fn follow_replica(
+        &self,
+        id: u64,
+        topics: Vec<String>,
+    ) -> Result<(ReplicaView, crate::ha::LiveStream), &'static str> {
+        let (reply, applied) = oneshot::channel();
+        self.replica_command(Command::Follow(id, topics, reply)).await.map_err(|_| "retry-later")?;
+        applied.await.map_err(|_| "retry-later")?
+    }
+
+    pub fn unfollow_replica(&self, id: u64) {
+        let _ = self.commands.try_send(super::Command::Replica(Box::new(Command::Unfollow(id))));
+    }
     async fn replica_command(&self, command: Command) -> Result<(), Error> {
         self.commands.send(super::Command::Replica(Box::new(command))).await.map_err(|_| Error::ReplicaFailed)
     }
@@ -119,5 +155,46 @@ impl Hub {
 
     pub(crate) async fn fail_replica(&self) {
         let _ = self.replica_command(Command::Fail).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn cached_freshness_reads_do_not_wait_for_the_actor() {
+        let config = SourceConfig {
+            log_id: "test-log".into(),
+            source_id: crate::source::SourceId::new("demo".into(), "trades".into()).unwrap(),
+            epoch: "epoch-1".into(),
+            start_seq: crate::ha::Number(1),
+            topics: vec!["/topic/v1/kr/stock/trade/DEMO".into()],
+        };
+        let mut snapshot = Snapshot::empty(&config).unwrap();
+        snapshot
+            .apply(
+                &LogRecord::Status(crate::ha::SourceStatus::new(
+                    &config,
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
+                    false,
+                )),
+                0,
+                &config,
+            )
+            .unwrap();
+        let hub = Hub::spawn();
+        hub.restore_replica(config, snapshot).await.unwrap();
+        hub.replica_observation(1, 1, std::time::Instant::now()).await.unwrap();
+        let (entered, paused) = oneshot::channel();
+        let (resume, resumed) = oneshot::channel();
+        hub.commands.send(crate::hub::Command::Pause { entered, resume: resumed }).await.unwrap();
+        paused.await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        for _ in 0..10000 {
+            assert!(hub.replica_ready());
+        }
+        resume.send(()).unwrap();
+        hub.stop().await;
+        assert!(!hub.replica_ready());
     }
 }

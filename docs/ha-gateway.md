@@ -7,7 +7,7 @@ cargo build --features ha --bin gateway
 target/debug/gateway --ha-kafka deploy/local/ha/gateway.json --ha-source deploy/local/ha/source.json --addr 127.0.0.1:8080 --http-addr 127.0.0.1:8081
 ```
 
-먼저 [복제 로그 개발 환경](../deploy/ha/README.md)의 broker와 active `ha-feed`를 실행한다. Kafka와 source 설정은 두 옵션을 함께 지정하며 `--ring`과 동시에 사용할 수 없다. 기존 `/ws`의 STOMP 형식과 로컬 인증 파일 모드를 그대로 사용할 수 있다. 이 연결은 새 HA 재접속 프로토콜이나 공유 서명 인증을 제공하지 않는다. 각각 #49와 #51의 후속 작업이다.
+먼저 [복제 로그 개발 환경](../deploy/ha/README.md)의 broker와 active `ha-feed`를 실행한다. Kafka와 source 설정은 두 옵션을 함께 지정하며 `--ring`과 동시에 사용할 수 없다. 기존 `/ws`의 STOMP 형식과 로컬 인증 파일 모드를 그대로 사용할 수 있다. [HA 재접속 프로토콜](ha-protocol.md)은 별도 경로와 cursor 키 옵션으로 활성화한다. 공유 서명 인증은 #51의 후속 작업이다.
 
 gateway는 완전한 committed snapshot의 경계 B를 검증하고 B 다음부터 읽는다. 데이터가 없는 topic은 `ReplicaView.snapshot.topics`에서 `null`로 유지한다. 최신 체결의 원본 수신 시각을 보존하며 복원 시각을 체결 시각으로 덮어쓰지 않는다. 로그 레코드의 적용, 최신 상태 cache, 기존 구독자 fan-out과 적용 위치는 기존 1,024개 명령 hub의 같은 직렬 처리 단계에서 갱신한다. 적용 응답은 이 단계가 끝난 뒤 반환하며 클라이언트 수신이나 상태 적용의 ACK가 아니다.
 

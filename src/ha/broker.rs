@@ -159,6 +159,7 @@ impl Kafka {
             consumer,
             topic: topic.into(),
             next: start as u64,
+            initial_low: low as u64,
             initial_high: high as u64,
             scan_end: high as u64,
             timeout: self.timeout(),
@@ -337,6 +338,7 @@ pub struct LogReader {
     consumer: BaseConsumer<Quiet>,
     topic: String,
     next: u64,
+    initial_low: u64,
     initial_high: u64,
     scan_end: u64,
     timeout: Duration,
@@ -347,6 +349,9 @@ pub struct LogReader {
 }
 
 impl LogReader {
+    pub fn bounds(&self) -> (u64, u64) {
+        (self.initial_low, self.initial_high)
+    }
     pub fn initial_high(&self) -> u64 {
         self.initial_high
     }

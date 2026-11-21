@@ -1,5 +1,6 @@
 use super::*;
 use crate::source::{Envelope, ReceivedAtMs, SourceId, SourceSeq};
+use std::time::Duration;
 
 fn config() -> SourceConfig {
     SourceConfig {
@@ -37,15 +38,19 @@ fn unclear_commit_result_restores_committed_input() {
     let mut reader = kafka.reader(EVENTS, Some(offset)).unwrap();
     let mut records = Vec::new();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut injected_at = None;
     while std::time::Instant::now() < deadline {
         let next = reader.next_offset();
-        reader.lose_seek_result = true;
-        assert!(matches!(reader.refresh_end(), Err(Error::Broker(error)) if broker::transient(&error)));
-        assert_eq!(reader.next_offset(), next);
-        assert!(matches!(reader.poll(std::time::Duration::ZERO), Err(Error::Deadline)));
-        reader.lose_seek_result = false;
-        reader.refresh_end().unwrap();
-        assert_eq!(reader.next_offset(), next);
+        if injected_at != Some(next) {
+            injected_at = Some(next);
+            reader.lose_seek_result = true;
+            assert!(matches!(reader.refresh_end(), Err(Error::Broker(error)) if broker::transient(&error)));
+            assert_eq!(reader.next_offset(), next);
+            assert!(matches!(reader.poll(std::time::Duration::ZERO), Err(Error::Deadline)));
+            reader.lose_seek_result = false;
+            reader.refresh_end().unwrap();
+            assert_eq!(reader.next_offset(), next);
+        }
         if let Some(record) = reader.poll(std::time::Duration::from_millis(50)).unwrap()
             && let LogRecord::Trade(event) = LogRecord::from_json(&record.payload, &config).unwrap()
         {
@@ -61,6 +66,61 @@ fn unclear_commit_result_restores_committed_input() {
         assert_eq!(record.event_id(), expected.event_id());
         assert_eq!(record.to_json().unwrap(), expected.to_json().unwrap());
     }
+}
+
+#[tokio::test]
+async fn live_registration_captures_snapshot_and_future_records_at_one_boundary() {
+    let config = config();
+    let hub = crate::hub::Hub::spawn();
+    let mut snapshot = Snapshot::empty(&config).unwrap();
+    snapshot.apply(&LogRecord::Status(SourceStatus::new(&config, replica::now_ms(), false)), 0, &config).unwrap();
+    hub.restore_replica(config.clone(), snapshot).await.unwrap();
+    hub.apply_replica(2, LogRecord::Status(SourceStatus::new(&config, replica::now_ms(), true))).await.unwrap();
+    hub.replica_observation(3, 3, std::time::Instant::now()).await.unwrap();
+    let (snapshot, mut live) = hub.follow_replica(42, config.topics.clone()).await.unwrap();
+    let mut generator = Synthetic::new(&config, 1, 1000).unwrap();
+    let event = generator.next(&config, 1, replica::now_ms()).unwrap();
+    hub.apply_replica(4, LogRecord::Trade(Box::new(event))).await.unwrap();
+    assert_eq!(snapshot.next, 3);
+    assert!(snapshot.snapshot.topics.values().all(Option::is_none));
+    let delivered = tokio::time::timeout(Duration::from_secs(1), live.records.recv()).await.unwrap().unwrap();
+    assert_eq!(delivered.offset, 4);
+    assert!(matches!(delivered.record.as_ref(), LogRecord::Trade(event) if event.source_seq() == 1));
+    assert_eq!(hub.replica_view().await.unwrap().next, 5);
+    hub.unfollow_replica(42);
+    assert!(tokio::time::timeout(Duration::from_secs(1), live.records.recv()).await.unwrap().is_none());
+    hub.stop().await;
+}
+
+#[tokio::test]
+async fn byte_limited_live_buffer_disconnects_only_the_slow_reader() {
+    let config = config();
+    let mut generator = Synthetic::new(&config, 1, 1000).unwrap();
+    let event = generator.next(&config, 1, 2000).unwrap();
+    let mut trade = event.trade().clone();
+    trade.currency = "X".repeat(8000);
+    let event = Envelope::new(
+        config.log_id.clone(),
+        config.source_id.clone(),
+        config.epoch.clone(),
+        SourceSeq(1),
+        trade,
+        ReceivedAtMs(2000),
+    )
+    .unwrap();
+    let mut subscribers = LiveSubscribers::default();
+    let slow = subscribers.attach(1, config.topics.clone()).unwrap();
+    let mut fast = subscribers.attach(2, config.topics.clone()).unwrap();
+    for offset in 0..100 {
+        subscribers.publish(offset, LogRecord::Trade(Box::new(event.clone())));
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), fast.records.recv()).await.unwrap().unwrap().offset,
+            offset
+        );
+    }
+    assert_eq!(tokio::time::timeout(Duration::from_secs(1), slow.failed).await.unwrap().unwrap(), "replay-limit");
+    subscribers.publish(100, LogRecord::Status(SourceStatus::new(&config, 3000, false)));
+    assert_eq!(tokio::time::timeout(Duration::from_secs(1), fast.records.recv()).await.unwrap().unwrap().offset, 100);
 }
 
 #[tokio::test]
@@ -289,4 +349,49 @@ fn sequence_json_keeps_64_bit_precision() {
     for invalid in ["18446744073709551615", "\"01\"", "\"+1\"", "\"18446744073709551616\""] {
         assert!(serde_json::from_str::<Number>(invalid).is_err());
     }
+}
+
+#[test]
+fn unrelated_live_topics_use_ordered_progress_without_consuming_the_event_queue() {
+    let config = config();
+    let mut generator = Synthetic::new(&config, 1, 1000).unwrap();
+    let event = generator.next(&config, 1, 2000).unwrap();
+    let topic = event.message().0;
+    let other = config.topics.iter().find(|candidate| **candidate != topic).unwrap().clone();
+    let mut subscribers = LiveSubscribers::default();
+    let mut live = subscribers.attach(1, vec![other]).unwrap();
+    for offset in 0..10000 {
+        subscribers.publish(offset, LogRecord::Trade(Box::new(event.clone())));
+    }
+    assert!(live.records.try_recv().is_err());
+    assert_eq!(live.progress.borrow().through(0), Some(9999));
+    assert!(matches!(live.failed.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)));
+    subscribers.publish(10000, LogRecord::Status(SourceStatus::new(&config, 2000, false)));
+    subscribers.publish(10001, LogRecord::Trade(Box::new(event)));
+    assert_eq!(live.progress.borrow().through(0), None);
+    let status = live.records.try_recv().unwrap();
+    assert_eq!(status.offset, 10000);
+    assert_eq!(live.progress.borrow().through(status.sequence), Some(10001));
+}
+
+#[test]
+fn json_expansion_is_rejected_before_a_ha_event_can_be_committed() {
+    let config = config();
+    let mut generator = Synthetic::new(&config, 1, 1000).unwrap();
+    let event = generator.next(&config, 1, 2000).unwrap();
+    let mut trade = event.trade().clone();
+    trade.currency = "\u{1}".repeat(8100);
+    let event = Envelope::new(
+        config.log_id.clone(),
+        config.source_id.clone(),
+        config.epoch.clone(),
+        SourceSeq(1),
+        trade,
+        ReceivedAtMs(2000),
+    )
+    .unwrap();
+    let mut state = Checkpoint::new(config, None).unwrap();
+    let before = state.to_json().unwrap();
+    assert!(matches!(state.stage(&event), Err(Error::TooLarge)));
+    assert_eq!(state.to_json().unwrap(), before);
 }

@@ -4,6 +4,8 @@ on:
     paths:
       - src/**
       - tests/**
+      - examples/ha-*.mjs
+      - edge/**
       - proto/**
       - build.rs
       - Cargo.toml
@@ -29,6 +31,10 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --features ha --all-targets -- -D warnings
       - run: cargo test --locked --features ha
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --prefix edge --ignore-scripts && npm test --prefix edge && node --test examples/ha-*.test.mjs
   replicated-log:
     runs-on: ubuntu-latest
     timeout-minutes: 30

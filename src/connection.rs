@@ -21,6 +21,13 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::{WebSocketStream, accept_hdr_async_with_config};
 
 type Reader = SplitStream<WebSocketStream<TcpStream>>;
+type Writer = futures_util::stream::SplitSink<WebSocketStream<TcpStream>, Message>;
+
+enum Handshake {
+    Legacy(Writer, Reader, String, Option<crate::auth::Session>),
+    #[cfg(feature = "ha")]
+    Ha(WebSocketStream<TcpStream>),
+}
 
 fn reject(status: u16) -> ErrorResponse {
     http::Response::builder().status(status).body(None).expect("상태 코드는 유효하다")
@@ -59,7 +66,22 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
     let websocket_config =
         WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE_BYTES)).read_buffer_size(READ_BUFFER_BYTES);
     let handshake = async {
-        let socket = accept_hdr_async_with_config(stream, negotiate, Some(websocket_config)).await.ok()?;
+        #[cfg(feature = "ha")]
+        let mut route_ha = false;
+        #[allow(clippy::result_large_err)]
+        let callback = |request: &Request, response: Response| {
+            #[cfg(feature = "ha")]
+            if config.ha_protocol.is_some() && request.uri().path() == "/experimental/ha/ws" {
+                route_ha = true;
+                return crate::ha::negotiate(request, response);
+            }
+            negotiate(request, response)
+        };
+        let socket = accept_hdr_async_with_config(stream, callback, Some(websocket_config)).await.ok()?;
+        #[cfg(feature = "ha")]
+        if route_ha {
+            return Some(Handshake::Ha(socket));
+        }
         let (mut writer, mut reader) = socket.split();
         let frame = read_connect(&mut reader).await?;
         let connection_id = frame.header("connection-id")?.to_string();
@@ -75,15 +97,23 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
             },
             None => None,
         };
-        Some((writer, reader, connection_id, session))
+        Some(Handshake::Legacy(writer, reader, connection_id, session))
     };
     let result = tokio::select! {
         result = timeout(HANDSHAKE_DEADLINE, handshake) => result,
         _ = shutdown.changed() => return,
     };
-    let Ok(Some((writer, reader, connection_id, session))) = result else {
+    let Ok(Some(handshake)) = result else {
         tracing::debug!(event = "handshake_failed", conn);
         return;
+    };
+    let (writer, reader, connection_id, session) = match handshake {
+        Handshake::Legacy(writer, reader, id, session) => (writer, reader, id, session),
+        #[cfg(feature = "ha")]
+        Handshake::Ha(socket) => {
+            crate::ha::serve_socket(socket, &hub, &config, conn, shutdown).await;
+            return;
+        }
     };
     tracing::debug!(event = "connection_opened", conn);
 

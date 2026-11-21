@@ -45,7 +45,11 @@ impl SourceConfig {
         if event.source_epoch() != self.epoch {
             return Err(Error::SourceGap);
         }
-        let (topic, _) = crate::trade::to_message(event.trade()).ok_or(Error::InvalidState)?;
+        let (topic, body) = event.message();
+        // 식별자와 요청 ID의 상한을 포함한 JSON wrapper 예산을 남겨 commit 전에 거절한다.
+        if body.len() > 46 * 1024 {
+            return Err(Error::TooLarge);
+        }
         if self.topics.binary_search(&topic).is_err() {
             return Err(Error::InvalidState);
         }
