@@ -74,10 +74,14 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
     let handshake = async {
         #[cfg(feature = "ha")]
         let mut route_ha = false;
+        // 수락할 때는 준비 상태였다가 upgrade 전에 drain이 시작된 연결이다. 수락 시점의 거절과 같은 사유로 센다.
+        #[cfg(feature = "ha")]
+        let mut not_ready = false;
         #[allow(clippy::result_large_err)]
         let callback = |request: &Request, response: Response| {
             #[cfg(feature = "ha")]
             if config.ha_lifecycle.as_ref().is_some_and(|life| !life.ready()) {
+                not_ready = true;
                 return Err(unavailable());
             }
             #[cfg(feature = "ha")]
@@ -91,14 +95,19 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
             }
             negotiate(request, response)
         };
-        let socket = accept_hdr_async_with_config(stream, callback, Some(websocket_config)).await.ok()?;
+        let socket = accept_hdr_async_with_config(stream, callback, Some(websocket_config)).await;
+        #[cfg(feature = "ha")]
+        if not_ready {
+            return Err("not_ready");
+        }
+        let socket = socket.map_err(|_| "handshake_failed")?;
         #[cfg(feature = "ha")]
         if route_ha {
-            return Some(Handshake::Ha(socket));
+            return Ok(Handshake::Ha(socket));
         }
         let (mut writer, mut reader) = socket.split();
-        let frame = read_connect(&mut reader).await?;
-        let connection_id = frame.header("connection-id")?.to_string();
+        let frame = read_connect(&mut reader).await.ok_or("handshake_failed")?;
+        let connection_id = frame.header("connection-id").ok_or("handshake_failed")?.to_string();
         let session = match &config.auth {
             Some(auth) => match auth.authorize(frame.header("authorization")) {
                 Ok(session) => Some(session),
@@ -106,20 +115,24 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
                     tracing::debug!(event = "authentication_rejected", conn, reason = code);
                     let _ = writer.send(Message::text(stomp::error(code))).await;
                     let _ = writer.close().await;
-                    return None;
+                    return Err(code);
                 }
             },
             None => None,
         };
-        Some(Handshake::Legacy(writer, reader, connection_id, session))
+        Ok(Handshake::Legacy(writer, reader, connection_id, session))
     };
     let result = tokio::select! {
-        result = timeout(HANDSHAKE_DEADLINE, handshake) => result,
+        result = timeout(HANDSHAKE_DEADLINE, handshake) => result.unwrap_or(Err("handshake_timeout")),
         _ = shutdown.changed() => return,
     };
-    let Ok(Some(handshake)) = result else {
-        tracing::debug!(event = "handshake_failed", conn);
-        return;
+    let handshake = match result {
+        Ok(handshake) => handshake,
+        Err(reason) => {
+            hub.counters.rejected.add(reason);
+            tracing::debug!(event = "handshake_failed", conn);
+            return;
+        }
     };
     let (writer, reader, connection_id, session) = match handshake {
         Handshake::Legacy(writer, reader, id, session) => (writer, reader, id, session),
@@ -145,4 +158,26 @@ async fn read_connect(reader: &mut Reader) -> Option<stomp::Frame> {
         return None;
     }
     Some(frame)
+}
+
+#[cfg(all(test, feature = "ha"))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn upgrade_refused_after_drain_starts_counts_as_not_ready() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/ws", listener.local_addr().unwrap());
+        let client = tokio::spawn(tokio_tungstenite::connect_async(url));
+        // 수락은 이미 끝났고, 준비되지 않은 상태에서 upgrade를 받는다.
+        let (stream, _) = listener.accept().await.unwrap();
+        let hub = Hub::spawn();
+        let config = Config { ha_lifecycle: Some(crate::ha::Lifecycle::default()), ..Config::default() };
+        let (_shutdown, receiver) = watch::channel(false);
+        serve(stream, hub.clone(), config, 1, receiver).await;
+        assert!(client.await.unwrap().is_err());
+        let text = crate::metrics::prometheus(&hub.metrics().await.unwrap(), &hub.counters);
+        assert!(text.contains("wts_connections_rejected_total{reason=\"not_ready\"} 1\n"));
+        assert!(text.contains("wts_connections_rejected_total{reason=\"handshake_failed\"} 0\n"));
+    }
 }

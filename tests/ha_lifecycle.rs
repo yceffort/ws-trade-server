@@ -71,6 +71,10 @@ async fn readiness_and_upgrade_share_drain_state_while_existing_stream_and_http_
     assert!(!metrics.contains("Bearer"));
     assert!(request(http, "GET", "/readyz").await.starts_with("HTTP/1.1 503"));
     rejected(addr).await;
+    // HA 수집 경로에서 일반 지표도 함께 읽는다.
+    let metrics = request(http, "GET", "/ha-metrics").await;
+    assert!(metrics.contains("\nwts_connections_rejected_total{reason=\"not_ready\"} 1\n"));
+    assert!(metrics.contains("\nwts_stomp_connections 0\n"));
     assert!(probe(http, "ha-live").await);
     assert!(!probe(http, "ha-ready").await);
     life.health(true, false);

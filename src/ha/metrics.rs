@@ -1,5 +1,5 @@
 use super::{Lifecycle, Protocol, SharedAuth};
-use crate::hub::Hub;
+use crate::{hub::Hub, metrics::Reasons};
 use std::{
     fmt::Write,
     sync::{
@@ -7,6 +7,39 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
+
+// serve_socket이 연결을 닫는 사유. 목록 밖 사유는 other로 센다.
+const CLOSE_REASONS: &[&str] = &[
+    "auth-invalid",
+    "auth-expired",
+    "auth-revoked",
+    "auth-required",
+    "auth-policy-stale",
+    "forbidden-scope",
+    "ha-disabled",
+    "invalid-request",
+    "invalid-resume",
+    "invalid-cursor",
+    "cursor-expired",
+    "start-out-of-range",
+    "replay-limit",
+    "retry-later",
+    "snapshot-too-large",
+    "slow-client",
+    "source-error",
+    "source-stale",
+    "heartbeat-timeout",
+    "connection-closed",
+    "draining",
+    "server-shutdown",
+];
+
+pub(crate) struct Closes(Reasons);
+impl Default for Closes {
+    fn default() -> Self {
+        Self(Reasons::new(CLOSE_REASONS))
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct Counters {
@@ -22,6 +55,7 @@ pub(crate) struct Counters {
     pub slow_clients: AtomicU64,
     pub drain_notices: AtomicU64,
     pub auth_errors: AtomicU64,
+    pub closes: Closes,
 }
 pub(crate) struct Connection(Arc<Counters>);
 impl Drop for Connection {
@@ -36,6 +70,7 @@ impl Counters {
         Connection(self.clone())
     }
     pub fn closed(&self, reason: &str) {
+        self.closes.0.add(reason);
         let counter = match reason {
             "replay-limit" => Some(&self.replay_limits),
             "invalid-cursor" | "cursor-expired" => Some(&self.cursor_rejections),
@@ -95,6 +130,27 @@ impl Management {
             metric("replay_waiters", (128 - protocol.waiting.available_permits()) as f64);
         }
         let _ = writeln!(output, "wts_ha_gateway_phase{{phase=\"{:?}\"}} 1", self.lifecycle.phase());
+        if let Some(protocol) = &self.protocol {
+            protocol.counters.closes.0.write(&mut output, "wts_ha_closed_total");
+        }
         output
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closes_keep_existing_counters_and_fold_unknown_reasons() {
+        let counters = Counters::default();
+        for reason in ["slow-client", "unexpected"] {
+            counters.closed(reason);
+        }
+        let mut output = String::new();
+        counters.closes.0.write(&mut output, "wts_ha_closed_total");
+        assert!(output.contains("wts_ha_closed_total{reason=\"slow-client\"} 1\n"));
+        assert!(output.contains("wts_ha_closed_total{reason=\"other\"} 1\n"));
+        assert_eq!(counters.slow_clients.load(Ordering::Relaxed), 1);
     }
 }

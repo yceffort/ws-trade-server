@@ -1,6 +1,6 @@
 mod cache;
 mod metrics;
-use crate::metrics::{BridgeCounters, Metrics};
+use crate::metrics::{BridgeCounters, Counters, Metrics};
 #[cfg(feature = "ha")]
 mod replica;
 mod state;
@@ -14,6 +14,9 @@ use std::sync::{
 };
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
+
+// 송신 큐가 차서 hub가 연결을 지울 때 연결 쪽에 넘기는 종료 사유. 이때는 보낼 ERROR가 없다.
+pub(crate) const SLOW_CONSUMER: &str = "slow_consumer";
 
 pub enum Outgoing {
     Error(&'static str),
@@ -90,6 +93,7 @@ pub struct Hub {
     #[cfg(feature = "ha")]
     replica_status: tokio::sync::watch::Receiver<Option<crate::ha::ReplicaView>>,
     pub(crate) bridge: Arc<BridgeCounters>,
+    pub(crate) counters: Arc<Counters>,
 }
 
 struct Client {
@@ -118,6 +122,7 @@ struct State {
     limits: Limits,
     log_drops: Arc<AtomicU64>,
     bridge: Arc<BridgeCounters>,
+    counters: Arc<Counters>,
     published: u64,
     enqueued: u64,
     slow_disconnections: u64,
@@ -164,14 +169,17 @@ impl Hub {
         #[cfg(feature = "ha")]
         let (replica_status_sender, replica_status) = tokio::sync::watch::channel(None);
         let bridge = Arc::new(BridgeCounters::default());
-        let counters = bridge.clone();
+        let bridge_counters = bridge.clone();
+        let counters = Arc::new(Counters::default());
+        let state_counters = counters.clone();
         let log_drops = Arc::new(AtomicU64::new(0));
         let drops = log_drops.clone();
         tokio::spawn(async move {
             let mut state = State {
                 limits,
                 log_drops: drops,
-                bridge: counters,
+                bridge: bridge_counters,
+                counters: state_counters,
                 cache: Cache::new(topics),
                 latest_first: latest_first_topics.into_iter().filter(|topic| personal_owner(topic).is_none()).collect(),
                 latest_first_depth,
@@ -237,6 +245,7 @@ impl Hub {
         Hub {
             commands,
             bridge,
+            counters,
             log_drops,
             #[cfg(feature = "ha")]
             replica_status,

@@ -15,6 +15,37 @@ async fn rejection_reason_survives_a_full_queue_that_drains_before_the_deadline(
     rejected_write(true).await;
 }
 
+#[tokio::test]
+async fn slow_consumer_drop_reports_its_reason_without_the_error_grace_period() {
+    let hub = Hub::spawn();
+    let (server_io, client_io) = duplex(1024);
+    let server = WebSocketStream::from_raw_socket(server_io, Role::Server, None).await;
+    let mut client = WebSocketStream::from_raw_socket(client_io, Role::Client, None).await;
+    let task_hub = hub.clone();
+    let (_shutdown, receiver) = watch::channel(false);
+    let task = tokio::spawn(async move {
+        let (writer, reader) = server.split();
+        let config = Config { queue_capacity: 1, ..Config::default() };
+        run((reader, writer), &task_hub, &config, 1, "slow", None, receiver).await
+    });
+    assert!(client.next().await.unwrap().unwrap().to_text().unwrap().starts_with("CONNECTED\n"));
+    let subscribe = stomp::serialize("SUBSCRIBE", &[("id", "a"), ("destination", "topic"), ("receipt", "ready")], "");
+    client.send(Message::text(subscribe)).await.unwrap();
+    assert!(client.next().await.unwrap().unwrap().to_text().unwrap().starts_with("RECEIPT\n"));
+    // 쓰는 쪽이 큰 본문에 막힌 뒤 두 건을 더 보내면 크기 1인 큐가 넘친다.
+    hub.publish("topic".into(), "x".repeat(64 * 1024).into()).await;
+    while hub.metrics().await.unwrap().queued_frames != 0 {
+        sleep(Duration::from_millis(1)).await;
+    }
+    let dropped = Instant::now();
+    for body in ["a", "b"] {
+        hub.publish("topic".into(), body.into()).await;
+    }
+    assert_eq!(timeout(Duration::from_secs(3), task).await.unwrap().unwrap(), SLOW_CONSUMER);
+    assert!(dropped.elapsed() < Duration::from_millis(900));
+    assert_eq!(hub.metrics().await.unwrap().slow_disconnections_total, 1);
+}
+
 async fn rejected_write(drain: bool) {
     let hub = Hub::with_limits(Limits { subscriptions: 1, ..Limits::default() });
     // OS 송신 버퍼 크기와 무관하게 MESSAGE를 끝까지 쓰지 못하도록 작은 양방향 파이프를 쓴다.

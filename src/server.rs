@@ -172,6 +172,7 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
                     };
                     #[cfg(feature = "ha")]
                     if config.ha_lifecycle.as_ref().is_some_and(|life| !life.ready()) {
+                        accept_hub.counters.rejected.add("not_ready");
                         rejects.reject(stream);
                         continue;
                     }
@@ -179,6 +180,7 @@ pub async fn start_managed(config: Config) -> io::Result<Server> {
                         match permits.clone().try_acquire_owned() {
                             Ok(permit) => Some(permit),
                             Err(_) => {
+                                accept_hub.counters.rejected.add("connection_limit");
                                 rejects.reject(stream);
                                 continue;
                             }
