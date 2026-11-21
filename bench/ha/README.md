@@ -81,3 +81,5 @@ kind 전용 장애 도구는 부하 Pod가 없는 gateway worker만 골라 PDB�
 계획 재접속 p99 5초는 클라이언트의 실제 disconnect부터 durable caught-up까지의 표본에 적용한다. 장애 후 read-only oracle 조회와 committed 경계 적용을 기다리는 `recoveryDeadlineMs`는 별도 검증 예산으로 기본 60,000ms이며 1~60,000 정수만 허용한다. 이 기한을 늘려도 5초를 넘은 계획 재접속 표본은 통과하지 않는다. oracle 조회가 일시 실패하면 같은 기한 안에서 재시도한다. 장애 주입 명령 자체는 자동 재시도하지 않는다.
 
 개별 action의 복구 통계는 고유 fault ID로 해당 장애에서 시작한 재접속만 계산한다. 최종 보고서의 fault p99는 실행 전체의 장애 표본을 합산한다. 교체 Pod 안정화와 committed 경계의 적용 일치를 확인한 뒤 장애 구간 표시를 해제한다.
+
+`GET /status`는 활성 구간의 종류와 committed 비교까지 통과한 action 이름도 반환한다. 호스트에서 실행하는 node drain/network-partition은 예약한 Pod 장애의 `completed_actions`와 `active_measurement`를 확인한 뒤 별도로 수행한다. 이 수동 주입의 클라이언트 지연을 자동 action 표본으로 보고하지 않으며, host 명령 결과와 최종 committed 비교 근거를 함께 보존한다.

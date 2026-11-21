@@ -175,3 +175,20 @@ test('measurement acknowledgement precedes every patch and windows survive retry
   await assert.rejects(drive(untouched,plan,accepted,{begin:()=>{throw new Error('measurement unavailable')}}),/measurement unavailable/)
   assert.deepEqual(untouched.changes,[])
 })
+
+test('failed stabilization cancels its measurement and releases the rollout lock',async()=>{
+  const api=fixture(),cancelled=[]
+  api.settled=async()=>{throw new Error('stabilization failed')}
+  await assert.rejects(drive(api,plan,accepted,{cancel:request=>cancelled.push(request)}),/stabilization failed/)
+  assert.equal(cancelled.length,1);assert.equal(cancelled[0].window,api.state.steps[0].window)
+  assert.equal(cancelled[0].phase,'cancel');assert.equal(api.owner,null)
+  await assert.rejects(drive(api,plan,accepted,{cancel:()=>{throw new Error('control unavailable')}}),/control unavailable/)
+  assert.equal(api.owner,null)
+})
+test('rollback cancels an interrupted forward measurement before opening a new one',async()=>{
+  const api=fixture(),cancelled=[]
+  await assert.rejects(drive(api,plan,()=>{throw new Error('interrupted')}),/interrupted/)
+  const abandoned=api.state.steps[0].window
+  await drive(api,plan,accepted,{rollback:true,cancel:request=>cancelled.push(request),begin:request=>{assert.equal(cancelled[0].window,abandoned);assert.notEqual(request.window,abandoned)}})
+  assert.equal(api.state.completed,3);assert.equal(api.owner,null)
+})

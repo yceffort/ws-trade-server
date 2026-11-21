@@ -3,7 +3,8 @@ try {
   const expected=JSON.parse(process.env.WTS_ROLLOUT_REQUEST)
   const body=JSON.stringify(expected)
   const response=await new Promise((resolve,reject)=>{
-    const req=request({socketPath:process.env.WTS_HA_CONTROL_SOCKET,path:expected.phase==='begin'?'/begin':'/verify',method:'POST',headers:{'content-type':'application/json','content-length':Buffer.byteLength(body)},timeout:90000},res=>{
+    const path=expected.phase==='begin'?'/begin':expected.phase==='cancel'?'/cancel':'/verify'
+    const req=request({socketPath:process.env.WTS_HA_CONTROL_SOCKET,path,method:'POST',headers:{'content-type':'application/json','content-length':Buffer.byteLength(body)},timeout:90000},res=>{
       let bytes=''
       res.on('data',chunk=>{bytes+=chunk;if(bytes.length>65536)req.destroy(new Error('verification output limit'))})
       res.on('error',reject)

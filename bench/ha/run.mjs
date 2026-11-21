@@ -38,6 +38,12 @@ async function begin(request) {
   await mark({window:request.window})
   return {...request,ok:true}
 }
+async function cancel(request) {
+  const key=windowKey(request),known=windows.get(request.window)
+  if(known!==undefined&&known!==key)throw new Error('measurement window identity mismatch')
+  if(known===key&&activeScope?.window===request.window)await mark(null)
+  return {...request,ok:true}
+}
 async function command(argv,extra=[],timeout=90000){
   if(!Array.isArray(argv)||!argv.length||argv.some(s=>typeof s!=='string'))throw new Error('command argv required')
   const {stdout}=await exec(argv[0],[...argv.slice(1),...extra],{timeout,maxBuffer:128*1024*1024})
@@ -64,7 +70,7 @@ async function status() {
   const observed=await sample(),offsets=observed.clients.filter(c=>c.offset!==null).map(c=>BigInt(c.offset))
   const reasons={}
   for(const client of observed.clients)if(client.last_reason)reasons[client.last_reason]=(reasons[client.last_reason]??0)+1
-  return {clients:observed.clients.length,caught_up:observed.clients.filter(c=>c.caught_up).length,failures:failures.length,minimum_offset:offsets.length?String(offsets.reduce((a,b)=>a<b?a:b)):null,maximum_offset:offsets.length?String(offsets.reduce((a,b)=>a>b?a:b)):null,reasons,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms}
+  return {clients:observed.clients.length,caught_up:observed.clients.filter(c=>c.caught_up).length,failures:failures.length,minimum_offset:offsets.length?String(offsets.reduce((a,b)=>a<b?a:b)):null,maximum_offset:offsets.length?String(offsets.reduce((a,b)=>a>b?a:b)):null,reasons,active_measurement:activeScope?(activeScope.name?'fault':'rollout'):null,completed_actions:actions.filter(a=>a.recovery?.ok).map(a=>a.name),client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms}
 }
 function requireWindow(request) {
   if(request.window!==undefined&&windows.get(request.window)!==windowKey(request))throw new Error('measurement window was not started')
@@ -129,12 +135,13 @@ try {
           response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify(await status()))
           return
         }
-        if(request.method!=='POST'||!['/begin','/verify'].includes(request.url))throw new Error('unknown control operation')
+        if(request.method!=='POST'||!['/begin','/verify','/cancel'].includes(request.url))throw new Error('unknown control operation')
         let text=''
         for await(const chunk of request){text+=chunk;if(text.length>16384)throw new Error('control input limit')}
         const input=JSON.parse(text)
         let result
         if(request.url==='/begin')result=await begin(input)
+        else if(request.url==='/cancel')result=await cancel(input)
         else {
           requireWindow(input)
           try{result=await verify(input)}

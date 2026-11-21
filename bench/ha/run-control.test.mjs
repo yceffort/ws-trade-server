@@ -76,7 +76,13 @@ for(const overlap of [null,'rollout-first','fault-first'])test(`control windows 
     assert.equal((await call('/begin',third)).ok,true)
     writeFileSync(broken,'1')
     assert.equal((await call('/verify',third)).ok,false)
-    assert.equal((await call('/begin',{...third,window:'rollback',rollback:true})).ok,true)
+    const rollback={...third,window:'rollback',rollback:true}
+    assert.equal((await call('/begin',rollback)).ok,true)
+    assert.equal((await call('/cancel',{...rollback,slot:'wts-gateway-c'})).ok,false)
+    assert.equal((await call('/cancel',{...rollback,window:'unknown'})).ok,true)
+    assert.equal((await call('/begin',{...rollback,window:'next'})).ok,false)
+    assert.equal((await call('/cancel',rollback)).ok,true)
+    assert.equal((await call('/begin',{...rollback,window:'next'})).ok,true)
     child.kill('SIGTERM');await exited
   } finally {
     agent.destroy()

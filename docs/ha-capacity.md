@@ -36,3 +36,5 @@ HA 기본 edge는 압축을 끄고 CPU request 250m/limit 2, memory request 128M
 checkpoint 전송 오류 수정 커밋 `2d5fb98`과 고정 이미지로 1,000명 초기 접속을 다시 시험했다. 4 workers/20ms, 4 workers/5ms, 8 workers/5ms 세 설정 모두 60초 안에 전원이 catch-up하지 못했다. 5ms/4 workers 실행은 진단 시 978명이 caught-up이었으며 나머지 실행도 적용 오류와 부하 Pod OOM은 없었다. 세 실행의 설정과 이미지 digest, 결과, cgroup 근거를 `bench/results/ha/kind-final-1000-*.json`과 같은 이름의 cgroup 파일에 보관했다. 초기 접속 실패로 이 실행들에서는 rollout을 시작하지 않았다. 1,000명 SLO는 충족했다고 판단하지 않으며 병목 분석과 자원 분리 환경 측정을 #53에 남긴다.
 
 이 표와 artifact는 각 커밋 시점의 실행을 보존한다. 이후 최종 이미지의 30명 배포/rollback/장애 기능 검증과 노드 시험 결과, 실행 설정, image digest는 [#53의 검증 기록](https://github.com/yceffort/ws-trade-server/issues/53)에 추가한다. 기능 검증 통과를 1,000명 용량 검증이나 실제 외부 LB/물리 장애 도메인 검증으로 대신하지 않는다.
+
+최종 data-plane 이미지의 30명 계획 배포는 forward 3개 slot과 rollback 3개 slot 모두 통과했다. 각 slot의 재접속 p99는 0.50~0.58초, committed 적용 누락과 중복은 0이었다. `bench/results/ha/kind-planned-rollout.json`에 source commit, image digest와 6개 독립 구간을 보관했다. 같은 실행에 너무 이르게 예약한 장애는 마지막 rollout 측정과 겹쳐 안전장치가 거부했고, 전체 실행은 실패로 유지했다. 장애 검증은 별도 세션에서 수행한다.
