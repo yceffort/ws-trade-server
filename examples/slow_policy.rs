@@ -533,13 +533,17 @@ fn publish_poisson(rate: f64, seconds: f64, mut publish: impl FnMut(&str, Arc<st
     let interval = 1.0 / (rate * SYMBOLS.len() as f64);
     let start = Instant::now();
     let (mut at, mut sent) = (0.0, Vec::new());
-    while at < seconds {
+    loop {
         at += -(1.0 - rand::random::<f64>()).ln() * interval;
+        if at >= seconds {
+            break sent;
+        }
         spin_until(start + Duration::from_secs_f64(at));
-        publish(SYMBOLS[rand::random_range(0..SYMBOLS.len())], body(sent.len() as u64));
+        // 여러 방식에 차례로 넣으므로 첫 방식에 넣기 전에 잰다. 넣은 뒤에 재면 먼저 넣은 방식의 지연이 짧게 잡힌다.
+        let n = sent.len() as u64;
         sent.push(Instant::now());
+        publish(SYMBOLS[rand::random_range(0..SYMBOLS.len())], body(n));
     }
-    sent
 }
 
 // 처리 시간은 평균 발행 간격의 ratio배다. 모든 방식에 같은 발행분을 같은 시각에 넣는다.
