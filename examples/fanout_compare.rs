@@ -1,7 +1,6 @@
 // hub의 색인 방식과 색인 없이 공유 채널(broadcast)로 뿌리고 받는 쪽이 거르는 방식을 같은 조건에서 잰다.
 // 사용: cargo run --release --example fanout_compare
 use std::collections::HashSet;
-use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -52,12 +51,14 @@ impl Tally {
     }
 }
 
-// 프로세스 CPU 시간(초). unsafe 없이 getrusage를 쓸 수 없어서 ps로 읽는다. 해상도가 10ms라 표본을 충분히 모아 나눈다.
+// ps 출력의 반올림을 피하려고 이 시계 호출에만 unsafe를 허용한다.
+#[allow(unsafe_code)]
 fn cpu_seconds() -> f64 {
-    let pid = std::process::id().to_string();
-    let out = Command::new("ps").args(["-o", "cputime=", "-p", &pid]).output().expect("ps를 실행한다");
-    let text = String::from_utf8(out.stdout).expect("ps 출력은 UTF-8이다");
-    text.trim().split(':').fold(0.0, |total, part| total * 60.0 + part.parse::<f64>().expect("cputime 형식"))
+    let mut time = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: time은 초기화된 timespec이며 호출 동안 유효한 쓰기 가능한 포인터를 넘긴다.
+    let result = unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, &mut time) };
+    assert_eq!(result, 0, "프로세스 CPU 시계 조회 실패: {}", std::io::Error::last_os_error());
+    time.tv_sec as f64 + time.tv_nsec as f64 / 1e9
 }
 
 struct Stats {
@@ -184,6 +185,7 @@ async fn main() {
     let reverse = std::env::args().any(|arg| arg == "--reverse");
     let order = if reverse { ["broadcast", "hub"] } else { ["hub", "broadcast"] };
     println!("런타임 워커 {}개", tokio::runtime::Handle::current().metrics().num_workers());
+    println!("CPU 시계: CLOCK_PROCESS_CPUTIME_ID");
     println!("조건별 실행 순서: {} 다음 {}", order[0], order[1]);
     println!("연결 | 구독자 | 방식      | 중앙값 us | p99 us | CPU us/건");
     for connections in [100, 1_000, 10_000] {
@@ -209,6 +211,17 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn process_cpu_clock_detects_short_work() {
+        let start = cpu_seconds();
+        let mut sum = 0u64;
+        for n in 0..100_000 {
+            sum = std::hint::black_box(sum.wrapping_add(std::hint::black_box(n)));
+        }
+        std::hint::black_box(sum);
+        assert!(cpu_seconds() > start);
+    }
 
     #[tokio::test]
     async fn completion_time_precedes_observer_and_resets_each_sample() {

@@ -6,6 +6,10 @@ edition = "2024"
 [features]
 ha = ["dep:rdkafka", "dep:sha2", "dep:reqwest", "dep:ring", "dep:base64"]
 
+[[example]]
+name = "fanout_compare"
+test = true
+
 [[bin]]
 name = "ha-feed"
 path = "src/bin/ha-feed.rs"
