@@ -1,4 +1,5 @@
 mod audit;
+mod auth;
 mod broker;
 mod checkpoint;
 mod cursor;
@@ -13,6 +14,7 @@ mod replica;
 mod socket;
 mod synthetic;
 pub use audit::{Audit, audit};
+pub use auth::{PolicyConfig, SharedAuth};
 pub use broker::{Kafka, LogReader, StoredRecord, Writer};
 pub use checkpoint::{Checkpoint, Disposition};
 pub use cursor::CursorKeys;

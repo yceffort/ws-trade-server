@@ -21,6 +21,7 @@ trap cleanup EXIT
 node deploy/ha/prepare.mjs
 npm ci --prefix edge --ignore-scripts
 cargo build --locked --features ha --bins
+cargo test --locked --features ha --lib https_policy_revocation_and_provider_outage_obey_the_sixty_second_bound -- --ignored --nocapture
 "${compose[@]}" up -d --wait --wait-timeout 180
 deploy/ha/bootstrap.sh
 cargo test --locked --features ha --test ha_broker synthetic_checkpoint_fencing_and_snapshot_are_atomic -- --ignored --nocapture
@@ -28,6 +29,7 @@ cargo test --locked --features ha --test ha_broker recovery_survives_more_than_4
 cargo test --locked --features ha --lib cancelled_reader_releases_its_permit_after_native_cleanup -- --ignored --nocapture
 cargo test --locked --features ha --test ha_replica -- --ignored --nocapture
 cargo test --locked --features ha --test ha_protocol -- --ignored --nocapture
+WTS_HA_SHARED_TEST=1 cargo test --locked --features ha --test ha_protocol -- --ignored --nocapture
 cargo test --locked --features ha --test ha_lifecycle -- --ignored --nocapture
 mkdir -p deploy/local/ha/results
 node deploy/ha/producer-failover.mjs | tee deploy/local/ha/results/producer-failover.json

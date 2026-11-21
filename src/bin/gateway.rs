@@ -19,6 +19,10 @@ fn parse_args() -> Option<Config> {
             #[cfg(feature = "ha")]
             "--ha-source" => source = Some(read_ha_config(&value)?),
             #[cfg(feature = "ha")]
+            "--ha-policy" => {
+                config.ha_auth = Some(ws_trade_server::ha::SharedAuth::new(read_ha_config(&value)?).ok()?);
+            }
+            #[cfg(feature = "ha")]
             "--ha-cursor-keys" => {
                 config.ha_protocol = Some(ws_trade_server::ha::Protocol::new(read_ha_config(&value)?).ok()?)
             }

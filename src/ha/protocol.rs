@@ -11,6 +11,10 @@ pub struct Protocol {
 }
 
 impl Protocol {
+    pub fn ready(&self) -> bool {
+        self.keys.ready()
+    }
+
     pub fn new(keys: CursorKeys) -> Result<Self, &'static str> {
         keys.validate()?;
         Ok(Self { keys: Arc::new(keys), workers: Arc::new(Semaphore::new(32)), waiting: Arc::new(Semaphore::new(128)) })

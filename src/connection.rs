@@ -81,6 +81,10 @@ pub async fn serve(stream: TcpStream, hub: Hub, config: Config, conn: u64, mut s
                 return Err(unavailable());
             }
             #[cfg(feature = "ha")]
+            if config.ha_auth.is_some() && request.uri().path() != "/experimental/ha/ws" {
+                return Err(reject(404));
+            }
+            #[cfg(feature = "ha")]
             if config.ha_protocol.is_some() && request.uri().path() == "/experimental/ha/ws" {
                 route_ha = true;
                 return crate::ha::negotiate(request, response);
