@@ -102,7 +102,11 @@ if [ "$status" -ne 0 ]; then cat "$work/loadgen.err" >&2; echo "loadgen 실패($
 extra='{}'
 [ ${#gateway_extra[@]} -eq 0 ] || extra=$(printf '%s\n' "${gateway_extra[@]}" | jq -R . | jq -s '{args: .}')
 if [ -n "$metrics" ]; then
-  body=$(exec 3<>"/dev/tcp/127.0.0.1/$http_port"; printf 'GET /metrics HTTP/1.1\r\nHost: localhost\r\n\r\n' >&3; sed '1,/^\r$/d' <&3)
+  response=$(exec 3<>"/dev/tcp/127.0.0.1/$http_port"; printf 'GET /metrics HTTP/1.1\r\nHost: localhost\r\n\r\n' >&3; cat <&3)
+  body=${response#*$'\r\n\r\n'}
+  # hub가 없을 때의 503 응답 본문 {}나 응답 기한(2초)에 잘린 본문을 지표로 남기지 않는다.
+  [[ $response == "HTTP/1.1 200 "* ]] && jq -e 'type == "object"' <<<"$body" >/dev/null 2>&1 ||
+    { echo "지표 수집 실패: ${response%%$'\r'*}" >&2; exit 1; }
   extra=$(jq -n --argjson extra "$extra" --argjson metrics "$body" '$extra + {metrics: $metrics}')
 fi
 
