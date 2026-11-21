@@ -42,7 +42,7 @@ gateway slot a/b/c는 zone에 하나씩 고정되고 공통 required hostname an
 
 관리 HTTP는 loopback에만 열고 gateway exec probe로 `/livez`와 `/readyz`를 검사한다. edge TCP probe도 통과해야 Pod Ready가 된다. preStop은 즉시 drain을 시작하고 20초 기다린다. 전체 60초 grace 안에서 routing 20초, 재접속 분산 10초, flush 10초와 정리/sidecar 여유 20초를 사용한다. native sidecar는 gateway 종료 뒤에 내려간다. 실제 LB의 endpoint 제거 지연은 고정 대기 시간으로 입증되지 않으므로 직접 측정한다.
 
-NetworkPolicy는 기본 거부 후 필요한 경로만 허용한다. policyCIDRs는 외부 정책 공급자, apiCIDRs는 Service DNAT 이후 실제 API server 주소까지 포함한다. clientCIDRs는 LB가 Pod에 전달하는 실제 source 주소에 맞춘다. Service loadBalancerSourceRanges와 CNI source-NAT 동작은 제공자마다 다르므로 실제 연결과 거부 시험을 수행한다. 관리 endpoint를 Service에 공개하지 않는다.
+NetworkPolicy는 기본 거부 후 필요한 경로만 허용한다. policyCIDRs는 외부 정책 공급자, apiCIDRs는 Service DNAT 이후 실제 API server 주소까지 포함한다. clientCIDRs는 LoadBalancer 외부 클라이언트의 허용 범위이며 Service loadBalancerSourceRanges로 렌더링된다. Pod가 관측하는 SNAT 이후 source 주소는 gatewayIngressCIDRs에 지정한다. Service loadBalancerSourceRanges와 CNI source-NAT 동작은 제공자마다 다르므로 실제 연결과 거부 시험을 수행한다. 관리 endpoint를 Service에 공개하지 않는다.
 
 ## 직렬 배포와 rollback
 

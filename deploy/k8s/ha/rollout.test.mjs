@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { drive, Kubernetes, stablePod } from './rollout.mjs'
+import { drive, Kubernetes, stablePod, kubectlFailure } from './rollout.mjs'
 import { render } from './render.mjs'
 import { readFileSync } from 'node:fs'
 const settings=JSON.parse(readFileSync(new URL('./settings.example.json',import.meta.url)))
@@ -133,4 +133,18 @@ test('manifest name limit and post-SNAT network range are separate from LB clien
   const items=render({...settings,clientCIDRs:['198.51.100.0/24'],gatewayIngressCIDRs:['10.0.0.0/8']}).items
   assert.deepEqual(items.find(o=>o.kind==='Service'&&o.metadata.name==='wts-gateway').spec.loadBalancerSourceRanges,['198.51.100.0/24'])
   assert.deepEqual(items.find(o=>o.kind==='NetworkPolicy'&&o.metadata.name==='gateway').spec.ingress[0].from,[{ipBlock:{cidr:'10.0.0.0/8'}}])
+})
+
+test('terminated Pod history does not block rollout, while deleting Pods still do',async()=>{
+  const api=new Kubernetes('test','wts-ha')
+  const pod=(name,phase,deletionTimestamp)=>({metadata:{name,deletionTimestamp},status:{phase}})
+  api.command=async()=>JSON.stringify({items:[pod('evicted','Failed'),pod('finished','Succeeded'),pod('current','Running'),pod('old','Running','now'),pod('deleting-failed','Failed','now')]})
+  assert.deepEqual((await api.pods()).map(p=>p.metadata.name),['current','old','deleting-failed'])
+})
+test('kubectl diagnostics distinguish lock conflicts without echoing credential text',()=>{
+  for(const reason of ['AlreadyExists','Forbidden','Unauthorized','Conflict']){
+    const message=kubectlFailure({},`Error from server (${reason}): synthetic-credential`).message
+    assert.match(message,new RegExp(reason));assert.ok(!message.includes('synthetic-credential'))
+  }
+  assert.match(kubectlFailure({killed:true},'').message,/Deadline/)
 })

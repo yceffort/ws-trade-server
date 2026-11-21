@@ -94,6 +94,11 @@ export async function drive(api,plan,verify,{rollback=false,stop=()=>false}={}) 
   } finally { await api.unlock(owner) }
 }
 
+export function kubectlFailure(error,stderr) {
+  const reason=/\((AlreadyExists|Forbidden|Unauthorized|Conflict|NotFound|Timeout|ServerTimeout)\)/.exec(String(stderr))?.[1]??(error.killed?'Deadline':error.code==='ENOENT'?'ExecutableMissing':/connection refused|i\/o timeout|no such host/.test(String(stderr))?'Network':'Unknown')
+  return new Error(`kubectl operation failed (${reason}); inspect cluster state`)
+}
+
 export class Kubernetes {
   constructor(context,namespace) {
     if (!context || !/^[a-z0-9][-a-z0-9]{0,61}[a-z0-9]$|^[a-z0-9]$/.test(namespace)) throw new Error('explicit context and namespace required')
@@ -103,7 +108,7 @@ export class Kubernetes {
   }
   async command(args,input) {
     return await new Promise((resolve,reject)=> {
-      const child=execFile('kubectl',[...this.args,...args],{timeout:20000,maxBuffer:2*1024*1024},(error,stdout)=>error?reject(new Error('kubectl operation failed; inspect cluster state')):resolve(stdout))
+      const child=execFile('kubectl',[...this.args,...args],{timeout:20000,maxBuffer:2*1024*1024},(error,stdout,stderr)=>error?reject(kubectlFailure(error,stderr)):resolve(stdout))
       if(input!==undefined) child.stdin.end(JSON.stringify(input))
     })
   }
@@ -139,7 +144,7 @@ export class Kubernetes {
   async patch(name,version,template) {
     await this.command(['patch','deployment',name,'--type=json','-p',JSON.stringify([{op:'test',path:'/metadata/resourceVersion',value:version},{op:'replace',path:'/spec/template',value:template}])])
   }
-  async pods() { return JSON.parse(await this.command(['get','pods','-l',label,'-o','json'])).items }
+  async pods() { return JSON.parse(await this.command(['get','pods','-l',label,'-o','json'])).items.filter(p=>p.metadata.deletionTimestamp || !['Failed','Succeeded'].includes(p.status?.phase)) }
   async readyAll() { return this.readyOthers(null) }
   async readyOthers(excluded) {
     const expected=slots.filter(name=>name!==excluded)
