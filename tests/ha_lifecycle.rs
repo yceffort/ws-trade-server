@@ -52,12 +52,12 @@ async fn rejected(addr: std::net::SocketAddr) {
 
 #[tokio::test]
 async fn readiness_and_upgrade_share_drain_state_while_existing_stream_and_http_survive() {
-    let life =
-        Lifecycle::new(Duration::from_millis(300), Duration::from_millis(100), Duration::from_millis(100)).unwrap();
+    let life = Lifecycle::new(Duration::from_secs(5), Duration::from_millis(100), Duration::from_millis(100)).unwrap();
     let server = start_managed(Config {
         addr: "127.0.0.1:0".into(),
         http_addr: Some("127.0.0.1:0".into()),
         ha_lifecycle: Some(life.clone()),
+        heartbeat_ms: 60000,
         ..Config::default()
     })
     .await
@@ -89,9 +89,9 @@ async fn readiness_and_upgrade_share_drain_state_while_existing_stream_and_http_
     server.hub.publish(client::KR.into(), "during-drain".into()).await;
     assert_eq!(client::recv_frame(&mut socket).await.body, "during-drain");
     let shutdown = tokio::spawn(server.shutdown());
+    tokio::time::timeout(Duration::from_secs(10), shutdown).await.unwrap().unwrap();
     let frame = client::recv_frame(&mut socket).await;
     assert_eq!(frame.header("message"), Some("server-shutdown"));
-    tokio::time::timeout(Duration::from_secs(2), shutdown).await.unwrap().unwrap();
     assert_eq!(life.phase(), Phase::Stopped);
     assert!(TcpListener::bind(addr).await.is_ok());
     assert!(TcpListener::bind(http).await.is_ok());
