@@ -2,8 +2,8 @@
 // 사용: cargo run --release --example fanout_compare
 use std::collections::HashSet;
 use std::process::Command;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::sync::oneshot::error::TryRecvError;
 use tokio::sync::{Notify, broadcast};
@@ -18,6 +18,7 @@ struct Tally {
     wakeups: usize,
     delivered: AtomicUsize,
     handled: AtomicUsize,
+    delivered_at: Mutex<Option<Instant>>,
     delivered_done: Notify,
     handled_done: Notify,
 }
@@ -29,6 +30,7 @@ impl Tally {
             wakeups,
             delivered: AtomicUsize::new(0),
             handled: AtomicUsize::new(0),
+            delivered_at: Mutex::new(None),
             delivered_done: Notify::new(),
             handled_done: Notify::new(),
         })
@@ -36,6 +38,8 @@ impl Tally {
 
     fn received(&self) {
         if self.delivered.fetch_add(1, Relaxed) + 1 == self.subscribers {
+            let received_at = Instant::now();
+            *self.delivered_at.lock().expect("수신 시각 잠금") = Some(received_at);
             self.delivered_done.notify_one();
         }
         self.skipped();
@@ -68,7 +72,9 @@ async fn measure(tally: &Tally, samples: usize, publish: impl AsyncFn()) -> Stat
         let start = Instant::now();
         publish().await;
         tally.delivered_done.notified().await;
-        let elapsed = start.elapsed();
+        // 측정 태스크가 다시 실행될 때까지의 대기를 전달 지연에 넣지 않는다.
+        let elapsed =
+            tally.delivered_at.lock().expect("수신 시각 잠금").take().expect("마지막 구독자의 수신 시각") - start;
         tally.handled_done.notified().await;
         tally.delivered.store(0, Relaxed);
         tally.handled.store(0, Relaxed);
@@ -175,15 +181,21 @@ async fn stalled_receiver_demo() {
 
 #[tokio::main]
 async fn main() {
+    let reverse = std::env::args().any(|arg| arg == "--reverse");
+    let order = if reverse { ["broadcast", "hub"] } else { ["hub", "broadcast"] };
     println!("런타임 워커 {}개", tokio::runtime::Handle::current().metrics().num_workers());
+    println!("조건별 실행 순서: {} 다음 {}", order[0], order[1]);
     println!("연결 | 구독자 | 방식      | 중앙값 us | p99 us | CPU us/건");
     for connections in [100, 1_000, 10_000] {
         let samples = 5_000_000 / connections;
         for percent in [100, 10, 1] {
             let subscribers = (connections * percent / 100).max(1);
-            let hub = run_hub(connections, subscribers, samples).await;
-            let shared = run_broadcast(connections, subscribers, samples).await;
-            for (name, r) in [("hub", hub), ("broadcast", shared)] {
+            for name in order {
+                let r = if name == "hub" {
+                    run_hub(connections, subscribers, samples).await
+                } else {
+                    run_broadcast(connections, subscribers, samples).await
+                };
                 println!(
                     "{connections:>5} | {subscribers:>6} | {name:<9} | {:>9.1} | {:>6.1} | {:>9.1}",
                     r.median_us, r.p99_us, r.cpu_us
@@ -192,4 +204,29 @@ async fn main() {
         }
     }
     stalled_receiver_demo().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn completion_time_precedes_observer_and_resets_each_sample() {
+        let tally = Tally::new(2, 3);
+        for _ in 0..2 {
+            let start = Instant::now();
+            tally.received();
+            assert!(tally.delivered_at.lock().unwrap().is_none());
+            tally.received();
+            let observer_resumed = Instant::now();
+            tally.delivered_done.notified().await;
+            let received_at = tally.delivered_at.lock().unwrap().take().unwrap();
+            assert!((start..=observer_resumed).contains(&received_at));
+            assert_eq!(tally.handled.load(Relaxed), 2);
+            tally.skipped();
+            tally.handled_done.notified().await;
+            tally.delivered.store(0, Relaxed);
+            tally.handled.store(0, Relaxed);
+        }
+    }
 }
