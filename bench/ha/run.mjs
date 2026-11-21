@@ -7,10 +7,34 @@ import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { compare,percentile,reconnectMetrics } from './oracle.mjs'
+import { measuredTargets } from './measurement.mjs'
 const exec=promisify(execFile)
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 const workers=[],exits=[],requests=new Map(),ready=new Set(),failures=[],verifications=[],actions=[]
+const windows=new Map()
 let server,config,stopped=false
+async function mark(scope) {
+  const id=randomUUID()
+  await new Promise((resolve,reject)=>{
+    let replies=0
+    const timer=setTimeout(()=>{requests.delete(id);reject(new Error('measurement mark deadline'))},5000)
+    requests.set(id,()=>{if(++replies===workers.length){clearTimeout(timer);requests.delete(id);resolve()}})
+    workers.forEach(worker=>worker.postMessage({type:'mark',scope,id}))
+  })
+}
+function windowKey(request) {
+  if(typeof request.window!=='string'||!request.window||request.window.length>64||typeof request.planHash!=='string'||!['wts-gateway-a','wts-gateway-b','wts-gateway-c'].includes(request.slot)||typeof request.rollback!=='boolean')throw new Error('invalid measurement window')
+  return JSON.stringify([request.planHash,request.slot,request.rollback])
+}
+async function begin(request) {
+  const key=windowKey(request)
+  if(windows.has(request.window)&&windows.get(request.window)!==key)throw new Error('measurement window identity mismatch')
+  if(!windows.has(request.window)&&windows.size>=64)throw new Error('measurement window limit')
+  if(ready.size!==config.clients||failures.length)throw new Error('all clients must be caught up before measurement')
+  windows.set(request.window,key)
+  await mark({window:request.window})
+  return {...request,ok:true}
+}
 async function command(argv,extra=[],timeout=90000){
   if(!Array.isArray(argv)||!argv.length||argv.some(s=>typeof s!=='string'))throw new Error('command argv required')
   const {stdout}=await exec(argv[0],[...argv.slice(1),...extra],{timeout,maxBuffer:128*1024*1024})
@@ -31,7 +55,8 @@ async function status() {
   for(const client of observed.clients)if(client.last_reason)reasons[client.last_reason]=(reasons[client.last_reason]??0)+1
   return {clients:observed.clients.length,caught_up:observed.clients.filter(c=>c.caught_up).length,failures:failures.length,minimum_offset:offsets.length?String(offsets.reduce((a,b)=>a<b?a:b)):null,maximum_offset:offsets.length?String(offsets.reduce((a,b)=>a>b?a:b)):null,reasons,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms}
 }
-async function verify(request={}) {
+async function verify(request={},requireSlo=config.requireReconnectSlo) {
+  if(request.window!==undefined&&windows.get(request.window)!==windowKey(request))throw new Error('measurement window was not started')
   const boundary=await command(config.headCommand)
   const end=BigInt(boundary.next)-1n
   const deadline=performance.now()+config.recoveryDeadlineMs
@@ -45,10 +70,10 @@ async function verify(request={}) {
   const maximum=observed.clients.reduce((n,c)=>BigInt(c.offset)>n?BigInt(c.offset):n,0n)
   const oracle=await command(config.rangeCommand,[config.start,maximum.toString()])
   const comparison=compare(oracle,observed.clients)
-  const reconnect=reconnectMetrics(observed.samples)
+  const reconnect=reconnectMetrics(observed.samples,request.window)
   const recovery=percentile(observed.samples.filter(s=>s.fault_ms!==null).map(s=>s.fault_ms),.99)
   const slo=reconnect.reconnect_slo_status==='pass'
-  const result={...request,ok:comparison.ok&&(!config.requireReconnectSlo||slo),committed_missing:comparison.ok?0:null,duplicate_applies:comparison.ok?0:null,comparison,...reconnect,recovery_from_fault_p99_ms:recovery,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms,verified_through:end.toString()}
+  const result={...request,ok:comparison.ok&&(!requireSlo||slo),committed_missing:comparison.ok?0:null,duplicate_applies:comparison.ok?0:null,comparison,...reconnect,recovery_from_fault_p99_ms:recovery,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms,verified_through:end.toString()}
   return result
 }
 try {
@@ -70,7 +95,7 @@ try {
       if(message.type==='ready')ready.add(message.client)
       if(message.type==='not-ready')ready.delete(message.client)
       if(message.type==='failed')failures.push(message)
-      if(message.type==='sample')requests.get(message.id)?.(message)
+      if(message.type==='sample'||message.type==='marked')requests.get(message.id)?.(message)
     })
     worker.on('error',()=>failures.push({reason:'worker-error'}))
     worker.on('exit',code=>{if(code!==0&&!stopped)failures.push({reason:'worker-exit'})})
@@ -88,11 +113,15 @@ try {
           response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify(await status()))
           return
         }
-        if(request.method!=='POST'||request.url!=='/verify')throw new Error('unknown control operation')
+        if(request.method!=='POST'||!['/begin','/verify'].includes(request.url))throw new Error('unknown control operation')
         let text=''
         for await(const chunk of request){text+=chunk;if(text.length>16384)throw new Error('control input limit')}
-        const result=await verify(JSON.parse(text))
-        verifications.push({slot:result.slot,planHash:result.planHash,rollback:result.rollback,ok:result.ok,reconnect_p99_ms:result.reconnect_p99_ms,verified_through:result.verified_through})
+        const input=JSON.parse(text)
+        const result=request.url==='/begin'?await begin(input):await verify(input)
+        if(request.url==='/verify'){
+          verifications.push({slot:result.slot,planHash:result.planHash,window:result.window,rollback:result.rollback,ok:result.ok,reconnect_p99_ms:result.reconnect_p99_ms,reconnect_slo_status:result.reconnect_slo_status,verified_through:result.verified_through})
+          await mark(null)
+        }
         response.writeHead(result.ok?200:409,{'content-type':'application/json'}).end(JSON.stringify(result))
       }catch(error){response.writeHead(409).end(JSON.stringify({ok:false,reason:error.code?'external-command-or-io-failed':error instanceof SyntaxError?'invalid-json':error.message}))}
     })
@@ -108,13 +137,17 @@ try {
   for(const action of [...(config.actions??[])].sort((a,b)=>a.atSeconds-b.atSeconds)){
     while(!stopped&&!failures.length&&performance.now()-started<action.atSeconds*1000)await delay(100)
     if(stopped||failures.length)break
-    workers.forEach(w=>w.postMessage({type:'mark',name:action.name}))
+    await mark({name:action.name})
     const at=performance.now()
     let result
     try {result=await command(action.command,[],180000)}
     catch(error){actions.push({name:action.name,elapsed_ms:performance.now()-at,result:{ok:false}});throw error}
     actions.push({name:action.name,elapsed_ms:performance.now()-at,result})
     if(result.ok!==true)throw new Error('fault action failed')
+    const recovery=await verify({},false)
+    if(!recovery.ok)throw new Error('fault recovery application mismatch')
+    actions.at(-1).recovery=recovery
+    await mark(null)
   }
   while(!stopped&&!failures.length&&performance.now()-started<config.durationSeconds*1000)await delay(100)
   const report=await verify()
@@ -122,7 +155,7 @@ try {
   report.ok&&=failures.length===0
   report.duration_ms=elapsed;report.clients=config.clients;report.actions=actions;report.rollout_verifications=verifications;report.failures=failures
   report.environment=config.environment??{kind:'unspecified'}
-  report.measured_targets_met=report.ok&&config.clients>=1000&&elapsed>=600000&&(actions.length>=3||verifications.filter(v=>v.ok).length>=3)
+  report.measured_targets_met=measuredTargets(report)
   report.production_slo_proven=false
   report.external_evidence_review_required=true
   mkdirSync(dirname(config.output),{recursive:true})

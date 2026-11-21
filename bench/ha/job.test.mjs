@@ -35,3 +35,13 @@ test('Job and collection budgets cover the requested measurement duration',()=>{
   assert.equal(job(900).spec.activeDeadlineSeconds,1500)
   for(const value of [9,901,10.5,'600',null])assert.throws(()=>job(value),/durationSeconds/)
 })
+
+test('external LB egress is explicit and validates CIDR families and TCP ports',()=>{
+  const urls=['wss://lb.example/experimental/ha/ws']
+  assert.throws(()=>loadJob(settings,{urls}),/externalEgress/)
+  const externalEgress=[{cidr:'198.51.100.10/32',port:443},{cidr:'2001:db8::/64',port:8443}]
+  const policy=loadJob(settings,{urls,externalEgress}).items.find(o=>o.kind==='NetworkPolicy'&&o.metadata.name==='wts-ha-load')
+  assert.deepEqual(policy.spec.egress.slice(3),externalEgress.map(r=>({to:[{ipBlock:{cidr:r.cidr}}],ports:[{protocol:'TCP',port:r.port}]})))
+  for(const cidr of ['999.1.1.1/24','10.0.0.0/33','::/129','10.0.0.1/-1','10.0.0.1'])assert.throws(()=>loadJob(settings,{externalEgress:[{cidr,port:443}]}),/externalEgress/)
+  for(const port of [0,65536,'443',1.5])assert.throws(()=>loadJob(settings,{externalEgress:[{cidr:'10.0.0.0/8',port}]}),/externalEgress/)
+})

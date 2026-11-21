@@ -161,3 +161,17 @@ test('kubectl diagnostics distinguish lock conflicts without echoing credential 
   }
   assert.match(kubectlFailure({killed:true},'').message,/Deadline/)
 })
+
+test('measurement acknowledgement precedes every patch and windows survive retry',async()=>{
+  const api=fixture(),begun=new Map(),patch=api.patch.bind(api)
+  const begin=async request=>{begun.set(request.slot,request.window)}
+  api.patch=async(...args)=>{assert.ok(begun.has(args[0]));return patch(...args)}
+  await assert.rejects(drive(api,plan,()=>{throw new Error('oracle unavailable')},{begin}),/oracle unavailable/)
+  const first=begun.get('wts-gateway-a')
+  await drive(api,plan,request=>{assert.equal(request.window,begun.get(request.slot));return accepted(request)},{begin})
+  assert.equal(begun.get('wts-gateway-a'),first)
+  assert.equal(new Set(begun.values()).size,3)
+  const untouched=fixture()
+  await assert.rejects(drive(untouched,plan,accepted,{begin:()=>{throw new Error('measurement unavailable')}}),/measurement unavailable/)
+  assert.deepEqual(untouched.changes,[])
+})

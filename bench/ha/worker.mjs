@@ -5,6 +5,7 @@ import { runClient } from '../../examples/ha-client.mjs'
 import { readBounded } from '../../examples/ha-state.mjs'
 import { Journal } from './journal.mjs'
 import { extend,payloadHash,zero,percentile } from './oracle.mjs'
+import { Measurement } from './measurement.mjs'
 
 const {ids,config,head}=workerData
 const controller=new AbortController()
@@ -16,8 +17,9 @@ let marking=null
 parentPort.on('message',message=>{
   if(message.type==='stop')controller.abort()
   if(message.type==='mark'){
-    marking={at:performance.now(),name:message.name}
-    for(const client of clients)client.disconnectBaseline=client.disconnects
+    marking=message.scope?{...message.scope,at:performance.now()}:null
+    for(const client of clients)client.measurement.mark(marking)
+    parentPort.postMessage({type:'marked',id:message.id})
   }
   if(message.type==='sample')parentPort.postMessage({type:'sample',id:message.id,clients:clients.map(client=>{
     const state=client.store.durable()
@@ -26,13 +28,14 @@ parentPort.on('message',message=>{
 })
 const tasks=ids.map(async id=>{
   await new Promise(resolve=>setTimeout(resolve,id*config.startupIntervalMs))
-  const client={id,store:journal.store(id,config.topics),payloadDigest:zero,failed:null,disconnects:0,disconnectBaseline:0,caughtUp:false,attempts:0,lastReason:null}
+  const client={id,store:journal.store(id,config.topics),payloadDigest:zero,failed:null,disconnects:0,measurement:new Measurement(),caughtUp:false,attempts:0,lastReason:null}
+  client.measurement.mark(marking)
   clients.push(client)
-  let attemptAt=0,pending=new Map(),initial=true,lastDisconnected=null
+  let attemptAt=0,pending=new Map(),initial=true
   try {
     await runClient({urls:config.urls,token:()=>readBounded(config.tokenFile,16384).toString('utf8').trim(),store:client.store,startAt:{log_id:head.log_id,partition:0,offset:head.next},signal:controller.signal,
       onAttempt(){client.attempts++;client.caughtUp=false;attemptAt=performance.now();pending=new Map()},
-      onDisconnect(reason){lastDisconnected??=performance.now();client.disconnects++;client.caughtUp=false;client.lastReason=['source-stale','heartbeat-timeout','connection-error','connection-closed','draining','replay-limit','retry-later','receive-deadline','client-overflow'].includes(reason)?reason:'other';parentPort.postMessage({type:'not-ready',client:id})},
+      onDisconnect(reason){client.measurement.disconnect(performance.now());client.disconnects++;client.caughtUp=false;client.lastReason=['source-stale','heartbeat-timeout','connection-error','connection-closed','draining','replay-limit','retry-later','receive-deadline','client-overflow'].includes(reason)?reason:'other';parentPort.postMessage({type:'not-ready',client:id})},
       onFrame(frame,socket){
         if(frame.type==='event'){
           const digest=payloadHash(frame.body)
@@ -40,12 +43,12 @@ const tasks=ids.map(async id=>{
           pending.set(frame.event_id,digest)
         }
         if(frame.type==='caught-up'&&socket.readyState===1){
+          const timing=client.measurement.caughtUp(performance.now())
           if(initial){initial=false}
           else if(samples.length<100000){
-            samples.push({client:id,attempt_ms:performance.now()-attemptAt,disconnect_ms:lastDisconnected===null?null:performance.now()-lastDisconnected,fault_ms:marking&&client.disconnects>client.disconnectBaseline?performance.now()-marking.at:null,scenario:marking?.name??null})
+            samples.push({client:id,attempt_ms:performance.now()-attemptAt,...timing})
           }
           client.caughtUp=true;parentPort.postMessage({type:'ready',client:id})
-          lastDisconnected=null
         }
       },
       async onCommit(state,ids){
@@ -54,7 +57,11 @@ const tasks=ids.map(async id=>{
         pending.clear()
       }
     })
-  } catch(error){client.failed=error.message;parentPort.postMessage({type:'failed',client:id,reason:client.failed})}
+  } catch(error){
+    const known=new Set(['invalid-position','invalid-event-id','source-changed','invalid-event','log-changed','event-order','client-overflow','invalid-checkpoint','same id with changed payload','committed payload absent','client checkpoint batch limit'])
+    client.failed=error.message
+    parentPort.postMessage({type:'failed',client:id,reason:client.failed,apply_reason:known.has(error.cause?.message)?error.cause.message:'unknown'})
+  }
 })
 await Promise.all(tasks)
 await journal.close()

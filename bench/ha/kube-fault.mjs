@@ -14,19 +14,38 @@ export function requestBody(method,body) {
   if(data!==undefined)headers['content-length']=String(Buffer.byteLength(data))
   return {data,headers}
 }
+export function responseJson(res,resolve,reject) {
+  let text=''
+  res.on('data',chunk=>{text+=chunk;if(text.length>4*1024*1024)res.destroy(new Error('API output limit'))})
+  res.on('error',reject)
+  res.on('close',()=>{if(!res.complete)reject(new Error('Kubernetes response interrupted'))})
+  res.on('end',()=>{
+    if(res.statusCode<200||res.statusCode>=300)return reject(Object.assign(new Error('Kubernetes action rejected'),{status:res.statusCode}))
+    try{resolve(JSON.parse(text))}catch{reject(new Error('invalid Kubernetes response'))}
+  })
+}
+export function faultPods(pods,includeTerminating=false) {
+  return pods.filter(p=>includeTerminating&&p.metadata.deletionTimestamp||!p.metadata.deletionTimestamp&&!['Failed','Succeeded'].includes(p.status?.phase))
+}
+export async function restoreReplicas(api,path,uid) {
+  for(let attempt=0;attempt<5;attempt++){
+    const current=await api('GET',path)
+    if(current.metadata.uid!==uid)throw new Error('broker identity changed during fault')
+    try{return await api('PATCH',path,{metadata:{resourceVersion:current.metadata.resourceVersion},spec:{replicas:3}})}
+    catch(error){if(error.status!==409||attempt===4)throw error;await delay(100)}
+  }
+}
 async function api(method,path,body){
   const token=readFileSync('/var/run/chaos/token','utf8').trim()
   const {data,headers}=requestBody(method,body)
   return await new Promise((resolve,reject)=>{
     const req=request(`https://kubernetes.default.svc/api${path}`,{method,ca:readFileSync('/var/run/chaos/ca.crt'),headers:{authorization:`Bearer ${token}`,...headers},timeout:3000},res=>{
-      let text=''
-      res.on('data',chunk=>{text+=chunk;if(text.length>4*1024*1024)req.destroy(new Error('API output limit'))})
-      res.on('end',()=>res.statusCode>=200&&res.statusCode<300?resolve(JSON.parse(text)):reject(new Error('Kubernetes action rejected')))
+      responseJson(res,resolve,reject)
     })
     req.on('error',reject);req.on('timeout',()=>req.destroy(new Error('Kubernetes request deadline')));req.end(data)
   })
 }
-const list=async (component,includeTerminating=false)=>(await api('GET',`/v1/namespaces/${namespace}/pods?labelSelector=${encodeURIComponent(`app.kubernetes.io/part-of=wts-ha,app.kubernetes.io/component=${component}`)}`)).items.filter(p=>includeTerminating||!p.metadata.deletionTimestamp)
+const list=async (component,includeTerminating=false)=>faultPods((await api('GET',`/v1/namespaces/${namespace}/pods?labelSelector=${encodeURIComponent(`app.kubernetes.io/part-of=wts-ha,app.kubernetes.io/component=${component}`)}`)).items,includeTerminating)
 async function remove(pod){
   if(pod.metadata.namespace!==namespace||pod.metadata.labels['app.kubernetes.io/part-of']!=='wts-ha')throw new Error('unexpected fault target')
   return await api('DELETE',`/v1/namespaces/${namespace}/pods/${pod.metadata.name}`,{apiVersion:'v1',kind:'DeleteOptions',gracePeriodSeconds:0,preconditions:{uid:pod.metadata.uid,resourceVersion:pod.metadata.resourceVersion}})
@@ -41,9 +60,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)try {
     const before=await api('GET',leasePath)
     const feed=(await list('feed')).find(p=>before.spec.holderIdentity?.startsWith(p.metadata.uid))
     if(!feed)throw new Error('active feed not found')
-    const previous=await head()
-    await remove(feed)
     const deleted=Date.now()
+    await remove(feed)
     const deadline=performance.now()+30000
     let current
     while(performance.now()<deadline){
@@ -55,7 +73,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)try {
       await delay(250)
     }
     if(!current?.source_status_at_ms||BigInt(current.source_status_at_ms)<=BigInt(deleted))throw new Error('feed did not resume committed status within 30 seconds')
-    const failover=Number(BigInt(current.source_status_at_ms)-BigInt(previous.source_status_at_ms))
+    const failover=Number(BigInt(current.source_status_at_ms)-BigInt(deleted))
     details={feed_failover_ms:failover,old_pod:feed.metadata.name}
     if(failover>30000)throw new Error('feed failover target exceeded')
   }else if(action==='broker-quorum'){
@@ -68,10 +86,14 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)try {
       while((await list('broker',true)).length>1&&performance.now()<deadline)await delay(500)
       if((await list('broker',true)).length!==1)throw new Error('quorum fault not established')
       await delay(15000)
-    } finally {const current=await api('GET',path);await api('PATCH',path,{metadata:{resourceVersion:current.metadata.resourceVersion},spec:{replicas:3}})}
+    } finally {await restoreReplicas(api,path,before.metadata.uid)}
     details={quorum_pause_ms:15000}
   }else if(action==='full-restart'){
-    for(const component of ['gateway','feed','broker'])for(const pod of await list(component))await remove(pod)
+    for(const component of ['gateway','feed','broker']){
+      const pods=await list(component)
+      if(!pods.length)throw new Error('no fault target')
+      for(const pod of pods)await remove(pod)
+    }
     details={restarted:['gateway','feed','broker'],persistent_volumes_retained:true}
   }else{
     const pods=await list(action==='broker-one'?'broker':'gateway')

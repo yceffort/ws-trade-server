@@ -49,8 +49,8 @@ export function percentile(values,fraction){
   const sorted=[...values].sort((a,b)=>a-b)
   return sorted[Math.max(0,Math.ceil(sorted.length*fraction)-1)]
 }
-export function reconnectMetrics(samples) {
-  const planned=samples.filter(s=>s.disconnect_ms!==null&&s.scenario===null)
+export function reconnectMetrics(samples,window) {
+  const planned=samples.filter(s=>s.disconnect_ms!==null&&s.scenario===null&&typeof s.window==='string'&&(window===undefined||s.window===window))
   const fault=samples.filter(s=>s.disconnect_ms!==null&&s.scenario!==null)
   const p99=percentile(planned.map(s=>s.disconnect_ms),.99)
   return {reconnect_p99_ms:p99,reconnect_samples:planned.length,fault_reconnect_p99_ms:percentile(fault.map(s=>s.disconnect_ms),.99),fault_reconnect_samples:fault.length,reconnect_slo_status:p99===null?'not-measured':p99<=5000?'pass':'fail'}

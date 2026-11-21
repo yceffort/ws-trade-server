@@ -71,3 +71,9 @@ kind 전용 장애 도구는 부하 Pod가 없는 gateway worker만 골라 PDB�
 현재 연결에서 caught-up 상태가 아니거나 committed 검증 경계보다 뒤처진 클라이언트가 하나라도 남으면 검증에 실패한다. 과거에 한 번 연결됐다는 사실로 초기 준비 완료를 판정하지 않는다. 로컬 Unix 소켓의 `GET /status`는 현재 caught-up 수와 종료 사유 집계만 반환하며 token, cursor, 체결 본문은 반환하지 않는다.
 
 계획 배포의 재접속 p99는 장애 시나리오 표시가 없는 샘플만 사용한다. 표시된 장애 재접속은 `fault_reconnect_p99_ms`로 분리한다. 계획 배포 샘플이 없으면 `reconnect_slo_status`는 `not-measured`이며 `requireReconnectSlo:true` 게이트는 통과하지 않는다. 일반 부하와 장애 시험은 위 예시처럼 명시적으로 `false`를 사용한다. 계획 배포 시험과 장애 주입 시험은 별도 세션으로 실행한다.
+
+외부 LB를 시험할 때는 `urls`와 함께 `externalEgress: [{"cidr":"198.51.100.10/32","port":443}]`처럼 실제 LB 목적지 CIDR과 TCP 포트를 지정한다. DNS 이름의 주소가 여러 개이거나 바뀌면 허용 CIDR도 함께 관리한다. 내부 gateway 8443과 broker 9092 규칙은 유지하며 외부 목적지를 자동으로 전체 허용하지 않는다.
+
+배포 드라이버는 각 slot을 변경하기 전에 `phase=begin`과 고유 `window`를 oracle에 전달하고 워커의 측정 시작 응답을 기다린다. 검증에는 해당 window에서 시작한 계획 재접속만 포함한다. 이전 slot과 배포 전 재접속은 제외하며, 표본이 없으면 `not-measured`로 실패한다. 재시작은 journal의 window를 그대로 사용한다. 측정기가 교체되어 이전 표본을 잃었다면 재접속 SLO를 복원했다고 간주하지 않는다. 장애 표시는 해당 action 시작부터 committed 적용 복구 확인까지 유지하고 그 뒤 해제한다.
+
+`measured_targets_met`는 1,000 clients와 10분 이상, 계획 재접속 p99 5초 이하, forward/rollback 각각 3개 slot 검증, feed 장애 주입부터 새 committed status까지 30초 이하가 모두 측정된 경우에만 참이다. 하나라도 측정하지 않은 개별 기능 시험은 이 값을 참으로 기록하지 않는다. 운영 SLO 입증은 별도의 외부 환경 검토가 필요하다.

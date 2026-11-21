@@ -24,9 +24,16 @@ test('canonical payloads ignore key ordering and SLO uses nearest rank',()=>{
 })
 
 test('planned reconnect SLO excludes injected faults and reports absent samples',()=>{
-  const result=reconnectMetrics([{disconnect_ms:1000,scenario:null},{disconnect_ms:30000,scenario:'broker-quorum'}])
+  const result=reconnectMetrics([{disconnect_ms:1000,scenario:null,window:'a'},{disconnect_ms:30000,scenario:'broker-quorum'}])
   assert.equal(result.reconnect_p99_ms,1000);assert.equal(result.fault_reconnect_p99_ms,30000)
   assert.equal(result.reconnect_slo_status,'pass')
   assert.equal(reconnectMetrics([]).reconnect_slo_status,'not-measured')
-  assert.equal(reconnectMetrics([{disconnect_ms:6000,scenario:null}]).reconnect_slo_status,'fail')
+  assert.equal(reconnectMetrics([{disconnect_ms:6000,scenario:null,window:'a'}]).reconnect_slo_status,'fail')
+})
+
+test('a slow slot cannot borrow earlier fast samples or unmarked reconnects',()=>{
+  const samples=[...Array.from({length:1000},()=>({disconnect_ms:1,scenario:null,window:'a'})),{disconnect_ms:6000,scenario:null,window:'b'},{disconnect_ms:1,scenario:null,window:null}]
+  assert.equal(reconnectMetrics(samples,'b').reconnect_slo_status,'fail')
+  assert.equal(reconnectMetrics(samples,'c').reconnect_slo_status,'not-measured')
+  assert.equal(reconnectMetrics([{disconnect_ms:1,scenario:null,window:null}]).reconnect_slo_status,'not-measured')
 })

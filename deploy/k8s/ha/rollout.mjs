@@ -33,7 +33,7 @@ export function target(template,plan) {
   next.spec.volumes.find(v=>v.name==='source').configMap.name = `wts-source-${plan.version}`
   return next
 }
-export async function drive(api,plan,verify,{rollback=false,stop=()=>false}={}) {
+export async function drive(api,plan,verify,{rollback=false,stop=()=>false,begin=async()=>{}}={}) {
   if (!validPlan(plan)) throw new Error('version (at most 49 characters) and pinned images required')
   const owner = randomUUID()
   await api.lock(owner)
@@ -74,6 +74,9 @@ export async function drive(api,plan,verify,{rollback=false,stop=()=>false}={}) 
       if (stop()) throw new Error('rollout interrupted before next slot')
       const step = journal.steps[index]
       const current = await api.deployment(step.name)
+      step.window??=randomUUID()
+      await api.save(journal)
+      await begin({phase:'begin',planHash,slot:step.name,nonce:randomUUID(),window:step.window,rollback:journal.rollback})
       if (hash(current.spec.template) !== hash(step.target)) {
         if (hash(current.spec.template) !== hash(step.before)) throw new Error('unexpected template change; manual reconciliation required')
         if (journal.rollback) await api.readyOthers(step.name)
@@ -89,7 +92,7 @@ export async function drive(api,plan,verify,{rollback=false,stop=()=>false}={}) 
       const pods = await api.readyAll()
       if (stop()) throw new Error('rollout interrupted before validation')
       const nonce = randomUUID()
-      const report = await verify({planHash,slot:step.name,nonce,pods,rollback:journal.rollback})
+      const report = await verify({phase:'verify',planHash,slot:step.name,nonce,window:step.window,pods,rollback:journal.rollback})
       if (report?.ok !== true || report.nonce !== nonce || report.planHash !== planHash || report.slot !== step.name || report.committed_missing !== 0 || report.duplicate_applies !== 0) throw new Error('reconnect/replay validation failed; next slot remains unchanged')
       step.phase = 'verified'
       step.report = report
@@ -189,7 +192,11 @@ if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href) {
       const {stdout}=await exec(config.verifyCommand[0],config.verifyCommand.slice(1),{timeout:600000,maxBuffer:64*1024,env:{...process.env,WTS_ROLLOUT_REQUEST:JSON.stringify(request)}})
       return JSON.parse(stdout)
     }
-    const result=await drive(new Kubernetes(context,namespace),config.plan,verify,{rollback:mode==='rollback',stop:()=>stopped})
+    const begin=async request=>{
+      const report=await verify(request)
+      if(report?.ok!==true||report.nonce!==request.nonce||report.window!==request.window||report.planHash!==request.planHash||report.slot!==request.slot)throw new Error('measurement start rejected; slot remains unchanged')
+    }
+    const result=await drive(new Kubernetes(context,namespace),config.plan,verify,{rollback:mode==='rollback',stop:()=>stopped,begin})
     console.log(JSON.stringify({ok:true,planHash:result.planHash,completed:result.completed,rollback:result.rollback}))
   } catch(error) { console.error(error.message); process.exitCode=1 }
 }

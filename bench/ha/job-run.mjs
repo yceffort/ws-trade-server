@@ -17,7 +17,6 @@ try {
   if(existing.trim())throw new Error('previous wts-ha-load Job exists; archive its results and remove it before another run')
   save('load-job.json',JSON.stringify(manifest,null,2))
   await kubectl(['apply','--dry-run=server','-f',join(output,'load-job.json')])
-  await kubectl(['apply','-f',join(output,'load-job.json')])
   const collect=async()=>{
     const pods=JSON.parse(await kubectl(['get','pods','-l','app.kubernetes.io/part-of=wts-ha','-o','json'])).items
     save('pods.json',JSON.stringify(pods.map(p=>({name:p.metadata.name,uid:p.metadata.uid,node:p.spec.nodeName,phase:p.status.phase,containers:[...(p.status.initContainerStatuses??[]),...(p.status.containerStatuses??[])].map(c=>({name:c.name,restarts:c.restartCount,state:c.state,lastState:c.lastState}))})),null,2))
@@ -27,6 +26,7 @@ try {
   }
   let report
   try {
+    await kubectl(['apply','-f',join(output,'load-job.json')])
     const deadline=Date.now()+(manifest.items.find(o=>o.kind==='Job').spec.activeDeadlineSeconds+15)*1000
     while(Date.now()<deadline){
       const pods=JSON.parse(await kubectl(['get','pods','-l','app.kubernetes.io/part-of=wts-ha,app.kubernetes.io/component=ha-load','-o','json'])).items

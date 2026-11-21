@@ -12,6 +12,7 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
     const socket = new WebSocket(urls[attempt++ % urls.length], 'wts.ha.v1', { handshakeTimeout: 3000, maxPayload: 48 * 1024 })
     onAttempt(socket)
     let queued = 0, chain = Promise.resolve(), reason = 'connection-closed', ready = false, applyFailed = false
+    let applyError
     const closed = new Promise(resolve => socket.once('close', () => { onDisconnect(reason); resolve() }))
     const stop = () => socket.terminate()
     signal?.addEventListener('abort', stop, { once: true })
@@ -58,7 +59,7 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
           const ids = application.receive(frame)
           if (frame.type === 'checkpoint') await onCommit(store.load(), ids)
         }
-      }).catch(error => { applyFailed = true; reason = error.message === 'auth-invalid' ? error.message : 'client-apply-failed'; stop() }).finally(() => {
+      }).catch(error => { applyFailed = true; applyError = error; reason = error.message === 'auth-invalid' ? error.message : 'client-apply-failed'; stop() }).finally(() => {
         queued -= data.length
         if (queued < 32 * 1024 && socket.isPaused && socket.readyState === WebSocket.OPEN) {
           socket.resume(); receiveDeadline()
@@ -73,7 +74,7 @@ export async function runClient({ urls, token, store, startAt, signal, onCommit 
     if (signal?.aborted) return store.load()
     const after = store.load()
     const progressed = after.offset !== null && (before.offset === null || BigInt(after.offset) > BigInt(before.offset))
-    if (terminal.has(reason) || reason === 'client-apply-failed') throw new Error(reason)
+    if (terminal.has(reason) || reason === 'client-apply-failed') throw new Error(reason, { cause: applyError })
     if (!progressed && reason === 'replay-limit') {
       if (++noProgress >= 3) throw new Error('no-checkpoint-progress')
     } else noProgress = 0
