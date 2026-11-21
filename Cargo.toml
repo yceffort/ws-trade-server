@@ -8,6 +8,7 @@ ha = ["dep:rdkafka", "dep:sha2", "dep:reqwest", "dep:ring", "dep:base64"]
 
 [[example]]
 name = "fanout_compare"
+path = "examples/fanout_compare.rs"
 test = true
 
 [[bin]]
