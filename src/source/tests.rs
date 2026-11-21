@@ -136,7 +136,9 @@ async fn ring_and_broker_share_the_hub_and_preserve_the_legacy_body() {
     assert_eq!(applied.position, position);
     let expected = crate::trade::to_message(event.trade()).unwrap().1;
     for _ in 0..2 {
-        let Some(Outgoing::Message { subscription, body }) = outgoing.recv().await else { panic!("message expected") };
+        let Some(Outgoing::Message { subscription, body, .. }) = outgoing.recv().await else {
+            panic!("message expected")
+        };
         assert_eq!(&*subscription, "s");
         assert_eq!(body, expected);
     }

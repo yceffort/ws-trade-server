@@ -130,7 +130,7 @@ impl Pop for RingRx {
 }
 
 // (나) 구독별 최신 한 칸. 칸이 비어 있다가 채워질 때만 큐에 표지를 넣고, 이미 차 있으면 값만 바꾼다.
-type Slot = Arc<Mutex<Option<Arc<str>>>>;
+type Slot = Arc<Mutex<Option<(Arc<str>, Instant)>>>;
 
 enum Queued {
     Now(Outgoing),
@@ -151,8 +151,8 @@ impl Queue for SlotTx {
 
     fn push(&self, item: Outgoing, latest: Option<&Slot>) -> Push {
         let queued = match (item, latest) {
-            (Outgoing::Message { subscription, body }, Some(slot)) => {
-                if slot.lock().unwrap().replace(body).is_some() {
+            (Outgoing::Message { subscription, body, published }, Some(slot)) => {
+                if slot.lock().unwrap().replace((body, published)).is_some() {
                     return Push::Dropped;
                 }
                 Queued::Latest(subscription, slot.clone())
@@ -171,8 +171,8 @@ impl Pop for SlotRx {
         Some(match self.0.recv().await? {
             Queued::Now(item) => item,
             Queued::Latest(subscription, slot) => {
-                let body = slot.lock().unwrap().take().expect("칸이 채워질 때마다 표지가 하나씩 들어간다");
-                Outgoing::Message { subscription, body }
+                let (body, published) = slot.lock().unwrap().take().expect("칸이 채워질 때마다 표지가 하나씩 들어간다");
+                Outgoing::Message { subscription, body, published }
             }
         })
     }
@@ -194,10 +194,10 @@ impl<const K: usize> Queue for DepthTx<K> {
     fn push(&self, item: Outgoing, latest: Option<&Slot>) -> Push {
         // 본체처럼 칸이 차 있는지 보는 것과 값을 바꾸는 것을 한 번 잠가서 한다. 따로 하면 그 사이 수신단이 칸을 비워
         // K건 미만인데도 표지가 들어간다. 칸을 채우는 쪽은 hub뿐이라 비어 있던 칸이 그 사이에 차지는 않는다.
-        if let (Some(slot), Outgoing::Message { body, .. }) = (latest, &item)
+        if let (Some(slot), Outgoing::Message { body, published, .. }) = (latest, &item)
             && let Some(pending) = slot.lock().unwrap().as_mut()
         {
-            *pending = body.clone();
+            *pending = (body.clone(), *published);
             return Push::Dropped;
         }
         let queued = self.0.0.max_capacity() - self.0.0.capacity();
@@ -315,11 +315,12 @@ impl<Q: Queue> State<Q> {
             inserted.lock().unwrap().push(Instant::now());
         }
         let latest = topic.starts_with(LATEST_FIRST);
+        let published = Instant::now();
         let Some(targets) = self.index.get(topic) else { return };
         let mut full = Vec::new();
         for (conn, id, sub) in targets {
             let Some(client) = self.clients.get(conn) else { continue };
-            let message = Outgoing::Message { subscription: id.clone(), body: body.clone() };
+            let message = Outgoing::Message { subscription: id.clone(), body: body.clone(), published };
             match client.queue.push(message, latest.then_some(sub)) {
                 Push::Queued => {}
                 Push::Dropped => self.dropped += 1,
@@ -454,7 +455,7 @@ async fn unstall(mut rx: impl Pop, gate: oneshot::Receiver<()>, last: u64) -> Un
     let _ = gate.await;
     let opened = Instant::now();
     let mut seen = Unstalled::default();
-    while let Some(Outgoing::Message { subscription, body }) = rx.pop().await {
+    while let Some(Outgoing::Message { subscription, body, .. }) = rx.pop().await {
         seen.frames += 1;
         seen.body_bytes += body.len();
         if &*subscription == "quiet" {
@@ -789,7 +790,9 @@ async fn check<Q: Queue>(name: &str, rounds: u32, steps: u64) {
                 match item {
                     Outgoing::Receipt { receipt_id, .. } if receipt_id == "end" => break,
                     Outgoing::Receipt { receipt_id, .. } => seen.push(Seen::Receipt(receipt_id)),
-                    Outgoing::Message { subscription, body } => seen.push(Seen::Message(subscription, number(&body))),
+                    Outgoing::Message { subscription, body, .. } => {
+                        seen.push(Seen::Message(subscription, number(&body)))
+                    }
                     Outgoing::Error(_) | Outgoing::Denied { .. } | Outgoing::Latest { .. } => {
                         unreachable!("축소판 hub는 ERROR도 구독 거절도 본체의 표지도 만들지 않는다")
                     }

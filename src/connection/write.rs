@@ -1,5 +1,5 @@
 use super::batch;
-use crate::{auth, hub::Outgoing, stomp};
+use crate::{Config, auth, hub::Outgoing, metrics::Counters, stomp};
 use futures_util::SinkExt;
 use std::future::Future;
 use std::time::Duration;
@@ -11,14 +11,15 @@ pub(super) async fn run<W>(
     mut writer: W,
     mut outgoing: mpsc::Receiver<Outgoing>,
     connection_id: &str,
-    heartbeat_ms: u64,
-    write_timeout: Option<Duration>,
+    config: &Config,
+    counters: &Counters,
     mut shutdown: watch::Receiver<bool>,
     mut session: Option<auth::Session>,
 ) -> &'static str
 where
     W: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
+    let (heartbeat_ms, write_timeout) = (config.heartbeat_ms, config.write_timeout);
     let heart_beat = format!("{heartbeat_ms},{heartbeat_ms}");
     if writer.send(Message::text(stomp::connected(&heart_beat))).await.is_err() {
         return "write_error";
@@ -52,7 +53,9 @@ where
                 }
             }
         };
-        match bounded(write_timeout, batch::write(&mut writer, first, &mut outgoing, connection_id, &mut seq)).await {
+        match bounded(write_timeout, batch::write(&mut writer, first, &mut outgoing, connection_id, &mut seq, counters))
+            .await
+        {
             Some(Ok(())) => {}
             Some(Err(reason)) => return reason,
             None => return "write_timeout",

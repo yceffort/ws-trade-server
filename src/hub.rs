@@ -12,6 +12,7 @@ use std::sync::{
     Arc, Mutex, PoisonError,
     atomic::{AtomicU64, Ordering},
 };
+use std::time::Instant;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
 
@@ -23,29 +24,31 @@ pub enum Outgoing {
     Receipt { receipt_id: String, message: &'static str },
     // 연결은 그대로 두고 구독 하나만 거절한다.
     Denied { receipt_id: String, code: &'static str },
-    Message { subscription: Arc<str>, body: Arc<str> },
+    // published는 hub가 이 발행을 처리하기 시작한 시각이다. 송신 큐 대기를 잰다.
+    Message { subscription: Arc<str>, body: Arc<str>, published: Instant },
     // 최신 우선 topic의 표지. 쓰는 쪽이 꺼낼 때 칸에 든 가장 최근 본문을 MESSAGE로 쓴다.
     Latest { subscription: Arc<str>, slot: Arc<Slot> },
 }
 
 // 최신 우선 구독 하나의 대기 칸. 칸이 비어 있다가 채워질 때만 송신 큐에 표지가 하나 들어간다.
+// 본문과 함께 그 본문의 발행 시각을 둔다.
 #[derive(Default)]
-pub struct Slot(Mutex<Option<Arc<str>>>);
+pub struct Slot(Mutex<Option<(Arc<str>, Instant)>>);
 
 impl Slot {
     // 잠근 채 패닉하는 코드가 없어 독이 들 일은 없지만, 연결 태스크가 패닉하지 않도록 값을 그대로 쓴다.
-    pub fn take(&self) -> Option<Arc<str>> {
+    pub fn take(&self) -> Option<(Arc<str>, Instant)> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).take()
     }
 
     // 칸이 차 있을 때만 값을 바꾸고 true를 돌려준다. 비어 있으면 그대로 둔다.
-    pub(crate) fn replace(&self, body: &Arc<str>) -> bool {
+    pub(crate) fn replace(&self, body: &Arc<str>, published: Instant) -> bool {
         let mut pending = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        pending.as_mut().map(|value| *value = body.clone()).is_some()
+        pending.as_mut().map(|value| *value = (body.clone(), published)).is_some()
     }
 
-    pub(crate) fn fill(&self, body: Arc<str>) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(body);
+    pub(crate) fn fill(&self, body: Arc<str>, published: Instant) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some((body, published));
     }
 }
 

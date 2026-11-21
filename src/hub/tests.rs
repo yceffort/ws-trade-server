@@ -121,9 +121,9 @@ async fn drain(hub: &Hub, queue: &mut mpsc::Receiver<Outgoing>) -> Vec<String> {
     let mut seen = Vec::new();
     while let Ok(item) = queue.try_recv() {
         seen.push(match item {
-            Outgoing::Message { subscription, body } => format!("{subscription}:{body}"),
+            Outgoing::Message { subscription, body, .. } => format!("{subscription}:{body}"),
             Outgoing::Latest { subscription, slot } => {
-                format!("{subscription}:{}", slot.take().as_deref().unwrap_or("빈 칸"))
+                format!("{subscription}:{}", slot.take().map(|(body, _)| body).as_deref().unwrap_or("빈 칸"))
             }
             Outgoing::Receipt { receipt_id, .. } => format!("receipt:{receipt_id}"),
             Outgoing::Denied { receipt_id, .. } => format!("denied:{receipt_id}"),
@@ -280,7 +280,7 @@ async fn a_pending_marker_takes_new_values_even_below_the_depth() {
     }
     hub.metrics().await;
     for expected in ["a:m0", "a:m1"] {
-        let Some(Outgoing::Message { subscription, body }) = queue.try_recv().ok() else {
+        let Some(Outgoing::Message { subscription, body, .. }) = queue.try_recv().ok() else {
             panic!("MESSAGE가 와야 한다")
         };
         assert_eq!(format!("{subscription}:{body}"), expected);
