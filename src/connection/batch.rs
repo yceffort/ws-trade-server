@@ -23,8 +23,9 @@ pub(super) async fn write<W>(
 where
     W: Sink<Message> + Unpin,
 {
-    // 묶음의 항목은 모두 이 시각 무렵 큐에서 꺼낸다. 시계는 묶음마다 처음과 끝에 한 번씩만 읽는다.
+    // 첫 항목은 묶음을 시작할 때, 나머지는 큐에서 꺼낼 때 시계를 읽는다. 앞 프레임의 쓰기가 막혀 늦게 꺼낸 항목도 제 대기를 잰다.
     let started = Instant::now();
+    let mut taken = started;
     let mut next = Some(first);
     let mut buffered = 0;
     while let Some(item) = next.take() {
@@ -38,7 +39,7 @@ where
             Outgoing::Receipt { receipt_id, message } => stomp::receipt(&receipt_id, message),
             Outgoing::Denied { receipt_id, code } => stomp::denied(&receipt_id, code),
             Outgoing::Message { subscription, body, published } => {
-                counters.queue_wait.observe(started.saturating_duration_since(published));
+                counters.queue_wait.observe(taken.saturating_duration_since(published));
                 *seq += 1;
                 stomp::message(&format!("{connection_id}-{seq}"), &subscription, &body)
             }
@@ -46,9 +47,12 @@ where
                 // 표지는 칸이 비어 있다가 채워질 때만 하나 들어가므로 칸은 비어 있지 않다. 비어 있으면 보낼 것도 순번도 없다.
                 let Some((body, published)) = slot.take() else {
                     next = outgoing.try_recv().ok();
+                    if next.is_some() {
+                        taken = Instant::now();
+                    }
                     continue;
                 };
-                counters.queue_wait.observe(started.saturating_duration_since(published));
+                counters.queue_wait.observe(taken.saturating_duration_since(published));
                 *seq += 1;
                 stomp::message(&format!("{connection_id}-{seq}"), &subscription, &body)
             }
@@ -58,6 +62,9 @@ where
         // 상한에 닿으면 큐에서 더 꺼내지 않는다. 꺼낸 것은 반드시 보내야 하기 때문이다.
         if buffered < MAX_BATCH {
             next = outgoing.try_recv().ok();
+            if next.is_some() {
+                taken = Instant::now();
+            }
         }
     }
     writer.flush().await.map_err(|_| "write_error")?;
@@ -69,6 +76,7 @@ where
 mod tests {
     use super::*;
     use crate::hub::Slot;
+    use std::future::Future;
     use std::pin::Pin;
     use std::sync::Arc;
     use std::task::{Context, Poll};
@@ -123,26 +131,66 @@ mod tests {
         Outgoing::Latest { subscription: "0".into(), slot }
     }
 
-    // 30ms 전에 발행된 두 건과 방금 발행된 한 건을 한 묶음으로 쓴다.
     #[tokio::test]
     async fn a_batch_records_each_message_wait_and_one_socket_write() {
-        let earlier = Instant::now() - std::time::Duration::from_millis(30);
         let slot = Arc::new(Slot::default());
-        slot.fill("b".into(), earlier);
-        let mut outgoing = queue_of(vec![
-            Outgoing::Message { subscription: "0".into(), body: "a".into(), published: earlier },
-            Outgoing::Latest { subscription: "0".into(), slot },
-            message("c"),
-        ]);
+        slot.fill("b".into(), Instant::now());
+        let mut outgoing =
+            queue_of(vec![message("a"), Outgoing::Latest { subscription: "0".into(), slot }, message("c")]);
         let (mut socket, mut seq, counters) = (Recorder::default(), 0, Counters::default());
         let first = outgoing.recv().await.unwrap();
         write(&mut socket, first, &mut outgoing, "conn", &mut seq, &counters).await.unwrap();
         let mut text = String::new();
         counters.queue_wait.write(&mut text, "wait");
         counters.socket_write.write(&mut text, "write");
-        assert!(text.contains("wait_bucket{le=\"0.025\"} 1\n"), "{text}");
-        assert!(text.contains("wait_bucket{le=\"0.05\"} 3\n"), "{text}");
         assert!(text.contains("wait_count 3\n") && text.contains("write_count 1\n"), "{text}");
+    }
+
+    // 첫 프레임을 받은 뒤 다음 쓰기 준비를 50ms 늦추는 소켓이다.
+    struct Slow {
+        inner: Recorder,
+        delay: Option<Pin<Box<tokio::time::Sleep>>>,
+    }
+
+    impl Sink<Message> for Slow {
+        type Error = ();
+
+        fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), ()>> {
+            if let Some(delay) = self.delay.as_mut() {
+                std::task::ready!(delay.as_mut().poll(cx));
+                self.delay = None;
+            }
+            Poll::Ready(Ok(()))
+        }
+
+        fn start_send(mut self: Pin<&mut Self>, item: Message) -> Result<(), ()> {
+            if self.inner.frames.is_empty() {
+                self.delay = Some(Box::pin(tokio::time::sleep(std::time::Duration::from_millis(50))));
+            }
+            Pin::new(&mut self.inner).start_send(item)
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), ()>> {
+            Pin::new(&mut self.inner).poll_flush(cx)
+        }
+
+        fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), ()>> {
+            Pin::new(&mut self.inner).poll_close(cx)
+        }
+    }
+
+    // 둘째 프레임의 쓰기 준비가 50ms 막힌 뒤에 꺼낸 셋째 MESSAGE는 묶음 시작이 아니라 꺼낸 시각까지의 대기로 잡힌다.
+    #[tokio::test]
+    async fn a_message_taken_after_a_blocked_write_records_its_own_wait() {
+        let mut outgoing = queue_of(vec![message("a"), message("b"), message("c")]);
+        let (mut socket, mut seq, counters) =
+            (Slow { inner: Recorder::default(), delay: None }, 0, Counters::default());
+        let first = outgoing.recv().await.unwrap();
+        write(&mut socket, first, &mut outgoing, "conn", &mut seq, &counters).await.unwrap();
+        let mut text = String::new();
+        counters.queue_wait.write(&mut text, "wait");
+        assert!(!text.contains("wait_bucket{le=\"0.025\"} 3\n"), "{text}");
+        assert!(text.contains("wait_count 3\n"), "{text}");
     }
 
     fn message_ids(socket: &Recorder) -> Vec<&str> {

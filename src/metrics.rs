@@ -64,19 +64,20 @@ const LATENCY_BOUNDS: &[f64] =
 pub(crate) struct Histogram {
     bounds: &'static [f64],
     counts: Box<[AtomicU64]>,
-    sum_nanos: AtomicU64,
+    // 마이크로초로 쌓는다. 나노초면 평균 1초인 관측이 초당 10만 건일 때 이틀 만에 넘쳐 되돌아간다.
+    sum_micros: AtomicU64,
 }
 
 impl Histogram {
     pub fn new(bounds: &'static [f64]) -> Self {
-        Self { bounds, counts: (0..=bounds.len()).map(|_| AtomicU64::new(0)).collect(), sum_nanos: AtomicU64::new(0) }
+        Self { bounds, counts: (0..=bounds.len()).map(|_| AtomicU64::new(0)).collect(), sum_micros: AtomicU64::new(0) }
     }
 
     pub fn observe(&self, elapsed: Duration) {
         let seconds = elapsed.as_secs_f64();
         let index = self.bounds.iter().position(|bound| seconds <= *bound).unwrap_or(self.bounds.len());
         self.counts[index].fetch_add(1, Ordering::Relaxed);
-        self.sum_nanos.fetch_add(u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX), Ordering::Relaxed);
+        self.sum_micros.fetch_add(u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX), Ordering::Relaxed);
     }
 
     pub fn write(&self, output: &mut String, name: &str) {
@@ -89,7 +90,7 @@ impl Histogram {
                 None => writeln!(output, "{name}_bucket{{le=\"+Inf\"}} {total}"),
             };
         }
-        let sum = self.sum_nanos.load(Ordering::Relaxed) as f64 / 1e9;
+        let sum = self.sum_micros.load(Ordering::Relaxed) as f64 / 1e6;
         let _ = writeln!(output, "{name}_sum {sum}\n{name}_count {total}");
     }
 }
@@ -203,6 +204,20 @@ mod tests {
         assert_eq!(metrics.sequence_missing.load(Ordering::Relaxed), 4);
         assert_eq!(metrics.sequence_resets.load(Ordering::Relaxed), 2);
         assert_eq!(metrics.ring_overruns.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn histogram_buckets_are_cumulative_and_sum_in_seconds() {
+        let histogram = Histogram::new(&[0.025, 0.05]);
+        for millis in [10, 30, 30, 70] {
+            histogram.observe(Duration::from_millis(millis));
+        }
+        let mut output = String::new();
+        histogram.write(&mut output, "wait");
+        assert_eq!(
+            output,
+            "# TYPE wait histogram\nwait_bucket{le=\"0.025\"} 1\nwait_bucket{le=\"0.05\"} 3\nwait_bucket{le=\"+Inf\"} 4\nwait_sum 0.14\nwait_count 4\n"
+        );
     }
 
     #[test]
