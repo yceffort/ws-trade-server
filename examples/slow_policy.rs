@@ -509,8 +509,11 @@ async fn fanout_hub(connections: u64, samples: u64) -> Latency {
 
 const SYMBOLS: [&str; 3] = ["/latest/a", "/latest/b", "/latest/c"];
 
+// n번째 발행분의 발행 시각. 발행 스레드가 넣기 전에 적는다.
+type Sent = Arc<Mutex<Vec<Instant>>>;
+
 // 한 연결이 세 종목을 구독한다. MESSAGE를 꺼낼 때마다 소켓 쓰기를 흉내 내며 service 동안 워커를 붙든다.
-async fn lane<Q: Queue>(service: Duration) -> (Mini<Q>, JoinHandle<Vec<(u64, Instant)>>) {
+async fn lane<Q: Queue>(service: Duration, sent: Sent) -> (Mini<Q>, JoinHandle<Vec<(u64, Instant)>>) {
     let hub = Mini::<Q>::spawn();
     let (queue, mut rx) = Q::open(CAPACITY);
     hub.send(Cmd::Connect(0, queue)).await;
@@ -522,15 +525,17 @@ async fn lane<Q: Queue>(service: Duration) -> (Mini<Q>, JoinHandle<Vec<(u64, Ins
         let (mut got, mut free_at) = (Vec::new(), Instant::now());
         loop {
             // 기다리지 않고 꺼냈으면 앞 프레임이 끝났어야 할 시각부터 잰다. 스레드가 운영체제에 잠깐 밀려도 처리 속도는 service로 유지된다.
+            // 그 시각보다 늦게 발행된 프레임은 발행 시각부터 잰다. 발행 전의 빈 시간을 처리에 쓰면 큐가 실제보다 빨리 빈다.
             let (item, queued) = match rx.pop().now_or_never() {
                 Some(item) => (item, true),
                 None => (rx.pop().await, false),
             };
             let Some(item) = item else { break };
             if let Outgoing::Message { body, .. } = item {
-                let now = Instant::now();
-                got.push((number(&body), now));
-                free_at = if queued { free_at } else { now } + service;
+                let (n, now) = (number(&body), Instant::now());
+                got.push((n, now));
+                let start = if queued { free_at.max(sent.lock().unwrap()[n as usize]) } else { now };
+                free_at = start + service;
                 spin_until(free_at);
             }
         }
@@ -539,21 +544,24 @@ async fn lane<Q: Queue>(service: Duration) -> (Mini<Q>, JoinHandle<Vec<(u64, Ins
     (hub, task)
 }
 
-// 종목마다 초당 rate건을 지수 분포 간격으로 발행하고(loadgen과 같다) 발행 시각을 돌려준다.
+// 종목마다 초당 rate건을 지수 분포 간격으로 발행하고(loadgen과 같다) 발행 시각을 sent에 적는다.
 // 링 브리지처럼 런타임 밖의 스레드에서 부른다.
-fn publish_poisson(rate: f64, seconds: f64, mut publish: impl FnMut(&str, Arc<str>)) -> Vec<Instant> {
+fn publish_poisson(rate: f64, seconds: f64, sent: &Mutex<Vec<Instant>>, mut publish: impl FnMut(&str, Arc<str>)) {
     let interval = 1.0 / (rate * SYMBOLS.len() as f64);
     let start = Instant::now();
-    let (mut at, mut sent) = (0.0, Vec::new());
+    let mut at = 0.0;
     loop {
         at += -(1.0 - rand::random::<f64>()).ln() * interval;
         if at >= seconds {
-            break sent;
+            break;
         }
         spin_until(start + Duration::from_secs_f64(at));
         // 여러 방식에 차례로 넣으므로 첫 방식에 넣기 전에 잰다. 넣은 뒤에 재면 먼저 넣은 방식의 지연이 짧게 잡힌다.
-        let n = sent.len() as u64;
-        sent.push(Instant::now());
+        let n = {
+            let mut sent = sent.lock().unwrap();
+            sent.push(Instant::now());
+            sent.len() as u64 - 1
+        };
         publish(SYMBOLS[rand::random_range(0..SYMBOLS.len())], body(n));
     }
 }
@@ -561,23 +569,27 @@ fn publish_poisson(rate: f64, seconds: f64, mut publish: impl FnMut(&str, Arc<st
 // 처리 시간은 평균 발행 간격의 ratio배다. 모든 방식에 같은 발행분을 같은 시각에 넣는다.
 async fn lagging(rate: f64, ratio: f64, seconds: f64) {
     let service = Duration::from_secs_f64(ratio / (rate * SYMBOLS.len() as f64));
-    let (now, now_task) = lane::<Current>(service).await;
-    let (ring, ring_task) = lane::<RingTx>(service).await;
-    let (slot, slot_task) = lane::<SlotTx>(service).await;
-    let (k8, k8_task) = lane::<DepthTx<8>>(service).await;
-    let (k64, k64_task) = lane::<DepthTx<64>>(service).await;
-    let (now, ring, slot, k8, k64, sent) = tokio::task::spawn_blocking(move || {
-        let sent = publish_poisson(rate, seconds, |topic, body| {
+    let sent = Sent::default();
+    let (now, now_task) = lane::<Current>(service, sent.clone()).await;
+    let (ring, ring_task) = lane::<RingTx>(service, sent.clone()).await;
+    let (slot, slot_task) = lane::<SlotTx>(service, sent.clone()).await;
+    let (k8, k8_task) = lane::<DepthTx<8>>(service, sent.clone()).await;
+    let (k64, k64_task) = lane::<DepthTx<64>>(service, sent.clone()).await;
+    let table = sent.clone();
+    let (now, ring, slot, k8, k64) = tokio::task::spawn_blocking(move || {
+        publish_poisson(rate, seconds, &table, |topic, body| {
             now.send_blocking(Cmd::Publish(topic.into(), body.clone()));
             ring.send_blocking(Cmd::Publish(topic.into(), body.clone()));
             slot.send_blocking(Cmd::Publish(topic.into(), body.clone()));
             k8.send_blocking(Cmd::Publish(topic.into(), body.clone()));
             k64.send_blocking(Cmd::Publish(topic.into(), body));
         });
-        (now, ring, slot, k8, k64, sent)
+        (now, ring, slot, k8, k64)
     })
     .await
     .expect("발행 스레드");
+    // 발행은 끝났다. 잠금을 쥔 채 수신 태스크를 기다리면 그 태스크가 표를 읽지 못하므로 복사해 둔다.
+    let sent = sent.lock().unwrap().clone();
     let kicked =
         [now.counts().await.1, ring.counts().await.1, slot.counts().await.1, k8.counts().await.1, k64.counts().await.1];
     drop((now, ring, slot, k8, k64));
@@ -627,8 +639,9 @@ async fn keep_up<Q: Queue>(name: &str, connections: u64, rate: f64, seconds: f64
     hub.counts().await;
     let (cpu, start) = (cpu_seconds(), Instant::now());
     let (hub, sent) = tokio::task::spawn_blocking(move || {
-        let sent = publish_poisson(rate, seconds, |topic, body| hub.send_blocking(Cmd::Publish(topic.into(), body)));
-        (hub, sent.len() as u64)
+        let sent = Mutex::default();
+        publish_poisson(rate, seconds, &sent, |topic, body| hub.send_blocking(Cmd::Publish(topic.into(), body)));
+        (hub, sent.into_inner().unwrap().len() as u64)
     })
     .await
     .expect("발행 스레드");
