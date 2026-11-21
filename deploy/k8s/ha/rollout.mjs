@@ -93,7 +93,7 @@ export async function drive(api,plan,verify,{rollback=false,stop=()=>false,begin
       if (stop()) throw new Error('rollout interrupted before validation')
       const nonce = randomUUID()
       const report = await verify({phase:'verify',planHash,slot:step.name,nonce,window:step.window,pods,rollback:journal.rollback})
-      if (report?.ok !== true || report.nonce !== nonce || report.planHash !== planHash || report.slot !== step.name || report.committed_missing !== 0 || report.duplicate_applies !== 0) throw new Error('reconnect/replay validation failed; next slot remains unchanged')
+      if (report?.ok !== true || report.nonce !== nonce || report.planHash !== planHash || report.slot !== step.name || report.window !== step.window || report.committed_missing !== 0 || report.duplicate_applies !== 0) throw new Error('reconnect/replay validation failed; next slot remains unchanged')
       step.phase = 'verified'
       step.report = report
       journal.completed = index+1

@@ -12,6 +12,7 @@
 | 30 clients, 첫 Kubernetes 장애 도구 시험 | feed failover 단계의 도구 실행 실패로 중단. DELETE 본문의 강제 종료 옵션과 식별 조건이 누락된 사실을 별도 HTTP 재현으로 확인해 수정했으며 장애 검증 성공으로 사용하지 않음 | `bench/results/ha/kind-fault-tool-failure.json` |
 | 1,000 clients, pause 중 수신 deadline 연장, 약 10분 | 첫 slot 검증 실패. edge 하나가 512MiB에서 OOM으로 재시작했고 종료 시 199개만 caught-up. 전체 실패 | `bench/results/ha/kind-paused-client.json`, `kind-paused-rollout.json`, `kind-paused-cgroup.txt` |
 | 1,000 clients, 프록시 TCP 백프레셔와 admission watch | 942개 caught-up 상태에서 클라이언트 적용 오류 10개로 중단. 배포 단계는 실행하지 않았으며 원인 분류를 추가해 조사 | `bench/results/ha/kind-flow-failure.json` |
+| 1,000 clients, 같은 서버와 상세 오류 분류, 120초 정상 부하 | 연결 1,000개 유지, 적용 오류/재접속 없음. 마지막 committed 경계를 5초 안에 모두 적용하지 못해 실패. client event loop p99 약 381ms | `bench/results/ha/kind-flow-steady.json`, `kind-flow-steady-cgroup.txt` |
 | 1,000 clients, 압축 해제, edge 512MiB, 개별 동기 FileStore | OOM 없이 60초 안에 602개만 초기 catch-up. 실패 | `bench/results/ha/kind-1000-initial-timeout.json` |
 
 HA 기본 edge는 압축을 끄고 CPU request 250m/limit 2, memory request 128Mi/limit 512Mi로 조정했다. gateway는 CPU request 500m/limit 2, memory request 256Mi/limit 1Gi다. 부하 Pod는 CPU request 1/limit 4, memory request 512Mi/limit 2Gi다. 이 값은 운영 용량 산정값이 아니다. 정상 gateway 3개와 rollout surge 1개에 필요한 request를 각 zone 안의 적격 노드 2개에 예약하고, 1개 장애 시 나머지 2개가 트래픽과 replay를 처리하는지 따로 측정해야 한다.

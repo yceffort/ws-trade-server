@@ -12,7 +12,7 @@ const exec=promisify(execFile)
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 const workers=[],exits=[],requests=new Map(),ready=new Set(),failures=[],verifications=[],actions=[]
 const windows=new Map()
-let server,config,stopped=false
+let server,config,stopped=false,activeScope=null
 async function mark(scope) {
   const id=randomUUID()
   await new Promise((resolve,reject)=>{
@@ -21,6 +21,7 @@ async function mark(scope) {
     requests.set(id,()=>{if(++replies===workers.length){clearTimeout(timer);requests.delete(id);resolve()}})
     workers.forEach(worker=>worker.postMessage({type:'mark',scope,id}))
   })
+  activeScope=scope
 }
 function windowKey(request) {
   if(typeof request.window!=='string'||!request.window||request.window.length>64||typeof request.planHash!=='string'||!['wts-gateway-a','wts-gateway-b','wts-gateway-c'].includes(request.slot)||typeof request.rollback!=='boolean')throw new Error('invalid measurement window')
@@ -28,6 +29,7 @@ function windowKey(request) {
 }
 async function begin(request) {
   const key=windowKey(request)
+  if(activeScope&&(activeScope.name||activeScope.window!==request.window))throw new Error('another measurement is active')
   if(windows.has(request.window)&&windows.get(request.window)!==key)throw new Error('measurement window identity mismatch')
   if(!windows.has(request.window)&&windows.size>=64)throw new Error('measurement window limit')
   if(ready.size!==config.clients||failures.length)throw new Error('all clients must be caught up before measurement')
@@ -137,6 +139,7 @@ try {
   for(const action of [...(config.actions??[])].sort((a,b)=>a.atSeconds-b.atSeconds)){
     while(!stopped&&!failures.length&&performance.now()-started<action.atSeconds*1000)await delay(100)
     if(stopped||failures.length)break
+    if(activeScope)throw new Error('scheduled fault overlaps rollout measurement')
     await mark({name:action.name})
     const at=performance.now()
     let result

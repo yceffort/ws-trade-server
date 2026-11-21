@@ -60,7 +60,8 @@ const tasks=ids.map(async id=>{
   } catch(error){
     const known=new Set(['invalid-position','invalid-event-id','source-changed','invalid-event','log-changed','event-order','client-overflow','invalid-checkpoint','same id with changed payload','committed payload absent','client checkpoint batch limit'])
     client.failed=error.message
-    parentPort.postMessage({type:'failed',client:id,reason:client.failed,apply_reason:known.has(error.cause?.message)?error.cause.message:'unknown'})
+    const io=new Set(['ENOSPC','EIO','EMFILE','ENFILE','EROFS','EACCES'])
+    parentPort.postMessage({type:'failed',client:id,reason:client.failed,apply_reason:known.has(error.cause?.message)?error.cause.message:io.has(error.cause?.code)?error.cause.code:'unknown'})
   }
 })
 await Promise.all(tasks)
