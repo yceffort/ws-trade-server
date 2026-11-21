@@ -78,4 +78,14 @@ Rollback은 실제 template이 바뀐 슬롯을 역순으로 복구한 뒤 변�
 
 검증 명령은 `phase=cancel`도 처리한다. 동일 planHash/slot/window/rollback의 활성 측정만 해제하고 동일 식별자와 `ok:true`로 응답하며, 이미 해제되었거나 시작되지 않은 구간의 취소는 상태를 바꾸지 않는다. 드라이버의 오류/중단 경로는 측정을 취소한 뒤 배포 잠금을 해제한다. 취소가 실패해도 잠금 해제는 시도한다. 강제 종료 뒤 rollback을 시작할 때는 journal에 남은 미완료 forward 측정을 먼저 취소한다. 다른 측정의 식별자로 구간을 해제해서는 안 된다.
 
-같은 plan의 재개가 항상 성공하는 것은 아니다. 취소 전에 수집한 window 표본은 유지하지만 취소 뒤 시작한 재접속은 제외한다. 교체가 취소 구간에서 끝나 표본이 없다면 재개해도 `not-measured`로 멈추며, 이미 목표 template인 slot을 다시 patch하지 않는다. 이때 다음 slot을 강제로 진행하지 말고 호환되는 이전 버전으로 rollback한 뒤 새 배포 시험을 수행한다. 측정기 재시작으로 표본이 사라진 경우에도 같은 절차를 따른다.
+같은 plan의 재개가 항상 성공하는 것은 아니다. 취소 전에 수집한 window 표본은 유지하지만 취소 뒤 시작한 재접속은 제외한다. 교체가 취소 구간에서 끝나 표본이 없다면 재개해도 `not-measured`로 멈추며, 이미 목표 template인 slot을 다시 patch하지 않는다. 호환되는 이전 버전으로 rollback할 때도 동일한 재접속 표본 게이트를 적용한다. rollback의 현재 slot은 복원됐더라도 검증 표본이 없으면 다음 slot은 복원하지 않는다. 변경하지 않았던 slot도 재접속이 발생하지 않으면 이 조건으로 멈출 수 있다. rollback 명령만으로 모든 slot의 복구를 보장하지 않는다.
+
+## 표본이 없는 rollback의 수동 복구
+
+자동 rollback이 `not-measured`로 멈추면 원래 측정기의 보고서와 journal을 보존한다. 수동 절차는 가용성 복구를 위한 별도 작업이며 계획 배포 SLO 합격이나 자동 드라이버의 검증 완료로 기록하지 않는다. 원래 부하 클라이언트, durable 상태와 cursor, log ID, 요청 시작 위치가 유지되고 committed oracle가 동작해야 한다. 새 부하 Job으로 시작 위치를 옮겨 실패 구간을 제외하거나 `requireReconnectSlo`를 바꾼 새 실행으로 기존 결과를 대체하지 않는다. 원래 측정기 또는 검증 상태를 잃었다면 아래 데이터 검증을 수행할 수 없으므로 나머지 slot의 수동 교체를 진행하지 않는다.
+
+1. 기존 드라이버와 예약 장애 주입이 완전히 종료됐는지 확인한다. 잠금의 owner/created_at, 전체 journal과 세 Deployment template을 백업한다. 살아 있는 프로세스의 잠금을 제거하지 않는다. 중단된 측정이 남았다면 원래 planHash/slot/window/rollback 식별자로 `phase=cancel`을 보내 해제한다.
+2. 보존한 rollback journal의 `target`이 호환성이 확인된 이전 template인지 확인한다. 현재 template이 해당 step의 `before` 또는 `target`과 일치하지 않으면 수동 변경을 중단하고 차이를 먼저 조사한다. journal 순서대로 한 slot씩 처리하며, patch 전 다른 두 slot이 15초 연속 Ready이고 종료 중인 Pod가 없는지 확인한다.
+3. 원래 부하 측정기에 새 window와 nonce, journal의 planHash, 현재 slot, `rollback:true`를 넣어 `phase=begin`을 요청하고 성공 응답을 보관한다. 현재 template이 아직 `target`과 다를 때만 Deployment의 최신 resourceVersion을 JSON Patch의 test 조건으로 걸고 `/spec/template`을 저장된 `target`으로 교체한다. 이미 복원된 slot은 재접속 표본을 만들기 위해 다시 patch하지 않는다.
+4. 이전 Pod가 완전히 사라지고 세 slot이 각각 최신 generation/available replica 1개와 15초 연속 Ready를 만족할 때까지 기다린다. 같은 window 식별자와 새 nonce로 `phase=verify`를 요청한다. 보고서의 식별자가 일치하고 `comparison.ok:true`, `committed_missing:0`, `duplicate_applies:0`인 경우에만 다음 slot을 복구한다. `not-measured` 때문에 최상위 `ok:false`여도 이 데이터 검증이 모두 참이면 수동 복구 기록에 표본 없음과 SLO 미검증을 명시한다. 비교 실패, 식별자 불일치, timeout, 누락된 필드 또는 측정기 종료는 복구 진행을 막는다. 각 보고서의 원래 range_start/log_id와 verified_through를 함께 보존한다.
+5. 모든 template이 저장한 `target`과 같고 마지막 committed 비교까지 성공한 뒤에만 복구 완료로 기록한다. journal의 phase/report/completed를 성공으로 덮어쓰지 않는다. 백업과 수동 보고서를 보관하고 기존 프로세스가 종료된 상태에서 잠금 및 진행 journal을 별도로 정리한 후 새 배포 시험을 시작한다. 기존 실패 실행과 표본 없는 구간은 실패 또는 미측정 상태로 남긴다.
