@@ -76,6 +76,8 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 
 ## 부하 실험
 
+실제 WebSocket 클라이언트의 인증, 구독, 수신, 해지와 재접속은 [종단 테스트 안내](docs/websocket-e2e.md)의 명령으로 확인한다. 테스트가 합성 feed와 gateway, TLS 프록시를 띄우며 기존 실험 서버에 클라이언트만 연결하는 실행 예제도 제공한다.
+
 `bench/run.sh <이름> --connections 200 --seconds 5`로 gateway를 띄우고 부하를 걸어 `bench/results/<이름>.json`을 만든다. 인자와 결과 필드는 `bench/README.md`에 있다. Linux에서 재려면 같은 명령 앞에 `bench/linux.sh`를 붙인다.
 
 ## 공유 메모리 링 버퍼
