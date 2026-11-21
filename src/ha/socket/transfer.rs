@@ -41,6 +41,20 @@ struct Progress<'a> {
 }
 
 impl Progress<'_> {
+    async fn finish_replay(
+        &mut self,
+        writer: &mut Writer,
+        result: Result<(), &'static str>,
+        deadline: Instant,
+    ) -> Result<(), &'static str> {
+        // 실패한 send의 이벤트가 버퍼에 남을 수 있어 이전 위치의 checkpoint를 뒤에 붙이면 안 된다.
+        if matches!(result, Err("slow-client" | "connection-closed")) {
+            return result;
+        }
+        self.checkpoint(writer, deadline).await?;
+        result
+    }
+
     fn advance_live(&mut self, position: Option<u64>) {
         if let Some(position) = position.filter(|offset| self.resume.start.is_none_or(|start| *offset >= start)) {
             self.position = Some(self.position.map_or(position, |old| old.max(position)));
@@ -239,8 +253,7 @@ pub(super) async fn run(
                 },
             }
         };
-        progress.checkpoint(writer, deadline).await?;
-        result?;
+        progress.finish_replay(writer, result, deadline).await?;
     }
     match live.failed.try_recv() {
         Ok(reason) => return Err(if resume.snapshot { "replay-limit" } else { reason }),
@@ -270,6 +283,70 @@ pub(super) async fn run(
                 observed.map_err(|_| "source-error")?;
                 progress.advance_live(live.progress.borrow_and_update().through(applied));
             },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::net::{TcpListener, TcpStream};
+    use tokio_tungstenite::{
+        WebSocketStream,
+        tungstenite::{Message, protocol::Role},
+    };
+
+    #[tokio::test]
+    async fn transport_failure_does_not_checkpoint_behind_a_buffered_event() {
+        for reason in ["slow-client", "connection-closed", "replay-limit"] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let (client, accepted) =
+                tokio::join!(TcpStream::connect(listener.local_addr().unwrap()), listener.accept());
+            let socket = WebSocketStream::from_raw_socket(accepted.unwrap().0, Role::Server, None).await;
+            let mut client = WebSocketStream::from_raw_socket(client.unwrap(), Role::Client, None).await;
+            let (mut writer, _reader) = socket.split();
+            let protocol = Protocol::new(serde_json::from_value(json!({"current":"test","keys":{"test":{"secret":base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([7;32]),"retain_until":u64::MAX}}})).unwrap()).unwrap();
+            let resume = Resume {
+                request_id: "test".into(),
+                topics: vec!["a".into()],
+                start: Some(5),
+                snapshot: false,
+                cursor: true,
+            };
+            let mut progress = Progress {
+                protocol: &protocol,
+                log_id: "test",
+                subject: "test",
+                resume: &resume,
+                position: Some(5),
+                checkpoint: Some(4),
+                events: 1,
+                bytes: 1,
+                total: 1,
+                first: true,
+                last: Instant::now(),
+            };
+            if reason != "replay-limit" {
+                // send가 enqueue 뒤 flush 중 취소된 상태를 같은 Sink에 만든다.
+                writer
+                    .feed(Message::text(json!({"type":"event","position":{"offset":"6"}}).to_string()))
+                    .await
+                    .unwrap();
+            }
+            assert_eq!(
+                progress.finish_replay(&mut writer, Err(reason), Instant::now() + Duration::from_secs(1)).await,
+                Err(reason)
+            );
+            writer.flush().await.unwrap();
+            let frame: Value = serde_json::from_str(client.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+            if reason == "replay-limit" {
+                assert_eq!(frame["type"], "checkpoint");
+                assert_eq!(frame["offset"], "5");
+            } else {
+                assert_eq!(frame["type"], "event");
+                assert!(tokio::time::timeout(Duration::from_millis(50), client.next()).await.is_err());
+            }
         }
     }
 }

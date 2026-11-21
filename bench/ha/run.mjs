@@ -85,7 +85,7 @@ async function verify(request={},requireSlo=config.requireReconnectSlo) {
   const reconnect=reconnectMetrics(samples,request.window)
   const recovery=percentile(samples.filter(s=>s.fault_ms!==null).map(s=>s.fault_ms),.99)
   const slo=reconnect.reconnect_slo_status==='pass'
-  const result={...request,ok:comparison.ok&&(!requireSlo||slo),committed_missing:comparison.ok?0:null,duplicate_applies:comparison.ok?0:null,comparison,...reconnect,recovery_from_fault_p99_ms:recovery,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms,verified_through:end.toString()}
+  const result={...request,ok:comparison.ok&&(!requireSlo||slo),committed_missing:comparison.ok?0:null,duplicate_applies:comparison.ok?0:null,comparison,...reconnect,recovery_from_fault_p99_ms:recovery,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms,log_id:config.logId,range_start:config.start,verified_through:end.toString()}
   return result
 }
 try {
@@ -96,7 +96,7 @@ try {
   if(!config.stateDirectory||existsSync(config.stateDirectory))throw new Error('fresh durable state directory required')
   config.stateDirectory=resolve(config.stateDirectory);mkdirSync(config.stateDirectory,{recursive:true,mode:0o700});chmodSync(config.stateDirectory,0o700)
   config.tokenFile=resolve(config.tokenFile)
-  const head=await command(config.headCommand);config.start=head.next;config.topics??=head.topics
+  const head=await command(config.headCommand);config.start=head.next;config.logId=head.log_id;config.topics??=head.topics
   if(!Array.isArray(config.urls)||!config.urls.length)throw new Error('HA endpoints required')
   for(const value of config.urls){const url=new URL(value);if(url.protocol!=='wss:'&&!(url.protocol==='ws:'&&['127.0.0.1','localhost','[::1]'].includes(url.hostname))||url.pathname!=='/experimental/ha/ws'||url.username||url.password||url.search)throw new Error('invalid HA endpoint')}
   for(let index=0;index<Math.min(config.workers,config.clients);index++){
@@ -185,7 +185,7 @@ try {
   const reason=error.code?'external-command-or-io-failed':error.message
   if(config?.output){
     const diagnostics=workers.length?await status().catch(()=>({unavailable:true})):null
-    mkdirSync(dirname(config.output),{recursive:true});writeFileSync(config.output,JSON.stringify({ok:false,reason,clients:config.clients,ready:ready.size,failures,diagnostics,actions,rollout_verifications:verifications,production_slo_proven:false},null,2),{mode:0o600})
+    mkdirSync(dirname(config.output),{recursive:true});writeFileSync(config.output,JSON.stringify({ok:false,reason,clients:config.clients,ready:ready.size,log_id:config.logId,range_start:config.start,failures,diagnostics,actions,rollout_verifications:verifications,production_slo_proven:false},null,2),{mode:0o600})
   }
   console.error(reason);process.exitCode=1
 }
