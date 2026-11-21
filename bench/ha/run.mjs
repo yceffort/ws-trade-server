@@ -32,10 +32,10 @@ async function verify(request={}) {
   let observed
   do {
     observed=await sample()
-    if(observed.clients.length===config.clients&&observed.clients.every(c=>!c.failed&&c.offset!==null&&BigInt(c.offset)>=end))break
+    if(observed.clients.length===config.clients&&observed.clients.every(c=>!c.failed&&c.caught_up&&c.offset!==null&&BigInt(c.offset)>=end))break
     await delay(100)
   }while(performance.now()<deadline)
-  if(observed.clients.some(c=>c.failed||c.offset===null||BigInt(c.offset)<end))throw new Error('clients did not apply the committed verification boundary')
+  if(observed.clients.some(c=>c.failed||!c.caught_up||c.offset===null||BigInt(c.offset)<end))throw new Error('clients did not apply the committed verification boundary')
   const maximum=observed.clients.reduce((n,c)=>BigInt(c.offset)>n?BigInt(c.offset):n,0n)
   const oracle=await command(config.rangeCommand,[config.start,maximum.toString()])
   const comparison=compare(oracle,observed.clients)
@@ -62,6 +62,7 @@ try {
     exits.push(new Promise(resolve=>worker.once('exit',resolve)))
     worker.on('message',message=>{
       if(message.type==='ready')ready.add(message.client)
+      if(message.type==='not-ready')ready.delete(message.client)
       if(message.type==='failed')failures.push(message)
       if(message.type==='sample')requests.get(message.id)?.(message)
     })
@@ -77,13 +78,20 @@ try {
     if(existsSync(config.controlSocket))throw new Error('control socket already exists')
     server=createServer(async(request,response)=>{
       try {
+        if(request.method==='GET'&&request.url==='/status'){
+          const observed=await sample(),offsets=observed.clients.filter(c=>c.offset!==null).map(c=>BigInt(c.offset))
+          const reasons={}
+          for(const client of observed.clients)if(client.last_reason)reasons[client.last_reason]=(reasons[client.last_reason]??0)+1
+          response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({clients:observed.clients.length,caught_up:observed.clients.filter(c=>c.caught_up).length,failures:failures.length,minimum_offset:offsets.length?String(offsets.reduce((a,b)=>a<b?a:b)):null,maximum_offset:offsets.length?String(offsets.reduce((a,b)=>a>b?a:b)):null,reasons,client_event_loop_p99_ms:observed.client_event_loop_p99_ms}))
+          return
+        }
         if(request.method!=='POST'||request.url!=='/verify')throw new Error('unknown control operation')
         let text=''
         for await(const chunk of request){text+=chunk;if(text.length>16384)throw new Error('control input limit')}
         const result=await verify(JSON.parse(text))
         verifications.push({slot:result.slot,planHash:result.planHash,rollback:result.rollback,ok:result.ok,reconnect_p99_ms:result.reconnect_p99_ms,verified_through:result.verified_through})
         response.writeHead(result.ok?200:409,{'content-type':'application/json'}).end(JSON.stringify(result))
-      }catch{response.writeHead(409).end('{"ok":false}')}
+      }catch(error){response.writeHead(409).end(JSON.stringify({ok:false,reason:error.code?'external-command-or-io-failed':error instanceof SyntaxError?'invalid-json':error.message}))}
     })
     server.maxConnections=1
     server.requestTimeout=10000;server.headersTimeout=5000;server.keepAliveTimeout=1000

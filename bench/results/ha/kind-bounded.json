@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "reason": "clients did not apply the committed verification boundary",
+  "clients": 1000,
+  "ready": 1000,
+  "failures": [],
+  "production_slo_proven": false
+}

@@ -21,18 +21,18 @@ parentPort.on('message',message=>{
   }
   if(message.type==='sample')parentPort.postMessage({type:'sample',id:message.id,clients:clients.map(client=>{
     const state=client.store.durable()
-    return {id:client.id,topics:state.topics,log_id:state.log_id,offset:state.offset,count:state.count,digest:state.digest,payload_digest:client.payloadDigest,failed:client.failed}
+    return {id:client.id,topics:state.topics,log_id:state.log_id,offset:state.offset,count:state.count,digest:state.digest,payload_digest:client.payloadDigest,failed:client.failed,caught_up:client.caughtUp,attempts:client.attempts,disconnects:client.disconnects,last_reason:client.lastReason}
   }),samples,lag_p99_ms:lag.percentile(99)/1e6})
 })
 const tasks=ids.map(async id=>{
   await new Promise(resolve=>setTimeout(resolve,id*config.startupIntervalMs))
-  const client={id,store:journal.store(id,config.topics),payloadDigest:zero,failed:null,disconnects:0,disconnectBaseline:0}
+  const client={id,store:journal.store(id,config.topics),payloadDigest:zero,failed:null,disconnects:0,disconnectBaseline:0,caughtUp:false,attempts:0,lastReason:null}
   clients.push(client)
   let attemptAt=0,pending=new Map(),initial=true,lastDisconnected=null
   try {
     await runClient({urls:config.urls,token:()=>readBounded(config.tokenFile,16384).toString('utf8').trim(),store:client.store,startAt:{log_id:head.log_id,partition:0,offset:head.next},signal:controller.signal,
-      onAttempt(){attemptAt=performance.now();pending=new Map()},
-      onDisconnect(){lastDisconnected??=performance.now();client.disconnects++},
+      onAttempt(){client.attempts++;client.caughtUp=false;attemptAt=performance.now();pending=new Map()},
+      onDisconnect(reason){lastDisconnected??=performance.now();client.disconnects++;client.caughtUp=false;client.lastReason=['source-stale','heartbeat-timeout','connection-error','connection-closed','draining','replay-limit','retry-later','receive-deadline','client-overflow'].includes(reason)?reason:'other';parentPort.postMessage({type:'not-ready',client:id})},
       onFrame(frame){
         if(frame.type==='event'){
           const digest=payloadHash(frame.body)
@@ -40,10 +40,11 @@ const tasks=ids.map(async id=>{
           pending.set(frame.event_id,digest)
         }
         if(frame.type==='caught-up'){
-          if(initial){initial=false;parentPort.postMessage({type:'ready',client:id})}
+          if(initial){initial=false}
           else if(samples.length<100000){
             samples.push({client:id,attempt_ms:performance.now()-attemptAt,disconnect_ms:lastDisconnected===null?null:performance.now()-lastDisconnected,fault_ms:marking&&client.disconnects>client.disconnectBaseline?performance.now()-marking.at:null,scenario:marking?.name??null})
           }
+          client.caughtUp=true;parentPort.postMessage({type:'ready',client:id})
           lastDisconnected=null
         }
       },

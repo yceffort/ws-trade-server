@@ -67,3 +67,5 @@ kind 전용 장애 도구는 gateway가 있는 worker를 PDB를 존중해 drain�
 부하 Worker는 여러 클라이언트의 checkpoint를 10ms 단위의 append journal로 묶고 fsync가 끝난 뒤에만 적용 완료로 집계한다. 상태와 cursor는 같은 JSON record에 저장하며, 각 클라이언트의 다음 frame 처리는 해당 fsync를 기다린다. 16MiB마다 전체 최신 상태를 fsync와 atomic rename으로 압축한다. 재접속 시간에는 group commit 대기도 포함된다. 기본 예제의 개별 FileStore 동기 fsync와 이 부하 발생기의 저장 방식은 다르므로 클라이언트 디스크 비용을 함께 보고한다.
 
 부하 Worker는 V8 heap 한도를 별도로 적용한다. 클라이언트 수신 대기열은 64KiB에서 socket pause, 32KiB 미만에서 resume하며 1MiB를 넘으면 연결을 닫는다. 백프레셔 때문에 heartbeat 또는 server live buffer 한계를 넘으면 재접속으로 처리하고, 이를 시험 실패 결과에서 숨기지 않는다.
+
+현재 연결에서 caught-up 상태가 아니거나 committed 검증 경계보다 뒤처진 클라이언트가 하나라도 남으면 검증에 실패한다. 과거에 한 번 연결됐다는 사실로 초기 준비 완료를 판정하지 않는다. 로컬 Unix 소켓의 `GET /status`는 현재 caught-up 수와 종료 사유 집계만 반환하며 token, cursor, 체결 본문은 반환하지 않는다.
