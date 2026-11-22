@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, chmodSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleep } from 'node:timers/promises'
 
 const directory = mkdtempSync(join(tmpdir(), 'wts-alerts-'))
+chmodSync(directory, 0o755)
 const source = fileURLToPath(new URL('.', import.meta.url))
 const network = `wts-alert-check-${process.pid}`
 const names = []
