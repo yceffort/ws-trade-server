@@ -83,3 +83,5 @@ kind 전용 장애 도구는 부하 Pod가 없는 gateway worker만 골라 PDB�
 개별 action의 복구 통계는 고유 fault ID로 해당 장애에서 시작한 재접속만 계산한다. 최종 보고서의 fault p99는 실행 전체의 장애 표본을 합산한다. 교체 Pod 안정화와 committed 경계의 적용 일치를 확인한 뒤 장애 구간 표시를 해제한다.
 
 `GET /status`는 활성 구간의 종류와 committed 비교까지 통과한 action 이름도 반환한다. 호스트에서 실행하는 node drain/network-partition은 예약한 Pod 장애의 `completed_actions`와 `active_measurement`를 확인한 뒤 별도로 수행한다. 이 수동 주입의 클라이언트 지연을 자동 action 표본으로 보고하지 않으며, host 명령 결과와 최종 committed 비교 근거를 함께 보존한다.
+
+부하 워커는 접속 실패를 `bench/ha/reasons.mjs`의 고정 사유로 나눠 센다. upgrade 전에는 `handshake-timeout`, `connect-aborted`, `rejected-502`, `rejected-503`, `rejected-other`, `connect-refused`, `connect-reset`, `connect-error`, 연결된 뒤의 프로토콜 오류는 `connection-error`다. 연결된 뒤 소켓이 reset되면 ws가 error 없이 닫으므로 `connection-closed`로 남는다. `disconnect_reasons`는 사유별 누적 횟수, `reasons`는 마지막 사유별 클라이언트 수다. `GET /status`는 둘 다 돌려준다. 끝까지 간 실행의 보고서에는 `disconnect_reasons`만 최상위에 있다. 초기 접속 실패처럼 예외로 중단된 실행의 보고서에는 그때의 상태 수집에 성공한 경우에만 둘 다 `diagnostics` 안에 있다. 사유를 읽는 기준은 [용량 시험 기록](../../docs/ha-capacity.md)의 판정 기준 절에 있다.

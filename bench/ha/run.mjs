@@ -66,7 +66,7 @@ async function sample(){
   return await new Promise((resolve,reject)=>{
     const replies=[]
     const timer=setTimeout(()=>{requests.delete(id);reject(new Error('client worker sample deadline'))},5000)
-    requests.set(id,reply=>{replies.push(reply);if(replies.length===workers.length){clearTimeout(timer);requests.delete(id);resolve({clients:replies.flatMap(r=>r.clients),samples:replies.flatMap(r=>r.samples),client_event_loop_p99_ms:replies.every(r=>r.lag_p99_ms!==null)?Math.max(...replies.map(r=>r.lag_p99_ms)):null,client_event_loop_max_ms:Math.max(...replies.map(r=>r.lag_max_ms))})}})
+    requests.set(id,reply=>{replies.push(reply);if(replies.length===workers.length){clearTimeout(timer);requests.delete(id);resolve({clients:replies.flatMap(r=>r.clients),samples:replies.flatMap(r=>r.samples),disconnect_reasons:replies.reduce((total,r)=>{for(const [reason,count] of Object.entries(r.reasons))total[reason]=(total[reason]??0)+count;return total},{}),client_event_loop_p99_ms:replies.every(r=>r.lag_p99_ms!==null)?Math.max(...replies.map(r=>r.lag_p99_ms)):null,client_event_loop_max_ms:Math.max(...replies.map(r=>r.lag_max_ms))})}})
     workers.forEach(worker=>worker.postMessage({type:'sample',id}))
   })
 }
@@ -74,7 +74,7 @@ async function status() {
   const observed=await sample(),offsets=observed.clients.filter(c=>c.offset!==null).map(c=>BigInt(c.offset))
   const reasons={}
   for(const client of observed.clients)if(client.last_reason)reasons[client.last_reason]=(reasons[client.last_reason]??0)+1
-  return {clients:observed.clients.length,caught_up:observed.clients.filter(c=>c.caught_up).length,failures:failures.length,minimum_offset:offsets.length?String(offsets.reduce((a,b)=>a<b?a:b)):null,maximum_offset:offsets.length?String(offsets.reduce((a,b)=>a>b?a:b)):null,reasons,active_measurement:activeScope?(activeScope.name?'fault':'rollout'):null,completed_actions:actions.filter(a=>a.recovery?.ok).map(a=>a.name),client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms}
+  return {clients:observed.clients.length,caught_up:observed.clients.filter(c=>c.caught_up).length,failures:failures.length,minimum_offset:offsets.length?String(offsets.reduce((a,b)=>a<b?a:b)):null,maximum_offset:offsets.length?String(offsets.reduce((a,b)=>a>b?a:b)):null,reasons,disconnect_reasons:observed.disconnect_reasons,active_measurement:activeScope?(activeScope.name?'fault':'rollout'):null,completed_actions:actions.filter(a=>a.recovery?.ok).map(a=>a.name),client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms}
 }
 function requireWindow(request) {
   if(request.window!==undefined&&windows.get(request.window)!==windowKey(request))throw new Error('measurement window was not started')
@@ -98,7 +98,7 @@ async function verify(request={},requireSlo=config.requireReconnectSlo) {
   const reconnect=reconnectMetrics(samples,request.window)
   const recovery=percentile(samples.filter(s=>s.fault_ms!==null).map(s=>s.fault_ms),.99)
   const slo=reconnect.reconnect_slo_status==='pass'
-  const result={...request,ok:comparison.ok&&(!requireSlo||slo),committed_missing:comparison.ok?0:null,duplicate_applies:comparison.ok?0:null,comparison,...reconnect,recovery_from_fault_p99_ms:recovery,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms,log_id:config.logId,range_start:config.start,verified_through:end.toString()}
+  const result={...request,ok:comparison.ok&&(!requireSlo||slo),committed_missing:comparison.ok?0:null,duplicate_applies:comparison.ok?0:null,comparison,...reconnect,recovery_from_fault_p99_ms:recovery,disconnect_reasons:observed.disconnect_reasons,client_event_loop_p99_ms:observed.client_event_loop_p99_ms,client_event_loop_max_ms:observed.client_event_loop_max_ms,log_id:config.logId,range_start:config.start,verified_through:end.toString()}
   return result
 }
 try {
