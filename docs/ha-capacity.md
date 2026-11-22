@@ -41,13 +41,13 @@ checkpoint 전송 오류 수정 커밋 `2d5fb98`과 고정 이미지로 1,000명
 
 ## 1,000 clients 병목 판정 기준
 
-[#91](https://github.com/yceffort/ws-trade-server/issues/91)의 계단 측정(100, 250, 500, 1,000 clients, 설정당 3회)을 돌리기 전에 정한 기준이며 결과를 본 뒤에 고치지 않는다. 기존 보고서의 `connection-error`는 소켓 오류를 한 이름으로 뭉친 값이었다. 응답하지 않는 서버에 예제 클라이언트를 붙이면 수신 기한 3초가 handshake 중인 소켓을 끊는데 이것도 `connection-error`로 보고된다(`bench/ha/reasons.test.mjs`). 이제 부하 워커가 `bench/ha/reasons.mjs`로 ws의 오류 문구와 Node 오류 코드만 보고 고정 사유를 붙인다. 보고서의 `disconnect_reasons`는 실행 중 끊긴 횟수를 사유별로 누적한 값이고 `reasons`는 클라이언트별 마지막 사유다.
+[#91](https://github.com/yceffort/ws-trade-server/issues/91)의 계단 측정(100, 250, 500, 1,000 clients, 설정당 3회)을 돌리기 전에 정한 기준이며 결과를 본 뒤에 고치지 않는다. 기존 보고서의 `connection-error`는 소켓 오류를 한 이름으로 뭉친 값이었다. 응답하지 않는 서버에 예제 클라이언트를 붙이면 수신 기한 3초가 handshake 중인 소켓을 끊는데 이것도 `connection-error`로 보고된다(`bench/ha/reasons.test.mjs`). 이제 부하 워커가 `bench/ha/reasons.mjs`로 ws의 오류 문구와 Node 오류 코드만 보고 고정 사유를 붙인다. 보고서의 `disconnect_reasons`는 실행 중 끊긴 횟수를 사유별로 누적한 값이다. `GET /status`와 실패 보고서의 `diagnostics`에 있는 `reasons`는 마지막 사유별 클라이언트 수다.
 
 | 부하 보고서의 사유 | 뜻 | 함께 볼 값 |
 | --- | --- | --- |
 | `connect-aborted`, `handshake-timeout` | 3초 안에 WebSocket upgrade 응답을 받지 못했다. 앞은 클라이언트의 수신 기한, 뒤는 ws의 handshake 기한이 먼저 끝난 경우다 | edge의 `tls_aborted`(TLS 단계에서 끊김)와 `client_closed`(edge가 gateway 연결을 기다리던 중 끊김). `tls_aborted`는 probe가 만드는 Pod당 10초에 6건을 빼고 본다 |
 | `rejected-503` | gateway가 준비 상태가 아니거나 연결 한도를 넘어 upgrade를 거절했다 | edge의 `upstream_unavailable`, `wts_ha_source_age_seconds`, `wts_ha_broker_age_seconds` |
-| `rejected-502` | edge가 gateway로 가는 연결에 실패했다 | edge의 `upstream_error`, `upstream_rejected`, gateway 컨테이너 재시작 |
+| `rejected-502` | edge가 gateway에 연결하지 못했거나, gateway가 503이 아닌 응답으로 upgrade를 거절했다 | edge의 `upstream_error`, `upstream_rejected`, gateway 컨테이너 재시작 |
 | `connect-reset`, `connect-refused` | 접속을 받는 쪽이 없거나 받자마자 끊었다 | edge 컨테이너 재시작과 OOM, edge의 연결 한도 1,024 |
 | `source-stale`, `retry-later`, `replay-limit` | gateway가 연결을 받은 뒤 스스로 끊었다 | `wts_ha_closed_total`, `wts_ha_replay_waiters`, `wts_ha_catch_up_seconds` |
 | `receive-deadline`, `connection-closed` | 연결된 뒤 3초 동안 frame이 없었거나 소켓이 오류 frame 없이 닫혔다 | edge의 `buffer_limit`, `relay_error`, `upstream_closed` |
