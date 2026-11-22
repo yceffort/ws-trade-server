@@ -12,6 +12,7 @@ on:
       - Cargo.lock
       - deploy/ha/**
       - bench/ha/**
+      - probe/**
       - .dockerignore
       - deploy/container/probe.sh
       - deploy/k8s/ha/**

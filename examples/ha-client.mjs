@@ -3,13 +3,13 @@ import { Application, FileStore, readBounded } from './ha-state.mjs'
 
 const terminal = new Set(['cursor-expired', 'invalid-cursor', 'invalid-resume', 'start-out-of-range', 'forbidden-scope', 'auth-invalid', 'auth-expired', 'auth-revoked'])
 
-export async function runClient({ urls, token, store, startAt, signal, onCommit = () => {}, onFrame = () => {}, onAttempt = () => {}, onDisconnect = () => {} }) {
+export async function runClient({ urls, token, store, startAt, signal, ca, onCommit = () => {}, onFrame = () => {}, onAttempt = () => {}, onDisconnect = () => {} }) {
   const { default: WebSocket } = await import('../edge/node_modules/ws/wrapper.mjs')
   let failures = 0, noProgress = 0, attempt = 0
   while (!signal?.aborted) {
     const before = store.load()
     const application = new Application(store)
-    const socket = new WebSocket(urls[attempt++ % urls.length], 'wts.ha.v1', { handshakeTimeout: 3000, maxPayload: 48 * 1024 })
+    const socket = new WebSocket(urls[attempt++ % urls.length], 'wts.ha.v1', { ca, handshakeTimeout: 3000, maxPayload: 48 * 1024 })
     onAttempt(socket)
     let queued = 0, chain = Promise.resolve(), reason = 'connection-closed', ready = false, applyFailed = false
     let applyError
