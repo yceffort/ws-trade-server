@@ -1,0 +1,286 @@
+{
+  "uid": "wts-probe",
+  "title": "WTS WSS 클라이언트 적용 probe",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "wts-prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=\"wts-probe\"},namespace)",
+          "refId": "namespace"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "target",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "wts-prometheus"
+        },
+        "query": {
+          "query": "label_values(wts_probe_running{namespace=~\"${namespace:regex}\"},target)",
+          "refId": "target"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "클라이언트 적용 성공",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "description": "합성 probe의 단계 시간이다. 계획 배포 재접속 SLO, 장애 복구 시간과 1,000 clients 용량은 별도 부하 시험에서 검증한다. 빈 결과는 측정되지 않음.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_probe_success{namespace=~\"${namespace:regex}\",target=~\"${target:regex}\"}",
+          "legendFormat": "{{target}} {{protocol}} {{stage}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "실패 단계",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "description": "합성 probe의 단계 시간이다. 계획 배포 재접속 SLO, 장애 복구 시간과 1,000 clients 용량은 별도 부하 시험에서 검증한다. 빈 결과는 측정되지 않음.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_probe_failed_stage{namespace=~\"${namespace:regex}\",target=~\"${target:regex}\"} == 1",
+          "legendFormat": "{{target}} {{protocol}} {{stage}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "마지막 실행 이후",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "description": "합성 probe의 단계 시간이다. 계획 배포 재접속 SLO, 장애 복구 시간과 1,000 clients 용량은 별도 부하 시험에서 검증한다. 빈 결과는 측정되지 않음.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - wts_probe_last_run_seconds{namespace=~\"${namespace:regex}\",target=~\"${target:regex}\"}",
+          "legendFormat": "{{target}} {{protocol}} {{stage}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Worker 실패 /초",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "description": "합성 probe의 단계 시간이다. 계획 배포 재접속 SLO, 장애 복구 시간과 1,000 clients 용량은 별도 부하 시험에서 검증한다. 빈 결과는 측정되지 않음.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(wts_probe_worker_failures_total{namespace=~\"${namespace:regex}\",target=~\"${target:regex}\"}[$__rate_interval])",
+          "legendFormat": "{{target}} {{protocol}} {{stage}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "합성 실행 단계 p99",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "description": "합성 probe의 단계 시간이다. 계획 배포 재접속 SLO, 장애 복구 시간과 1,000 clients 용량은 별도 부하 시험에서 검증한다. 빈 결과는 측정되지 않음.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.99, sum by (namespace,target,protocol,stage,le) (rate(wts_probe_stage_seconds_bucket{namespace=~\"${namespace:regex}\",target=~\"${target:regex}\"}[$__rate_interval]))) and on (namespace,target,protocol,stage) (sum by (namespace,target,protocol,stage) (increase(wts_probe_stage_seconds_count{namespace=~\"${namespace:regex}\",target=~\"${target:regex}\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{target}} {{protocol}} {{stage}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Probe 수집 성공",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "description": "합성 probe의 단계 시간이다. 계획 배포 재접속 SLO, 장애 복구 시간과 1,000 clients 용량은 별도 부하 시험에서 검증한다. 빈 결과는 측정되지 않음.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"wts-probe\",namespace=~\"${namespace:regex}\"}",
+          "legendFormat": "{{target}} {{protocol}} {{stage}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "서버와 자원, 로그",
+      "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=All"
+    }
+  ]
+}

@@ -17,7 +17,7 @@ resources:
   - stack/network-policy.yaml
 configMapGenerator:
   - name: prometheus-config
-    files: [stack/prometheus.yml, scrape.yaml, prometheus-rules.yaml]
+    files: [stack/prometheus.yml, scrape.yaml, prometheus-rules.yaml, probe-rules.yaml]
   - name: loki-config
     files: [config.yaml=stack/loki-config.yaml]
   - name: alloy-config
@@ -27,7 +27,7 @@ configMapGenerator:
   - name: grafana-providers
     files: [stack/dashboards.yaml]
   - name: grafana-dashboards
-    files: [dashboards/wts-overview.json]
+    files: [dashboards/wts-overview.json, dashboards/wts-probe.json]
   - name: alertmanager-config
     files: [stack/alertmanager.yml]
   - name: alert-receiver-source

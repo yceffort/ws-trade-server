@@ -7,7 +7,7 @@ import { validate, stages } from './run.mjs'
 const bounds = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60]
 export class Metrics {
   constructor(targets) {
-    this.targets = targets.map(config => ({ config, running: false, failures: 0, result: null, last: null, histograms: new Map() }))
+    this.targets = targets.map(config => ({ config, running: false, failures: 0, result: null, last: null, due: Date.now() / 1000 + config.deadlineMs / 1000 + 5, histograms: new Map() }))
   }
   record(target, result) {
     target.result = result; target.last = Date.now() / 1000
@@ -25,7 +25,7 @@ export class Metrics {
     const lines = []
     for (const target of this.targets) {
       const labels = `target="${target.config.target}",protocol="${target.config.protocol}"`
-      lines.push(`wts_probe_running{${labels}} ${Number(target.running)}`, `wts_probe_worker_failures_total{${labels}} ${target.failures}`)
+      lines.push(`wts_probe_next_deadline_seconds{${labels}} ${target.due}`, `wts_probe_running{${labels}} ${Number(target.running)}`, `wts_probe_worker_failures_total{${labels}} ${target.failures}`)
       if (target.last !== null) lines.push(`wts_probe_last_run_seconds{${labels}} ${target.last}`, `wts_probe_success{${labels}} ${Number(target.result.ok)}`)
       for (const stage of stages) {
         if (target.result) lines.push(`wts_probe_failed_stage{${labels},stage="${stage}"} ${Number(!target.result.ok && target.result.stage === stage)}`)
@@ -58,6 +58,7 @@ export function start(config) {
       if (stopped) return
       if (!result) { target.failures++; result = { ok: false, stage: 'connect', samples: {} } }
       metrics.record(target, result)
+      target.due = Date.now() / 1000 + (config.intervalMs + target.config.deadlineMs) / 1000 + 5
       console.log(JSON.stringify({ event: 'probe_result', target: target.config.target, protocol: target.config.protocol, ok: result.ok, stage: result.stage }))
       const next = setTimeout(() => { timers.delete(next); run(target) }, config.intervalMs)
       timers.add(next)

@@ -17,6 +17,7 @@ export function render({ namespace, image, credentialsSecret, sourceConfigMap, c
     } } } }, 'apps/v1'),
     item('Service', 'wts-probe', { spec: { selector: labels, ports: [{ name: 'metrics', port: 9464, targetPort: 'metrics' }] } }),
     item('NetworkPolicy', 'wts-probe-metrics', { spec: { podSelector: { matchLabels: labels }, policyTypes: ['Ingress'], ingress: [{ from: [{ namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'wts-observability' } } }], ports: [{ protocol: 'TCP', port: 9464 }] }] } }, 'networking.k8s.io/v1'),
+    ...['gateway', 'broker'].map(component => item('NetworkPolicy', `wts-probe-${component}`, { spec: { podSelector: { matchLabels: { 'app.kubernetes.io/part-of': 'wts-ha', 'app.kubernetes.io/component': component } }, policyTypes: ['Ingress'], ingress: [{ from: [{ podSelector: { matchLabels: labels } }], ports: [{ protocol: 'TCP', port: component === 'gateway' ? 8443 : 9092 }] }] } }, 'networking.k8s.io/v1')),
   ] }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
