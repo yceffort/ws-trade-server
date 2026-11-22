@@ -6,11 +6,11 @@
 | --- | --- | --- | --- |
 | BOOTSTRAPPING | 503, Retry-After 1 | 없음 | livez 200, readyz 503 |
 | READY | 허용 | 데이터와 heartbeat | livez/readyz 200 |
-| DEGRADED | 503, Retry-After 1 | source-stale 후 종료 | livez 200, readyz 503 |
+| DEGRADED | 503, Retry-After 1 | source-stale 알림 후 30초까지 유지 | livez 200, readyz 503 |
 | DRAINING | 503, Retry-After 1 | 정해진 시각까지 유지 후 draining | livez 200, readyz 503 |
 | STOPPED | listener 종료 | 종료 | 관리 listener 종료 |
 
-준비 상태는 복제본의 bootstrap, 최신 log end 대비 lag, source/broker 신선도와 정책 신선도를 기반으로 판단한다. 지금은 로컬 인증 정책을 사용하며 공유 정책은 #51에서 연결한다. DEGRADED가 잠깐 지나가도 이전 연결은 세대 번호 변경을 확인해 종료한다. broker 조회의 일시 오류는 복원 위치를 유지하며 재시도한다. 복제 worker가 broker 오류로 종료되면 기존 live 구독을 실패 처리한 뒤 완전 snapshot에서 재복원한다. schema, source identity와 순번 오류를 정상 입력으로 간주해 건너뛰지 않는다.
+준비 상태는 복제본의 bootstrap, 최신 log end 대비 lag, source/broker 신선도와 정책 신선도를 기반으로 판단한다. 지금은 로컬 인증 정책을 사용하며 공유 정책은 #51에서 연결한다. DEGRADED는 새 연결만 막는다. 기존 연결은 연결별 감시가 멈춤 시간을 재고 30초를 넘기면 종료하며, 그 전에 회복하면 그대로 이어서 받는다([#94](https://github.com/yceffort/ws-trade-server/issues/94)). broker 조회의 일시 오류는 복원 위치를 유지하며 재시도한다. fence된 broker가 metadata에서 빠질 때의 `DestroyBroker`도 일시 오류로 본다. 복제 worker가 broker 오류로 종료되면 기존 live 구독을 실패 처리한 뒤 완전 snapshot에서 재복원한다. schema, source identity와 순번 오류를 정상 입력으로 간주해 건너뛰지 않는다.
 
 `GET /livez`, `GET /readyz`, `POST /drain`은 loopback 관리 listener에서만 제공한다. `/metrics`와 `/snapshots`도 유지한다. `POST /drain`은 최초 호출 시각을 보존하고 즉시 반환한다. 반복 호출, SIGTERM과 회복된 신선도는 종료 예산을 연장하거나 READY로 되돌리지 않는다. accept 경로와 실제 WebSocket upgrade callback이 같은 상태를 확인하므로 drain 중 지연된 handshake도 503으로 거절한다. edge는 허용된 Retry-After를 전달한다.
 

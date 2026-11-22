@@ -236,6 +236,8 @@ impl ReplicaTask {
                 match result {
                     Ok(()) => return Ok(()),
                     Err(error) => {
+                        let code = if let Error::Broker(error) = &error { error.rdkafka_error_code() } else { None };
+                        tracing::warn!(event = "ha_replica_failed", reason = %error, code = ?code);
                         failure.store(true, Ordering::Relaxed);
                         runtime.block_on(hub.fail_replica());
                         if !matches!(error, Error::Deadline | Error::Broker(_)) {

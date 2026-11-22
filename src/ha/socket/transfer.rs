@@ -278,12 +278,21 @@ pub(super) async fn run(
     }
     let mut checkpoint_tick = interval(Duration::from_millis(250));
     let mut applied = 0;
+    let mut stale = false;
     loop {
         tokio::select! {
             biased;
             reason = &mut live.failed => return Err(reason.unwrap_or("source-error")),
             _ = heartbeat.tick() => { send(writer, json!({"type":"heartbeat"}), Instant::now() + Duration::from_secs(1)).await?; },
-            _ = checkpoint_tick.tick() => { progress.checkpoint(writer, Instant::now() + Duration::from_secs(1)).await?; },
+            _ = checkpoint_tick.tick() => {
+                progress.checkpoint(writer, Instant::now() + Duration::from_secs(1)).await?;
+                // 입력이 멈춘 동안 heartbeat만 오면 정상 공급으로 오해할 수 있어 멈춘 시점에 한 번 알린다(#94).
+                let ready = hub.replica_ready();
+                if !ready && !stale {
+                    send(writer, json!({"type":"source-stale"}), Instant::now() + Duration::from_secs(1)).await?;
+                }
+                stale = !ready;
+            },
             item = live.records.recv() => {
                 let item = item.ok_or("source-error")?;
                 progress.record(writer, item.offset, &item.record, Instant::now() + Duration::from_secs(1), false).await?;

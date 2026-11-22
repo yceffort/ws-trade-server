@@ -76,7 +76,8 @@ try {
   }
   for (const role of ['admin', 'feed', 'gateway']) {
     put(`${role}.properties`, `security.protocol=SASL_SSL\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="${role}" password="${passwords[role]}";\nssl.truststore.type=PEM\nssl.truststore.location=/config/ca.crt\n`)
-    const kafka = { timeout_ms: 10000, properties: { 'bootstrap.servers': '127.0.0.1:29091,127.0.0.1:29092,127.0.0.1:29093', 'security.protocol': 'SASL_SSL', 'sasl.mechanism': 'PLAIN', 'sasl.username': role, 'sasl.password': passwords[role], 'ssl.ca.location': resolve(destination, 'shared/ca.crt') } }
+    // feed는 leader와 controller를 함께 잃어도 fence 뒤 재시도로 이어 쓰도록 timeout을 fence보다 길게 둔다(#94).
+    const kafka = { timeout_ms: role === 'feed' ? 30000 : 10000, properties: { 'bootstrap.servers': '127.0.0.1:29091,127.0.0.1:29092,127.0.0.1:29093', 'security.protocol': 'SASL_SSL', 'sasl.mechanism': 'PLAIN', 'sasl.username': role, 'sasl.password': passwords[role], 'ssl.ca.location': resolve(destination, 'shared/ca.crt') } }
     writeFileSync(join(staging, `${role}.json`), JSON.stringify(kafka, null, 2), { mode: 0o600 })
   }
   writeFileSync(join(staging, 'source.json'), JSON.stringify({ log_id: 'demo-v1', source_id: { provider: 'demo', stream: 'trades' }, epoch: 'epoch-1', start_seq: '1', topics: ['/topic/v1/kr/stock/trade/A005930', '/topic/v1/us/stock/trade/US19990122001'] }, null, 2))

@@ -33,6 +33,7 @@ WTS_HA_SHARED_TEST=1 cargo test --locked --features ha --test ha_protocol -- --i
 cargo test --locked --features ha --test ha_lifecycle -- --ignored --nocapture
 mkdir -p deploy/local/ha/results
 node deploy/ha/producer-failover.mjs | tee deploy/local/ha/results/producer-failover.json
+node deploy/ha/broker-isolation.mjs | tee deploy/local/ha/results/broker-isolation.json
 cargo test --locked --features ha --test ha_broker replicated_log_survives_broker_loss_and_rejects_no_quorum -- --ignored --nocapture
 # 외부 입력 시험은 다른 빈 데이터셋에서 시작한다. 이 스크립트가 만든 프로젝트의 volume만 지운다.
 "${compose[@]}" down --volumes
