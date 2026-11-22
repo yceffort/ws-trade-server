@@ -9,6 +9,9 @@ export function render(s) {
   if (![s.gatewayImage,s.edgeImage].every(image => /^[\w./:-]+@sha256:[a-f0-9]{64}$/.test(image))) throw new Error('image digests required')
   for (const key of ['clientCIDRs','gatewayIngressCIDRs','policyCIDRs','apiCIDRs']) if (!Array.isArray(s[key]) || !s[key].length || s[key].some(c => !/^[0-9a-f.:]+\/\d{1,3}$/i.test(c))) throw new Error('explicit CIDRs required')
   if (s.metricsNamespace && !name.test(s.metricsNamespace)) throw new Error('invalid metrics namespace')
+  // 기본 1GiB는 개발용이다. 목표 처리량에서 24시간을 보관하려면 docs/ha-capacity.md의 산정대로 늘린다.
+  const retention = {ms:s.retentionMs ?? 86400000, bytes:s.retentionBytes ?? 1073741824}
+  if (!Number.isSafeInteger(retention.ms) || retention.ms < 60000 || !Number.isSafeInteger(retention.bytes) || retention.bytes < 16777216) throw new Error('invalid event retention')
   const annotations = s.gatewayServiceAnnotations ?? {}
   if (typeof annotations !== 'object' || Array.isArray(annotations) || Object.entries(annotations).some(([key,value]) => !/^([a-z0-9.-]+\/)?[A-Za-z0-9][-_.A-Za-z0-9]*$/.test(key) || typeof value !== 'string')) throw new Error('invalid gateway Service annotations')
   const names = s.gatewayNames ?? []
@@ -79,7 +82,8 @@ export function render(s) {
 admin=(--bootstrap-server wts-broker-0.wts-broker:9092 --command-config /admin/admin.properties)
 topic() { /opt/kafka/bin/kafka-topics.sh "\${admin[@]}" "$@"; }
 acl() { /opt/kafka/bin/kafka-acls.sh "\${admin[@]}" --add "$@" >/dev/null; }
-topic --create --if-not-exists --topic wts.events.v1 --partitions 1 --replication-factor 3 --config min.insync.replicas=2 --config cleanup.policy=delete --config retention.ms=86400000 --config retention.bytes=1073741824 --config max.message.bytes=1048576
+topic --create --if-not-exists --topic wts.events.v1 --partitions 1 --replication-factor 3 --config min.insync.replicas=2 --config cleanup.policy=delete --config retention.ms=${retention.ms} --config retention.bytes=${retention.bytes} --config max.message.bytes=1048576
+/opt/kafka/bin/kafka-configs.sh "\${admin[@]}" --alter --entity-type topics --entity-name wts.events.v1 --add-config retention.ms=${retention.ms},retention.bytes=${retention.bytes} >/dev/null
 for name in wts.checkpoint.v1 wts.snapshot.v1; do topic --create --if-not-exists --topic "$name" --partitions 1 --replication-factor 3 --config min.insync.replicas=2 --config cleanup.policy=compact --config max.message.bytes=1048576 --config segment.bytes=16777216 --config segment.ms=60000 --config min.cleanable.dirty.ratio=0.1 --config max.compaction.lag.ms=120000; done
 for name in wts.events.v1 wts.checkpoint.v1 wts.snapshot.v1; do acl --allow-principal User:feed --topic "$name" --operation Write --operation Read --operation Describe; done
 for name in wts.events.v1 wts.snapshot.v1; do acl --allow-principal User:gateway --topic "$name" --operation Read --operation Describe; done
