@@ -115,7 +115,7 @@ snapshot은 topic별 compacted 레코드를 임의 시점에 모은 결과가 �
 
 gateway의 cache는 재생성 가능한 최신 상태이며 durable replay 저장소는 broker다. 초기 snapshot 크기는 512KiB, 허용 topic은 최대 256개로 제한해 단일 레코드 복원을 유지한다. 한도를 넘으면 명시적으로 준비 실패로 처리한다. broker에 snapshot을 여러 레코드로 나누거나 외부 object storage를 쓰는 방식은 버전이 있는 manifest와 원자적 공개가 필요한 후속 확장이다. 처음부터 체결이 없는 topic은 명시적인 no-data 상태로 표현하며 가짜 체결을 만들지 않는다.
 
-거래가 없는 topic도 마지막 상태와 그 상태의 event 위치를 보존한다. source는 최소 1초마다 연결 상태와 시장 상태를 별도 레코드로 보낸다. readiness는 마지막 거래 시각이 아니라 bootstrap 완료, 로그 지연, source heartbeat와 정책 신선도로 판단한다. 합성 feed의 현재 10초 snapshot probe를 그대로 운영 HA probe로 사용하지 않는다. HA snapshot과 source-status에는 마지막 상태의 기준 시각 및 source 상태를 포함한다. source/broker 신선도 상한을 넘기면 기존 HA 연결에도 source-stale 오류를 알리고 닫아, 서버 heartbeat만 살아 있는 것을 정상 체결 공급으로 오해하지 않게 한다.
+거래가 없는 topic도 마지막 상태와 그 상태의 event 위치를 보존한다. source는 최소 1초마다 연결 상태와 시장 상태를 별도 레코드로 보낸다. readiness는 마지막 거래 시각이 아니라 bootstrap 완료, 로그 지연, source heartbeat와 정책 신선도로 판단한다. 합성 feed의 현재 10초 snapshot probe를 그대로 운영 HA probe로 사용하지 않는다. HA snapshot과 source-status에는 마지막 상태의 기준 시각 및 source 상태를 포함한다. source/broker 신선도 상한을 넘기면 새 연결을 받지 않고 기존 HA 연결에는 `source-stale` 프레임으로 멈춤을 알려, 서버 heartbeat만 살아 있는 것을 정상 체결 공급으로 오해하지 않게 한다. 기존 연결은 멈춤이 30초를 넘거나 복제본이 실패할 때 닫는다. 처음 설계는 3초에 바로 닫았지만, broker 한 대를 예고 없이 잃으면 모든 gateway의 연결이 함께 끊겼다. 근거는 아래 "broker 한 대의 예고 없는 손실" 절에 둔다.
 
 ## 재접속 계약
 
@@ -167,12 +167,34 @@ replay와 live 전달은 첫 이벤트 직후 checkpoint를 보내고 이후 100
 | --- | --- |
 | gateway Pod 종료 또는 손실 | 다른 gateway로 재접속, 보관 범위 안 cursor에서 replay. 연결 상태 자체는 복제하지 않음 |
 | feed active 손실 | standby가 fence 후 committed generator checkpoint에서 재개. 미확정 batch는 복원 절차로 판정 |
-| broker 1개 손실 | 남은 ISR/quorum으로 계속 처리하는지 검증. 재선출 중 일시 지연은 허용 |
+| broker 1개 손실 | 남은 ISR/quorum으로 계속 처리. 예고 없는 손실은 fence까지 commit이 멈추며, 그동안 기존 연결은 유지하고 새 연결만 거절 |
 | quorum 또는 ISR 부족 | producer commit 중단, gateway freshness 저하 표시와 ready 해제. 오래된 데이터를 정상 실시간 데이터로 표시하지 않음 |
 | source 휴장 | 정상 heartbeat와 시장 상태가 있으면 거래가 없다는 이유만으로 실패하지 않음 |
 | 느린 클라이언트 | 해당 연결만 bounded 정책으로 끊고 cursor 재접속. 전체 로그 소비를 한 소켓에 묶지 않음 |
 | 모든 gateway 재기동 | durable snapshot과 로그로 bootstrap. readiness 이전의 빈 캐시를 공개하지 않음 |
 | retention 또는 dataset 교체 | 명시적 복구 불가. 사용자가 state 재설정 또는 외부 이력 복원을 선택 |
+
+## broker 한 대의 예고 없는 손실
+
+AWS 실측의 AZ 차단에서 그 AZ와 무관한 gateway의 클라이언트까지 끊겼다([#94](https://github.com/yceffort/ws-trade-server/issues/94), [측정 기록](ha-capacity.md)). 2026-11-22에 단일 호스트 Compose(Kafka 4.1.1, broker 3개가 controller 겸임, 기본 `broker.session.timeout.ms` 9초)에서 broker 하나를 `docker network disconnect`로 끊어 재현했다. 아래 시각은 차단 시점부터 잰 값이다.
+
+| 끊은 broker의 역할 | gateway 준비 해제 | feed | gateway 회복 |
+| --- | --- | --- | --- |
+| follower만 | 2.96초 | 유지 | 8.46초 |
+| 체결과 checkpoint의 leader | 3.0초 | 유지 | 8.4초 |
+| 체결과 checkpoint의 leader, controller | 2.81초 | 11.05초에 `ha-deadline`, standby가 23.15초에 인계 | 23.31초 |
+| 모든 leader, transaction coordinator, controller | 2.9초 | 10.17초에 `ha-deadline`, standby 인계 | 21.42초 |
+| 위와 같은 leader를 정상 종료(`docker stop`) | 해제 없음 | 유지 | 해당 없음 |
+
+예고 없는 손실에서는 모든 경우에 두 gateway가 3초 안에 준비 상태를 내리고 기존 연결을 전부 닫았다. 클라이언트 20개를 붙인 같은 시험에서도 20개가 모두 `source-stale`로 끊겼고, 재접속은 `rejected-503`으로 114번 거절됐다. committed 대조는 일치했다.
+
+원인은 여섯 가지로 확인했다. 첫째, `acks=all`은 ISR 전체의 복제를 기다리는데 응답 없이 사라진 broker는 controller가 session 만료로 fence할 때까지 ISR에 남는다. replication factor 3에 broker가 3개이므로 그 broker가 leader가 아니어도 모든 commit이 멈춘다. 둘째, gateway의 3초 신선도 한도가 fence(8초 이상)보다 먼저 걸린다. 셋째, controller까지 잃으면 새 controller 선출만큼 fence가 늦어져 feed의 10초 timeout을 넘긴다. 이때 feed가 재시작하고 10초 Lease가 끝나야 standby가 인계한다. 넷째, fence된 broker가 metadata에서 빠질 때 gateway reader가 `DestroyBroker` 오류를 받는데, 이 코드가 일시 오류 목록에 없어 replica를 실패 처리하고 구독자를 끊었다. 다섯째, feed timeout만 30초로 늘리면 `socket.timeout.ms`도 30초가 된다. librdkafka의 ProduceRequest는 socket timeout과 남은 message timeout 중 작은 값을 쓰므로, 차단 순간 죽은 leader로 나가 있던 요청은 재시도 없이 30초를 다 썼다. 최악 배치에서 9번 중 2번 이렇게 feed가 멈췄다. 여섯째, 정상 종료는 controlled shutdown으로 leader와 ISR을 먼저 넘기므로 멈추지 않는다. AWS의 인스턴스 종료에서 번지지 않은 것도 이 차이로 본다.
+
+결정은 넷이다. gateway는 지금처럼 3초 기준으로 준비 상태를 내려 새 연결을 거절하지만, 기존 연결에는 `source-stale`을 한 번 알리고 멈춤이 30초를 넘을 때만 닫는다. 30초는 수정 전 최장 멈춤 23.31초를 덮으면서 클라이언트가 데이터 없이 기다리는 시간의 상한이다. 복제본 실패는 기다리지 않고 닫는다. `DestroyBroker`는 일시 오류로 보고 복원 위치를 유지한다. feed의 `timeout_ms`는 30초로 늘리고, 요청 하나의 socket timeout은 10초로 제한해 남은 시간 안에 새 leader로 다시 보내게 한다. commit 결과가 불명확하면 재시작한다는 규칙은 그대로다. fence 자체를 3초 아래로 당기는 방법(`broker.session.timeout.ms` 축소)은 GC나 CPU 부족만으로 정상 broker가 fence될 수 있어 택하지 않았다.
+
+수정 뒤에는 `deploy/ha/broker-isolation.mjs`로 확인했다. gateway 2개에 클라이언트 20개를 붙이고 체결 partition의 leader를 25초 끊은 다음, 끊긴 연결 수와 committed 대조를 본다. 최악 배치(모든 leader, coordinator, controller가 한 broker)에서 10번 모두 끊김 0, committed 일치, feed 종료 0, replica 실패 0이었다. socket timeout 제한을 넣기 전에는 같은 배치에서 9번 중 2번 실패했다. 10번 연속 통과는 실패율이 그대로일 때도 약 8% 확률로 나올 수 있어, 원인 설명과 함께 판단 근거로 삼는다. smoke 시험은 배치를 바꾸지 않고 그때의 leader를 끊는다.
+
+확인하지 않은 것도 적는다. AWS에서 다시 재지 않았으므로 NLB target이 등록 해제된 동안 기존 연결이 유지되는지, 실제 AZ 차단에서 멈춤이 30초 안에 끝나는지는 모른다. AWS에서는 Pod 삭제로 broker를 내렸을 때도 gateway 전체가 약 21초 동안 준비 상태를 잃었는데, 로컬의 정상 종료에서는 재현되지 않았고 원인을 확인하지 않았다. 단일 호스트의 `docker network disconnect`는 호스트 간 패킷 유실과 다를 수 있다. broker가 4개 이상이거나 replication factor가 다르면 follower 손실의 영향이 달라진다.
 
 ## 비용과 다음 단계
 

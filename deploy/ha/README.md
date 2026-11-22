@@ -27,6 +27,8 @@ target/debug/ha-feed run --kafka deploy/local/ha/feed.json --source deploy/local
 
 생성한 인증서는 7일 유효한 개발 전용 CA로 서명한다. 비밀번호와 개인 키는 출력하지 않고 git에서 제외한 `deploy/local/ha/`에 저장한다. 디렉터리는 소유자만 접근하고, broker에 필요한 파일만 read-only로 mount한다. CA 개인 키는 mount하지 않는다. 인증 자료를 갱신하려면 기존 개발 클러스터를 종료하고 운영 데이터와 구분한 뒤 준비 디렉터리를 새로 만든다. 기존 volume과 다른 인증 자료를 무작정 조합하지 않는다.
 
+`feed.json`의 `timeout_ms`는 30초, 다른 역할은 10초다. 이 값은 메시지 전달과 transaction 호출의 기한이고, broker 요청 하나의 socket timeout은 어느 역할이든 10초를 넘기지 않는다. broker 한 대를 예고 없이 잃으면 controller가 fence할 때까지 commit이 멈추고, controller까지 함께 잃으면 10초를 넘겨 feed가 재시작했다([#94](https://github.com/yceffort/ws-trade-server/issues/94)). 이 값이 생기기 전에 준비한 디렉터리는 자동으로 바꾸지 않으므로 `feed.json`의 값을 직접 30000으로 고친다.
+
 ## 데이터와 복구 경계
 
 세 broker는 TLS와 SASL/PLAIN을 사용한다. controller 연결은 상호 TLS다. 데이터, snapshot, checkpoint 및 transaction 내부 토픽은 복제 3, 최소 ISR 2이며 unclean leader election은 꺼져 있다. feed만 세 토픽의 쓰기와 고정 transaction ID를 사용한다. gateway는 체결 및 snapshot 읽기만 가능하고 producer checkpoint는 읽지 못한다. client 설정에서 TLS 검증을 끄거나 isolation을 바꿀 수 없다. 각 reader는 partition 0을 직접 assign하며 자동 group 분배와 offset commit을 사용하지 않는다.
@@ -52,6 +54,6 @@ cargo test --features ha
 deploy/ha/smoke.sh
 ```
 
-`smoke.sh`는 고유 이름의 자체 Compose 프로젝트를 만들고 종료할 때 그 프로젝트의 volume만 제거한다. 동일 host port를 쓰는 수동 개발 클러스터는 먼저 내려야 한다. 합성 상태 복원, producer fencing, commit 전 Lease 상실 시 abort, read-only ACL, SIGSTOP 후 standby 인계와 stale writer 재개, API 단절, broker 1대 중단, 과반수 네트워크 단절, 전체 broker 재시작을 검사한다. 별도 빈 데이터셋에서 외부 입력 공백, commit 뒤 ACK 유실, 재전송과 1,024건 창 만료를 검사한다. 실제 broker commit 성공 직후 응답을 잃는 경우는 시험 빌드의 Writer 경계에서 오류를 주입해 검증한다. Publisher의 메모리가 전진하지 않은 상태에서 재시작하고, committed checkpoint 복원과 동일 ID 재전송 결과를 실제 로그와 대조한다. 네트워크 패킷을 유실시키는 시험과는 구분한다. CI의 `HA` workflow도 같은 시험을 실행한다. 출력과 artifact에는 수치 결과만 저장하고 인증 자료는 올리지 않는다.
+`smoke.sh`는 고유 이름의 자체 Compose 프로젝트를 만들고 종료할 때 그 프로젝트의 volume만 제거한다. 동일 host port를 쓰는 수동 개발 클러스터는 먼저 내려야 한다. 합성 상태 복원, producer fencing, commit 전 Lease 상실 시 abort, read-only ACL, SIGSTOP 후 standby 인계와 stale writer 재개, API 단절, broker 1대 중단, 체결 partition leader의 네트워크 단절 중 기존 클라이언트 유지와 committed 대조(`broker-isolation.mjs`), 과반수 네트워크 단절, 전체 broker 재시작을 검사한다. 별도 빈 데이터셋에서 외부 입력 공백, commit 뒤 ACK 유실, 재전송과 1,024건 창 만료를 검사한다. 실제 broker commit 성공 직후 응답을 잃는 경우는 시험 빌드의 Writer 경계에서 오류를 주입해 검증한다. Publisher의 메모리가 전진하지 않은 상태에서 재시작하고, committed checkpoint 복원과 동일 ID 재전송 결과를 실제 로그와 대조한다. 네트워크 패킷을 유실시키는 시험과는 구분한다. CI의 `HA` workflow도 같은 시험을 실행한다. 출력과 artifact에는 수치 결과만 저장하고 인증 자료는 올리지 않는다.
 
 이 시험의 Kafka는 실제 복제와 transaction을 사용하지만 하나의 Docker 호스트에서 동작한다. gateway 재접속은 #49에서 다뤘고, 실제 장애 도메인과 LoadBalancer는 #90, 부하 SLO는 #91의 별도 검증 대상이다.

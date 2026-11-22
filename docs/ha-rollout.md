@@ -23,7 +23,7 @@ PDB와 RollingUpdate의 역할은 다르다. Deployment의 rollout은 PDB에 의
 
 ## readiness와 종료 상태 머신
 
-`BOOTSTRAPPING -> READY`, `READY <-> DEGRADED`, `READY/DEGRADED -> DRAINING -> STOPPED`를 사용한다. source 장애로 freshness가 깨지면 DEGRADED로 내려가고, 복구 및 catch-up을 확인한 뒤 다시 READY가 될 수 있다. DEGRADED에서 기존 HA 연결에도 source-stale을 알리고 닫는다. BOOTSTRAPPING 중 종료 요청은 복원을 취소하고 종료하며 DRAINING은 되돌리지 않는다. `src/server.rs`, `src/http.rs`, `src/bridge.rs`, 연결 종료 경로가 같은 상태와 monotonic deadline을 공유해야 한다.
+`BOOTSTRAPPING -> READY`, `READY <-> DEGRADED`, `READY/DEGRADED -> DRAINING -> STOPPED`를 사용한다. source 장애로 freshness가 깨지면 DEGRADED로 내려가고, 복구 및 catch-up을 확인한 뒤 다시 READY가 될 수 있다. DEGRADED에서 기존 HA 연결에는 source-stale을 알리고 30초까지 유지한 뒤 닫는다(#94). BOOTSTRAPPING 중 종료 요청은 복원을 취소하고 종료하며 DRAINING은 되돌리지 않는다. `src/server.rs`, `src/http.rs`, `src/bridge.rs`, 연결 종료 경로가 같은 상태와 monotonic deadline을 공유해야 한다.
 
 | endpoint | 의미 |
 | --- | --- |
