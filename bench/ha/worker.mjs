@@ -24,7 +24,7 @@ parentPort.on('message',message=>{
   if(message.type==='sample')parentPort.postMessage({type:'sample',id:message.id,clients:clients.map(client=>{
     const state=client.store.durable()
     return {id:client.id,topics:state.topics,log_id:state.log_id,offset:state.offset,count:state.count,digest:state.digest,payload_digest:client.payloadDigest,failed:client.failed,caught_up:client.caughtUp,attempts:client.attempts,disconnects:client.disconnects,last_reason:client.lastReason}
-  }),samples,lag_p99_ms:lag.percentile(99)/1e6,lag_max_ms:lag.max/1e6})
+  }),samples,lag_p99_ms:lag.count?lag.percentile(99)/1e6:null,lag_max_ms:lag.max/1e6})
 })
 const tasks=ids.map(async id=>{
   await new Promise(resolve=>setTimeout(resolve,id*config.startupIntervalMs))

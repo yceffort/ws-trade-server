@@ -9,6 +9,7 @@ scrape_config_files:
 scrape_configs:
   # 수집기 자체의 전송 실패(Alloy의 loki_write_*)와 Loki의 수신 상태를 본다.
   - job_name: wts-observability
+    honor_labels: true
     kubernetes_sd_configs:
       - role: endpoints
         namespaces: { own_namespace: true }
@@ -18,3 +19,30 @@ scrape_configs:
         action: keep
       - source_labels: [__meta_kubernetes_service_name]
         target_label: service
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+  # API 서버의 CA와 서비스 계정으로 kubelet cAdvisor를 읽는다. TLS 검증을 끄지 않는다.
+  - job_name: wts-cadvisor
+    scheme: https
+    authorization:
+      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+    metric_relabel_configs:
+      - source_labels: [namespace, container]
+        regex: .+;.+
+        action: keep
+      - source_labels: [container]
+        regex: POD
+        action: drop
+      - source_labels: [__name__]
+        regex: container_cpu_usage_seconds_total|container_cpu_cfs_periods_total|container_cpu_cfs_throttled_periods_total|container_memory_rss|container_memory_working_set_bytes
+        action: keep

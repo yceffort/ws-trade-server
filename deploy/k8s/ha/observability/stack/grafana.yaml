@@ -27,10 +27,14 @@ spec:
           securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
           volumeMounts:
             - { name: datasources, mountPath: /etc/grafana/provisioning/datasources }
+            - { name: providers, mountPath: /etc/grafana/provisioning/dashboards }
+            - { name: dashboards, mountPath: /var/lib/grafana/dashboards }
             - { name: data, mountPath: /var/lib/grafana }
             - { name: tmp, mountPath: /tmp }
       volumes:
         - { name: datasources, configMap: { name: grafana-datasources } }
+        - { name: providers, configMap: { name: grafana-providers } }
+        - { name: dashboards, configMap: { name: grafana-dashboards } }
         # 대시보드와 데이터 소스는 파일로 provision하므로 Grafana 자체 상태는 보존하지 않는다.
         - { name: data, emptyDir: {} }
         - { name: tmp, emptyDir: {} }

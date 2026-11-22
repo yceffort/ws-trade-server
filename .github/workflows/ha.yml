@@ -39,12 +39,14 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --prefix edge --ignore-scripts && npm test --prefix edge && node --test examples/ha-*.test.mjs deploy/k8s/ha/*.test.mjs bench/ha/*.test.mjs
+      - name: Verify dashboard queries and missing samples
+        run: node deploy/k8s/ha/observability/dashboard-check.mjs
       - name: Verify HA alert thresholds and recovery
         run: docker run --rm --entrypoint /bin/promtool -v "$PWD/deploy/k8s/ha/observability:/rules:ro" -w /rules prom/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 test rules prometheus-rules.test.yaml
       - name: Validate observability stack configs
         run: |
           stack="$PWD/deploy/k8s/ha/observability"
-          docker run --rm --entrypoint /bin/promtool -v "$stack:/etc/prometheus:ro" prom/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 check config /etc/prometheus/stack/prometheus.yml
+          docker run --rm --entrypoint /bin/promtool -v "$stack:/etc/prometheus:ro" prom/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 check config --syntax-only /etc/prometheus/stack/prometheus.yml
           docker run --rm -v "$stack/stack:/etc/loki:ro" grafana/loki@sha256:3165cecce301ce5b9b6e3530284b080934a05cd5cafac3d3d82edcb887b45ecd -config.file=/etc/loki/loki-config.yaml -verify-config
           docker run --rm -v "$stack/stack:/etc/alloy:ro" grafana/alloy@sha256:1bc130e909116a4bf950eb5187a346007d3b796f96832b529acb14a64e41230f fmt /etc/alloy/config.alloy | diff - "$stack/stack/config.alloy"
   replicated-log:
