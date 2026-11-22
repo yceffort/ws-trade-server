@@ -22,7 +22,7 @@ node bench/ha/job-run.mjs CONTEXT settings.json options.json ./ha-results
 
 `run.mjs`는 첫 committed 위치를 고정한 뒤 클라이언트들을 시작하고, 초기 catch-up을 60초 안에 완료해야 측정을 시작한다. 첫 접속 분산은 재접속 폭주 시험의 대체가 아니다. 재접속은 클라이언트의 소켓 종료 감지부터 다음 caught-up 직전까지 측정하며, 이전 checkpoint의 상태 저장과 cursor 적용을 기다린다. 장애 감지 이전의 네트워크 단절 시간은 이 값에 포함되지 않으므로 `recovery_from_fault_p99_ms`를 함께 본다. 초기 TLS handshake, 재시도 backoff, replay와 디스크 적용 비용이 모두 포함된다. 실행 도중 Worker가 실패하면 합격하지 않는다.
 
-부하 Job은 결과를 `/state/report.json`에 저장하고 수집을 위해 120초 기다린다. `job-run.mjs`는 보고서, Pod 재시작 정보와 gateway metrics를 로컬 출력 디렉터리에 저장한다. 보고서 생성 전 OOM 또는 비정상 종료가 나도 Pod 종료 상태를 수집하며 API 조회까지 실패하면 수집 실패 표시를 남긴다. 이전 Job이 있으면 자동 삭제하지 않는다. 결과를 보관한 다음 그 전용 namespace의 `wts-ha-load` Job을 지우고 다시 실행한다. `emptyDir`의 상태 파일은 해당 시험 안에서만 durable하며 Pod를 지우면 사라진다. 클라이언트 프로세스 재시작과 디스크 복구는 별도 FileStore 시험으로 검증한다.
+부하 Job은 결과를 `/state/report.json`에 저장하고 수집을 위해 120초 기다린다. `job-run.mjs`는 보고서, Pod 재시작 정보와 gateway metrics를 로컬 출력 디렉터리에 저장한다. 보고서 생성 전 OOM 또는 비정상 종료가 나도 Pod 종료 상태를 수집하며 API 조회까지 실패하면 수집 실패 표시를 남긴다. 보고서를 기다리는 동안의 kubectl 실패는 실행 기한까지 다시 시도하고, 기한까지 계속 실패하면 보고서 없이 실패로 끝난다. 이전 Job이 있으면 자동 삭제하지 않는다. 결과를 보관한 다음 그 전용 namespace의 `wts-ha-load` Job을 지우고 다시 실행한다. `emptyDir`의 상태 파일은 해당 시험 안에서만 durable하며 Pod를 지우면 사라진다. 클라이언트 프로세스 재시작과 디스크 복구는 별도 FileStore 시험으로 검증한다.
 
 ## 배포와 rollback 게이트
 

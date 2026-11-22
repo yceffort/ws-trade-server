@@ -28,8 +28,11 @@ try {
   try {
     await kubectl(['apply','-f',join(output,'load-job.json')])
     const deadline=Date.now()+(manifest.items.find(o=>o.kind==='Job').spec.activeDeadlineSeconds+15)*1000
+    let failure
     while(Date.now()<deadline){
-      const pods=JSON.parse(await kubectl(['get','pods','-l','app.kubernetes.io/part-of=wts-ha,app.kubernetes.io/component=ha-load','-o','json'])).items
+      let pods=[]
+      // 장애 시험 중에는 API 서버 호출이 잠깐 실패할 수 있다. 한 번의 실패로 실행 전체의 보고서를 잃지 않게 기한 안에서 다시 묻는다.
+      try{pods=JSON.parse(await kubectl(['get','pods','-l','app.kubernetes.io/part-of=wts-ha,app.kubernetes.io/component=ha-load','-o','json'])).items;failure=undefined}catch(error){failure=error}
       const pod=pods.find(p=>p.status.phase==='Running'&&!p.metadata.deletionTimestamp)
       if(pod){
         try{report=JSON.parse(await kubectl(['exec',pod.metadata.name,'-c','load','--','cat','/state/report.json']))}catch{}
@@ -38,7 +41,7 @@ try {
       if(pods.some(p=>['Failed','Succeeded'].includes(p.status.phase)))throw new Error('load pod exited without a collected report')
       await delay(5000)
     }
-    if(!report)throw new Error('load report deadline')
+    if(!report)throw failure??new Error('load report deadline')
     save('report.json',JSON.stringify(report,null,2))
   } finally {
     try{await collect()}catch{save('collection-error.txt','cluster diagnostics unavailable; inspect the dedicated namespace\n')}
