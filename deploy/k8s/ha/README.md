@@ -6,7 +6,7 @@
 
 `docker build -f deploy/ha/Dockerfile -t <registry>/ws-trade-ha:<version> .`와 `docker build -f edge/Dockerfile -t <registry>/ws-trade-edge:<version> .`로 만든다. HA 이미지는 기본 이미지와 달리 `ha` feature의 gateway와 ha-feed, loopback 관리 probe를 포함한다. registry에 발행한 digest를 `settings.example.json`의 gatewayImage와 edgeImage에 넣는다. 예시의 0 digest, 문서 전용 CIDR, StorageClass는 실행 전에 반드시 교체한다. broker 이미지는 Kafka 4.1.1 digest로 고정한다.
 
-Kubernetes 1.34 이상, native sidecar, exec probe, default deny NetworkPolicy를 집행하는 CNI, 세 개의 독립 zone을 전제로 한다. 각 zone에 taint 없는 적격 hostname 두 개 이상을 확보하고 `node deploy/k8s/ha/preflight.mjs <context> <settings.json>`으로 배치 조건을 확인한다. 이 검사는 실제 가용 CPU/메모리나 물리 독립성의 증명이 아니다. gateway 정상 3개와 surge 1개, feed 2개, broker 3개의 requests/limits 및 broker 장애 시 ISR/디스크 여유를 별도로 확보한다. `WaitForFirstConsumer`와 zone-aware PVC를 사용하는 StorageClass를 선택한다.
+Kubernetes 1.34 이상, native sidecar, exec probe, default deny NetworkPolicy를 집행하는 CNI, 세 개의 독립 zone을 전제로 한다. 각 zone에 taint 없는 적격 hostname 두 개 이상을 확보하고 `node deploy/k8s/ha/preflight.mjs <context> <settings.json>`으로 배치 조건을 확인한다. 이 검사는 실제 가용 CPU/메모리나 물리 독립성의 증명이 아니다. gateway 정상 3개와 surge 1개, feed 2개, broker 3개의 requests/limits 및 broker 장애 시 ISR/디스크 여유를 별도로 확보한다. `WaitForFirstConsumer`와 zone-aware PVC를 사용하는 StorageClass를 선택한다. 볼륨 최상위에 `lost+found`가 생기는 ext4에서는 Kafka가 시작하지 않으므로 xfs를 쓴다(EKS의 EBS에서 관측).
 
 운영자가 다음 immutable Secret을 namespace에 공급한다. version은 settings.version과 일치해야 한다. private key, 토큰과 SASL 비밀번호를 저장소나 로그에 넣지 않는다. source.json의 log_id/epoch/topics는 초기화 전에 운영 입력 계약에 맞게 확정하며 이후 같은 log_id에서 변경하지 않는다.
 

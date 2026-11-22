@@ -1,0 +1,66 @@
+# #90과 #91의 실측에만 쓰는 임시 클러스터다. up.sh로 만들고 측정이 끝나면 down.sh로 지운다.
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: wts-ha-aws
+  region: ap-northeast-2
+  version: "1.35"
+  tags: { project: ws-trade-server, purpose: ha-verification }
+availabilityZones: [ap-northeast-2a, ap-northeast-2b, ap-northeast-2c]
+vpc:
+  # 노드는 public subnet에서 직접 나가므로 시간당 요금이 붙는 NAT gateway를 만들지 않는다.
+  nat: { gateway: Disable }
+addonsConfig:
+  autoApplyPodIdentityAssociations: true
+addons:
+  - name: eks-pod-identity-agent
+  - name: vpc-cni
+  - name: coredns
+  - name: kube-proxy
+  - name: aws-ebs-csi-driver
+  - name: metrics-server
+iam:
+  podIdentityAssociations:
+    - namespace: kube-system
+      serviceAccountName: aws-load-balancer-controller
+      wellKnownPolicies: { awsLoadBalancerController: true }
+managedNodeGroups:
+  # preflight.mjs가 zone마다 적격 hostname 2개를 요구하므로 AZ마다 2대짜리 그룹을 따로 둔다.
+  - name: server-a
+    availabilityZones: [ap-northeast-2a]
+    instanceTypes: [c7g.xlarge, m7g.xlarge]
+    spot: true
+    desiredCapacity: 2
+    minSize: 0
+    maxSize: 2
+    volumeSize: 20
+    labels: { wts/role: server }
+  - name: server-b
+    availabilityZones: [ap-northeast-2b]
+    instanceTypes: [c7g.xlarge, m7g.xlarge]
+    spot: true
+    desiredCapacity: 2
+    minSize: 0
+    maxSize: 2
+    volumeSize: 20
+    labels: { wts/role: server }
+  - name: server-c
+    availabilityZones: [ap-northeast-2c]
+    instanceTypes: [c7g.xlarge, m7g.xlarge]
+    spot: true
+    desiredCapacity: 2
+    minSize: 0
+    maxSize: 2
+    volumeSize: 20
+    labels: { wts/role: server }
+  # 부하 발생기 전용. 측정할 때만 1대로 늘린다. 장애를 주입하지 않는 AZ에 둔다.
+  - name: load
+    availabilityZones: [ap-northeast-2a]
+    instanceTypes: [c7g.2xlarge]
+    desiredCapacity: 0
+    minSize: 0
+    maxSize: 1
+    volumeSize: 20
+    labels: { wts/role: load }
+    taints:
+      - { key: dedicated, value: load, effect: NoSchedule }
