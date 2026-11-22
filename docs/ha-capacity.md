@@ -38,3 +38,18 @@ checkpoint 전송 오류 수정 커밋 `2d5fb98`과 고정 이미지로 1,000명
 이 표와 artifact는 각 커밋 시점의 실행을 보존한다. 이후 최종 이미지의 30명 배포/rollback/장애 기능 검증과 노드 시험 결과, 실행 설정, image digest는 [#53의 검증 기록](https://github.com/yceffort/ws-trade-server/issues/53)에 추가한다. 기능 검증 통과를 1,000명 용량 검증이나 실제 외부 LB/물리 장애 도메인 검증으로 대신하지 않는다.
 
 최종 data-plane 이미지의 30명 계획 배포는 forward 3개 slot과 rollback 3개 slot 모두 통과했다. 각 slot의 재접속 p99는 0.50~0.58초, committed 적용 누락과 중복은 0이었다. `bench/results/ha/kind-planned-rollout.json`에 source commit, image digest와 6개 독립 구간을 보관했다. 같은 실행에 너무 이르게 예약한 장애는 마지막 rollout 측정과 겹쳐 안전장치가 거부했고, 전체 실행은 실패로 유지했다. 장애 검증은 별도 세션에서 수행한다.
+
+## 1,000 clients 병목 판정 기준
+
+[#91](https://github.com/yceffort/ws-trade-server/issues/91)의 계단 측정(100, 250, 500, 1,000 clients, 설정당 3회)을 돌리기 전에 정한 기준이며 결과를 본 뒤에 고치지 않는다. 기존 보고서의 `connection-error`는 소켓 오류를 한 이름으로 뭉친 값이었다. 응답하지 않는 서버에 예제 클라이언트를 붙이면 수신 기한 3초가 handshake 중인 소켓을 끊는데 이것도 `connection-error`로 보고된다(`bench/ha/reasons.test.mjs`). 이제 부하 워커가 `bench/ha/reasons.mjs`로 ws의 오류 문구와 Node 오류 코드만 보고 고정 사유를 붙인다. 보고서의 `disconnect_reasons`는 실행 중 끊긴 횟수를 사유별로 누적한 값이고 `reasons`는 클라이언트별 마지막 사유다.
+
+| 부하 보고서의 사유 | 뜻 | 함께 볼 값 |
+| --- | --- | --- |
+| `connect-aborted`, `handshake-timeout` | 3초 안에 WebSocket upgrade 응답을 받지 못했다. 앞은 클라이언트의 수신 기한, 뒤는 ws의 handshake 기한이 먼저 끝난 경우다 | edge의 `tls_aborted`(TLS 단계에서 끊김)와 `client_closed`(edge가 gateway 연결을 기다리던 중 끊김). `tls_aborted`는 probe가 만드는 Pod당 10초에 6건을 빼고 본다 |
+| `rejected-503` | gateway가 준비 상태가 아니거나 연결 한도를 넘어 upgrade를 거절했다 | edge의 `upstream_unavailable`, `wts_ha_source_age_seconds`, `wts_ha_broker_age_seconds` |
+| `rejected-502` | edge가 gateway로 가는 연결에 실패했다 | edge의 `upstream_error`, `upstream_rejected`, gateway 컨테이너 재시작 |
+| `connect-reset`, `connect-refused` | 접속을 받는 쪽이 없거나 받자마자 끊었다 | edge 컨테이너 재시작과 OOM, edge의 연결 한도 1,024 |
+| `source-stale`, `retry-later`, `replay-limit` | gateway가 연결을 받은 뒤 스스로 끊었다 | `wts_ha_closed_total`, `wts_ha_replay_waiters`, `wts_ha_catch_up_seconds` |
+| `receive-deadline`, `connection-closed` | 연결된 뒤 3초 동안 frame이 없었거나 소켓이 오류 frame 없이 닫혔다 | edge의 `buffer_limit`, `relay_error`, `upstream_closed` |
+
+부하 발생기로 판정하는 경우는 부하 Pod의 event loop p99가 100ms 이상이거나 부하 노드 CPU가 80% 이상인데, 서버 노드 CPU는 80% 미만이고 `wts_ha_replay_waiters`가 128에 닿지 않으며 서버 쪽 사유(`rejected-503`, `rejected-502`, `source-stale`, `retry-later`, `replay-limit`)가 없는 때다. 서버로 판정하는 경우는 부하 Pod의 event loop p99가 100ms 미만이고 부하 노드 CPU가 80% 미만인데도 실패가 나오는 때이며, 위 표로 edge의 TLS 종료, gateway의 admission과 replay, broker 중 어디인지 가린다. 양쪽이 함께 포화하면 판정하지 않고 부하 노드를 늘려 다시 잰다. 100ms는 통과한 30 clients 실행의 p99 약 25ms와 실패한 1,000 clients 실행의 241~670ms 사이에서 고른 값이고, 80%와 함께 이 실험의 규약이다.
