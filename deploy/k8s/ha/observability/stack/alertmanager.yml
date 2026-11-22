@@ -14,7 +14,7 @@ receivers:
     webhook_configs:
       - url: http://alert-receiver:8080/alerts
         send_resolved: true
-        max_alerts: 64
+        max_alerts: 16
 inhibit_rules:
   - source_matchers: ['alertname="WtsHaMetricsMissing"']
     target_matchers: ['alertname="WtsHaReadyReplicasLow"']
