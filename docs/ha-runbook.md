@@ -68,7 +68,7 @@ docker run --rm --entrypoint /bin/promtool -v "$PWD/deploy/k8s/ha/observability:
 
 계획된 leader 교체의 단발 fencing은 기록만 하고, 5분 안에 반복되면 계획 여부와 무관하게 조사한다. `lease-lost`와 `producer-fenced`를 같은 사건으로 세지 않는다. 배포 중 일시 Ready 감소는 30초 유지 시간을 적용한다. 계획 배포라고 namespace 전체를 silence하지 않는다. Alertmanager는 namespace와 alertname으로 묶고 4시간 안에 같은 firing을 반복하지 않으며 복구 통지를 보낸다. metrics 소실이 활성인 namespace의 Ready 부족 알림은 중복 억제한다. 수집 중인 다른 Pod의 필수 지표 누락은 별도 장애이므로 억제하지 않는다.
 
-수신기는 최대 100개 통지를 메모리에 보관하고 alertname, namespace, 상태만 남긴다. 재시작하면 기록을 잃으며 감사 저장소가 아니다. Alertmanager도 이 개발 구성에서는 emptyDir라 재시작 뒤 중복 억제 상태와 silence가 사라질 수 있다. Prometheus가 죽으면 스스로 알릴 수 없고 Alertmanager가 죽으면 같은 경로로 장애를 전달할 수 없다. WtsWatchdog 수신 간격을 관측 스택 외부에서 확인해야 이 공백을 감지할 수 있다. 실제 외부 통지는 사용자가 지정한 대상과 범위에서 별도 설정한다.
+수신기는 최대 100개 통지를 메모리에 보관하고 alertname, namespace, 상태만 남긴다. 요청 제한 64KiB 안에 규칙 annotation과 generatorURL도 들어가도록 Alertmanager는 한 통지에 최대 16개 알림만 보낸다. 긴 Pod 이름과 이 저장소의 가장 긴 식을 넣은 16개 묶음의 발생과 복구를 시험한다. 그룹이 16개를 넘으면 나머지는 webhook에서 생략되므로 전체 알림은 Alertmanager에서 확인한다. 규칙이나 라벨을 확장하면 바이트 한도를 다시 검증한다. 재시작하면 기록을 잃으며 감사 저장소가 아니다. Alertmanager도 이 개발 구성에서는 emptyDir라 재시작 뒤 중복 억제 상태와 silence가 사라질 수 있다. Prometheus가 죽으면 스스로 알릴 수 없고 Alertmanager가 죽으면 같은 경로로 장애를 전달할 수 없다. WtsWatchdog 수신 간격을 관측 스택 외부에서 확인해야 이 공백을 감지할 수 있다. 실제 외부 통지는 사용자가 지정한 대상과 범위에서 별도 설정한다.
 
 ```sh
 node deploy/k8s/ha/observability/alert-smoke.mjs

@@ -60,6 +60,22 @@ try {
   const notified = await fetch(`${alertmanager}/api/v2/alerts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(independent) })
   assert.ok(notified.ok)
   await wait(() => received('WtsHaMetricsIncomplete', 'firing', 'inhibition-check'), 'another Pod remains visible')
+  const expressions = [...readFileSync(join(source, 'prometheus-rules.yaml'), 'utf8').matchAll(/^        expr: (.+)$/gm)].map(match => match[1])
+  const expression = expressions.sort((a, b) => b.length - a.length)[0]
+  const namespace = 'batch-' + 'a'.repeat(57)
+  const batch = Array.from({ length: 16 }, (_, index) => ({
+    labels: { alertname: 'WtsHaSourceStale', namespace, pod: `gateway-${index}-` + 'a'.repeat(240), job: 'wts-ha', instance: '192.0.2.1:8080', severity: 'critical' },
+    annotations: { summary: '합성 알림 크기 검증 '.repeat(32), runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: `http://localhost:3000/d/wts-overview?var-namespace=${namespace}&var-pod=All` },
+    generatorURL: `http://prometheus:9090/graph?${new URLSearchParams({ 'g0.expr': expression, 'g0.tab': '1' })}`,
+    startsAt: new Date(Date.now() - 60000).toISOString(), endsAt: new Date(Date.now() + 600000).toISOString(),
+  }))
+  const sendBatch = async () => assert.ok((await fetch(`${alertmanager}/api/v2/alerts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(batch) })).ok)
+  const batchReceived = async status => (await events()).filter(event => event.namespace === namespace && event.status === status).length === 16
+  await sendBatch()
+  await wait(() => batchReceived('firing'), 'maximum batch firing notification')
+  for (const alert of batch) alert.endsAt = new Date(Date.now() - 1000).toISOString()
+  await sendBatch()
+  await wait(() => batchReceived('resolved'), 'maximum batch recovery notification')
   const push = async namespace => {
     const response = await fetch(`${loki}/loki/api/v1/push`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ streams: [{ stream: { namespace, component: 'feed' }, values: [[String(BigInt(Date.now()) * 1000000n), JSON.stringify({ fields: { event: 'ha_producer_stopped', reason: 'producer-fenced' } })]] }] }) })
     assert.equal(response.status, 204)
