@@ -39,7 +39,7 @@ Kafka 클라이언트 오류는 native 원문 대신 고정 facility 분류와 �
 
 이 테스트는 일곱 Prometheus 알림의 임계값 경계, `for` 유지 시간 전후와 정상 복구를 합성 시계열로 확인한다. Ready 집계의 namespace 분리, 짧은 Ready 감소 뒤 유지 시간 초기화, 일부 수집 실패와 endpoint 전체 소실 및 재발견, source와 broker 각각의 만료, replay counter 리셋과 5분 관측창의 만료도 포함한다. 테스트 평가 간격은 가장 짧은 `for`와 같은 5초다. 실제 배포에서는 Prometheus의 rule 평가 간격과 scrape 간격 때문에 알림 시각이 달라질 수 있다.
 
-CI와 같은 고정 이미지로 로컬에서 확인하려면 저장소 루트에서 아래 명령을 실행한다. 외부 수신처로 통지하지 않으며, 이 검증은 Alertmanager 전달, Loki fencing 규칙, 실제 수집기 장애와 운영 환경 장애 주입을 검증하지 않는다. 해당 통지 경로는 [관측 알림 이슈 #76](https://github.com/yceffort/ws-trade-server/issues/76)의 후속 작업이다.
+CI와 같은 고정 이미지로 로컬에서 확인하려면 저장소 루트에서 아래 명령을 실행한다. 외부 수신처로 통지하지 않으며, 이 검증은 Alertmanager 전달, Loki fencing 규칙, 실제 수집기 장애와 운영 환경 장애 주입을 검증하지 않는다. Alertmanager까지의 통지와 복구 확인은 아래 [알림 발생과 복구 확인](#alert-response)에 있다([#76](https://github.com/yceffort/ws-trade-server/issues/76)).
 
 ```sh
 docker run --rm --entrypoint /bin/promtool -v "$PWD/deploy/k8s/ha/observability:/rules:ro" -w /rules prom/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 test rules prometheus-rules.test.yaml
