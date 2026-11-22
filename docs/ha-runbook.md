@@ -43,3 +43,37 @@ docker run --rm --entrypoint /bin/promtool -v "$PWD/deploy/k8s/ha/observability:
 ```
 
 서버의 admission 상태 감시와 연결별 freshness 감시는 같은 hub 상태 watch를 사용한다. 상태를 읽기 위한 actor 요청의 대기 시간을 source 장애로 판정하지 않으며, 실제 관측 시각과 lag, 공유 인증 및 cursor key 준비 상태는 계속 검사한다.
+
+<a id="alert-response"></a>
+
+## 알림 발생과 복구 확인
+
+[관측 스택](../deploy/k8s/ha/observability/README.md)은 Prometheus와 Loki ruler의 알림을 Alertmanager 0.28.1과 로컬 테스트 수신기로 연결한다. 외부 메일이나 메신저 수신처는 설정하지 않는다. 알림의 `runbook_url`과 `dashboard_url`로 이 절차와 WTS 대시보드에 접근한다. Grafana를 port-forward하지 않는 환경은 `dashboard_url`의 호스트를 해당 내부 Grafana 주소로 바꾼다.
+
+| 알림 | 확인과 대응 | 복구 확인 |
+| --- | --- | --- |
+| WtsHaReadyReplicasLow | 다음 slot 배포를 멈추고 namespace의 Ready, freshness, Pod 자원을 확인 | Ready 3개 회복 |
+| WtsHaMetricsMissing, WtsHaMetricsIncomplete | Service endpoint, sidecar와 scrape 오류 확인. 빈 결과를 Ready로 해석하지 않음 | endpoint 수집과 필수 지표 복구 |
+| WtsHaSourceStale | source 또는 broker 관측 3초 초과나 NaN 확인. feed Lease와 broker 연결 조사 | 두 관측값이 유한하고 3초 이하 |
+| WtsHaReplicaLag | Kafka 위치 차이 100 초과. replay와 CPU/throttling 확인 | 위치 lag 100 이하. 체결 건수로 해석하지 않음 |
+| WtsHaReplayPressure | 대기 96 초과 또는 replay budget 초과. checkpoint 진행과 N-1 용량 조사 | 대기 감소와 5분간 신규 budget 초과 없음 |
+| WtsHaDrainOverdue | 40초 넘긴 drain. 다음 slot 변경 중단, 연결 종료와 LB 제거 확인 | drain 완료 |
+| WtsHaPolicyStale | 정책 공급자 TLS, version, 만료 확인 | freshness 회복 |
+| WtsHaUnexpectedFencing | 5분에 producer-fenced 2건 이상. 배포 annotation과 Lease, 중복 writer 조사 | 5분 창에서 반복 fencing이 빠짐 |
+| WtsLogsDropped | 앱 로그 큐 폐기. 로그량과 stderr 소비 속도 확인 | 5분간 새 폐기 없음 |
+| WtsCollectorDropped, WtsCollectorRetries | Alloy 전송 실패와 Loki 수신 한도, 저장소 확인. 앱 큐 폐기와 분리 | 5분간 새 폐기 또는 재시도 없음 |
+| WtsObservabilityMissing | Alloy, Loki, Alertmanager의 수집 실패나 전체 endpoint 소실 확인 | 예상 service 재발견과 up=1 |
+| WtsAlertDeliveryFailed | Prometheus 또는 Alertmanager 전달 실패. 수신기와 네트워크 확인 | 5분간 새 전달 실패 없음 |
+| WtsWatchdog | 1분마다 수신되는 생존 신호. 멈추면 관측 스택 바깥에서 확인 | 신호 수신 재개 |
+
+계획된 leader 교체의 단발 fencing은 기록만 하고, 5분 안에 반복되면 계획 여부와 무관하게 조사한다. `lease-lost`와 `producer-fenced`를 같은 사건으로 세지 않는다. 배포 중 일시 Ready 감소는 30초 유지 시간을 적용한다. 계획 배포라고 namespace 전체를 silence하지 않는다. Alertmanager는 namespace와 alertname으로 묶고 4시간 안에 같은 firing을 반복하지 않으며 복구 통지를 보낸다. metrics 소실이 활성인 namespace의 Ready 부족과 필수 지표 누락 알림은 중복 억제한다.
+
+수신기는 최대 100개 통지를 메모리에 보관하고 alertname, namespace, 상태만 남긴다. 재시작하면 기록을 잃으며 감사 저장소가 아니다. Alertmanager도 이 개발 구성에서는 emptyDir라 재시작 뒤 중복 억제 상태와 silence가 사라질 수 있다. Prometheus가 죽으면 스스로 알릴 수 없고 Alertmanager가 죽으면 같은 경로로 장애를 전달할 수 없다. WtsWatchdog 수신 간격을 관측 스택 외부에서 확인해야 이 공백을 감지할 수 있다. 실제 외부 통지는 사용자가 지정한 대상과 범위에서 별도 설정한다.
+
+```sh
+node deploy/k8s/ha/observability/alert-smoke.mjs
+kubectl --context CONTEXT -n wts-observability port-forward svc/alert-receiver 18080:8080
+curl http://127.0.0.1:18080/notifications
+```
+
+첫 명령은 별도 Docker network와 합성 metrics/log만 사용한다. source 만료, 수집 endpoint 중단과 복구, 단발 및 반복 fencing을 주입하고 수신기의 firing/resolved와 중복 억제, namespace 분리를 확인한다. Loki의 실제 5분 관측창 복구를 기다리므로 약 6분 걸린다. 기존 클러스터와 외부 수신처에는 장애를 주입하지 않는다. Prometheus 단위 시험은 임계값 전후, 유지 시간, 복구, counter reset, 두 namespace와 NaN/누락을 별도로 검사한다.

@@ -100,3 +100,7 @@ node --test bench/ha/observability.test.mjs
 첫 명령은 실제 Prometheus 3.5.0 promtool로 모든 패널의 PromQL을 검사하고, 두 namespace의 분리, counter reset, 지표 없음과 표본 없는 p99를 검증한다. 실제 배포에서는 부하 Job과 gateway의 namespace를 선택해 CPU/throttling 및 event-loop 지연, rollout annotation과 같은 시간대 로그를 함께 확인한다. 각 수집 endpoint의 `up`도 확인한다. 대시보드가 열리는 것만으로 1,000 clients 용량이나 실제 장애 도메인을 검증했다고 판단하지 않는다.
 
 공식 명세는 [Grafana 파일 provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/), [kube-state-metrics Pod 지표](https://github.com/kubernetes/kube-state-metrics/blob/v2.16.0/docs/metrics/workload/pod-metrics.md), [cAdvisor 지표](https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md)를 따른다.
+
+## 로컬 알림 통지
+
+Prometheus 규칙과 Loki ruler 규칙은 Alertmanager 0.28.1로 보내고 `alert-receiver`가 발생과 복구를 받는다. 수신기는 최대 64KiB 요청, 동시 연결 16개, 통지 100개, Node heap 64MiB로 제한한다. 모두 ClusterIP이며 외부 통지는 없다. Pod별 메모리는 각각 128Mi, CPU는 200m로 제한하며 상태는 재시작 때 사라진다. 설정과 대응 표, 시험 명령은 [알림 운영 절차](../../../../docs/ha-runbook.md#alert-response)에 있다. Prometheus의 예상 namespace와 관측 서비스 목록은 실제 설치 범위에 맞춰 바꾼다.

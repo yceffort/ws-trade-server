@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 
@@ -30,7 +31,7 @@ export function receiver() {
   server.requestTimeout = 5000; server.headersTimeout = 5000; server.keepAliveTimeout = 1000
   return server
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const server = receiver().listen(8080, '0.0.0.0')
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { server.close(); server.closeAllConnections() })
 }
