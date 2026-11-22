@@ -1,6 +1,10 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 5s
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [alertmanager:9093]
 rule_files:
   - /etc/prometheus/prometheus-rules.yaml
 # HA gateway 수집 설정은 기존 scrape.yaml을 그대로 읽는다.
@@ -41,3 +45,7 @@ scrape_configs:
       - source_labels: [__name__]
         regex: container_cpu_usage_seconds_total|container_cpu_cfs_periods_total|container_cpu_cfs_throttled_periods_total|container_memory_rss|container_memory_working_set_bytes
         action: keep
+  - job_name: wts-prometheus
+    static_configs:
+      - targets: [localhost:9090]
+        labels: { namespace: wts-observability, service: prometheus }

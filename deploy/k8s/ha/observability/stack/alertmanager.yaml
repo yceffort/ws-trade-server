@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  labels: { app.kubernetes.io/component: alertmanager }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/component: alertmanager } }
+  template:
+    metadata: { labels: { app.kubernetes.io/component: alertmanager } }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534, fsGroup: 65534, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
+          args: [--config.file=/etc/alertmanager/alertmanager.yml, --storage.path=/alertmanager, --cluster.listen-address=]
+          ports: [{ name: metrics, containerPort: 9093 }]
+          readinessProbe: { httpGet: { path: /-/ready, port: metrics }, periodSeconds: 5 }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts: [{ name: config, mountPath: /etc/alertmanager }, { name: data, mountPath: /alertmanager }]
+      volumes: [{ name: config, configMap: { name: alertmanager-config } }, { name: data, emptyDir: {} }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: alertmanager }
+spec:
+  selector: { app.kubernetes.io/component: alertmanager }
+  ports: [{ name: metrics, port: 9093, targetPort: metrics }]

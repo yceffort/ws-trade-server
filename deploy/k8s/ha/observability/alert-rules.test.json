@@ -1,0 +1,380 @@
+{
+  "rule_files": [
+    "prometheus-rules.yaml"
+  ],
+  "evaluation_interval": "5s",
+  "tests": [
+    {
+      "name": "WtsHaSourceStale threshold recovery and namespace isolation",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "wts_ha_source_age_seconds{namespace=\"a\",pod=\"gateway\"}",
+          "values": "0 NaN NaN 0x2"
+        },
+        {
+          "series": "wts_ha_source_age_seconds{namespace=\"b\",pod=\"gateway\"}",
+          "values": "0x80"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "5s",
+          "alertname": "WtsHaSourceStale",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "10s",
+          "alertname": "WtsHaSourceStale",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "namespace": "a",
+                "pod": "gateway",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "HA source 또는 broker 관측이 만료됐습니다.",
+                "runbook_url": "https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response",
+                "dashboard_url": "http://localhost:3000/d/wts-overview?var-namespace=a&var-pod=All"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "5m30s",
+          "alertname": "WtsHaSourceStale",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "WtsLogsDropped threshold recovery and namespace isolation",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "wts_logs_dropped_total{namespace=\"a\",pod=\"gateway\"}",
+          "values": "0x1 1x2 1x60"
+        },
+        {
+          "series": "wts_logs_dropped_total{namespace=\"b\",pod=\"gateway\"}",
+          "values": "0x80"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "5s",
+          "alertname": "WtsLogsDropped",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20s",
+          "alertname": "WtsLogsDropped",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "namespace": "a",
+                "pod": "gateway",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "애플리케이션 로그 큐에서 로그를 폐기했습니다.",
+                "runbook_url": "https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response",
+                "dashboard_url": "http://localhost:3000/d/wts-overview?var-namespace=a&var-pod=All"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "5m30s",
+          "alertname": "WtsLogsDropped",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "WtsLogsDropped counter reset is not an increase",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "wts_logs_dropped_total{namespace=\"a\",pod=\"gateway\"}",
+          "values": "100x4 0x70"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "1m",
+          "alertname": "WtsLogsDropped",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "WtsCollectorDropped threshold recovery and namespace isolation",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "loki_write_dropped_entries_total{namespace=\"a\",service=\"alloy\"}",
+          "values": "0x1 1x2 1x60"
+        },
+        {
+          "series": "loki_write_dropped_entries_total{namespace=\"b\",service=\"alloy\"}",
+          "values": "0x80"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "5s",
+          "alertname": "WtsCollectorDropped",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20s",
+          "alertname": "WtsCollectorDropped",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "namespace": "a",
+                "service": "alloy",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Alloy가 Loki로 보내지 못한 로그를 폐기했습니다.",
+                "runbook_url": "https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response",
+                "dashboard_url": "http://localhost:3000/d/wts-overview?var-namespace=a&var-pod=All"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "5m30s",
+          "alertname": "WtsCollectorDropped",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "WtsCollectorDropped counter reset is not an increase",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "loki_write_dropped_entries_total{namespace=\"a\",service=\"alloy\"}",
+          "values": "100x4 0x70"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "1m",
+          "alertname": "WtsCollectorDropped",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "WtsCollectorRetries threshold recovery and namespace isolation",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "loki_write_batch_retries_total{namespace=\"a\",service=\"alloy\"}",
+          "values": "0x1 1x6 1x60"
+        },
+        {
+          "series": "loki_write_batch_retries_total{namespace=\"b\",service=\"alloy\"}",
+          "values": "0x80"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "5s",
+          "alertname": "WtsCollectorRetries",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "40s",
+          "alertname": "WtsCollectorRetries",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "namespace": "a",
+                "service": "alloy",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Alloy의 Loki 전송 재시도가 지속됩니다.",
+                "runbook_url": "https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response",
+                "dashboard_url": "http://localhost:3000/d/wts-overview?var-namespace=a&var-pod=All"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "5m30s",
+          "alertname": "WtsCollectorRetries",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "WtsCollectorRetries counter reset is not an increase",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "loki_write_batch_retries_total{namespace=\"a\",service=\"alloy\"}",
+          "values": "100x4 0x70"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "1m",
+          "alertname": "WtsCollectorRetries",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "WtsAlertDeliveryFailed threshold recovery and namespace isolation",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "prometheus_notifications_errors_total{namespace=\"a\",service=\"prometheus\"}",
+          "values": "0x1 1x6 1x60"
+        },
+        {
+          "series": "prometheus_notifications_errors_total{namespace=\"b\",service=\"prometheus\"}",
+          "values": "0x80"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "5s",
+          "alertname": "WtsAlertDeliveryFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "40s",
+          "alertname": "WtsAlertDeliveryFailed",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "namespace": "a",
+                "service": "prometheus",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "알림 전달 경로에서 실패했습니다. 로컬 수신기와 Alertmanager를 확인하세요.",
+                "runbook_url": "https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response",
+                "dashboard_url": "http://localhost:3000/d/wts-overview?var-namespace=a&var-pod=All"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "5m30s",
+          "alertname": "WtsAlertDeliveryFailed",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "WtsAlertDeliveryFailed counter reset is not an increase",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "prometheus_notifications_errors_total{namespace=\"a\",service=\"prometheus\"}",
+          "values": "100x4 0x70"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "1m",
+          "alertname": "WtsAlertDeliveryFailed",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "missing required fields despite successful scrape",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "up{job=\"wts-ha\",namespace=\"a\",pod=\"gateway\"}",
+          "values": "1x12"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "25s",
+          "alertname": "WtsHaMetricsIncomplete",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "30s",
+          "alertname": "WtsHaMetricsIncomplete",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "namespace": "a",
+                "pod": "gateway",
+                "job": "wts-ha",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "수집은 성공했지만 필수 HA 지표가 빠졌습니다.",
+                "runbook_url": "https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response",
+                "dashboard_url": "http://localhost:3000/d/wts-overview?var-namespace=a&var-pod=All"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "collector endpoint disappearance and rediscovery",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "up{job=\"wts-observability\",namespace=\"wts-observability\",service=\"alloy\"}",
+          "values": "1 stale _x6 1x5"
+        },
+        {
+          "series": "up{job=\"wts-observability\",namespace=\"wts-observability\",service=\"loki\"}",
+          "values": "1x15"
+        },
+        {
+          "series": "up{job=\"wts-observability\",namespace=\"wts-observability\",service=\"alertmanager\"}",
+          "values": "1x15"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "30s",
+          "alertname": "WtsObservabilityMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "35s",
+          "alertname": "WtsObservabilityMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "namespace": "wts-observability",
+                "service": "alloy",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "관측 구성 요소 수집 실패 또는 endpoint 소실입니다.",
+                "runbook_url": "https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response",
+                "dashboard_url": "http://localhost:3000/d/wts-overview?var-namespace=wts-observability&var-pod=All"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "40s",
+          "alertname": "WtsObservabilityMissing",
+          "exp_alerts": []
+        }
+      ]
+    }
+  ]
+}

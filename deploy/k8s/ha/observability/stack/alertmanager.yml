@@ -1,0 +1,24 @@
+global:
+  resolve_timeout: 1m
+route:
+  receiver: local-test
+  group_by: [namespace, alertname]
+  group_wait: 5s
+  group_interval: 10s
+  repeat_interval: 4h
+  routes:
+    - matchers: ['alertname="WtsWatchdog"']
+      repeat_interval: 1m
+receivers:
+  - name: local-test
+    webhook_configs:
+      - url: http://alert-receiver:8080/alerts
+        send_resolved: true
+        max_alerts: 16
+inhibit_rules:
+  - source_matchers: ['alertname="WtsHaMetricsMissing"']
+    target_matchers: ['alertname="WtsHaReadyReplicasLow"']
+    equal: [namespace]
+  - source_matchers: ['alertname="WtsObservabilityMissing"', 'service="alloy"']
+    target_matchers: ['alertname=~"WtsCollectorDropped|WtsCollectorRetries"']
+    equal: [namespace]

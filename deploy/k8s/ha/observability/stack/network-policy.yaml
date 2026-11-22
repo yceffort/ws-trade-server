@@ -48,3 +48,25 @@ spec:
   ingress:
     - from: [{ podSelector: { matchLabels: { app.kubernetes.io/component: prometheus } } }]
       ports: [{ protocol: TCP, port: 8080 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: alertmanager-ingress }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/component: alertmanager } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/component: prometheus } }
+        - podSelector: { matchLabels: { app.kubernetes.io/component: loki } }
+      ports: [{ protocol: TCP, port: 9093 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: alert-receiver-ingress }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/component: alert-receiver } }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ podSelector: { matchLabels: { app.kubernetes.io/component: alertmanager } } }]
+      ports: [{ protocol: TCP, port: 8080 }]

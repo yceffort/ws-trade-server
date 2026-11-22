@@ -21,10 +21,12 @@ spec:
           securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
           volumeMounts:
             - { name: config, mountPath: /etc/loki }
+            - { name: rules, mountPath: /etc/loki/rules/fake }
             - { name: data, mountPath: /var/loki }
             - { name: tmp, mountPath: /tmp }
       volumes:
         - { name: config, configMap: { name: loki-config } }
+        - { name: rules, configMap: { name: loki-rules } }
         - { name: tmp, emptyDir: {} }
   volumeClaimTemplates:
     - metadata: { name: data }

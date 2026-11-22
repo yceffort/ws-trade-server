@@ -102,4 +102,7 @@ node --test bench/ha/observability.test.mjs
 
 공식 명세는 [Grafana 파일 provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/), [kube-state-metrics Pod 지표](https://github.com/kubernetes/kube-state-metrics/blob/v2.16.0/docs/metrics/workload/pod-metrics.md), [cAdvisor 지표](https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md)를 따른다.
 
+## 로컬 알림 통지
+
+Prometheus 규칙과 Loki ruler 규칙은 Alertmanager 0.28.1로 보내고 `alert-receiver`가 발생과 복구를 받는다. 수신기는 최대 64KiB 요청, 동시 연결 16개, 통지 100개, Node heap 64MiB로 제한한다. 모두 ClusterIP이며 외부 통지는 없다. Pod별 메모리는 각각 128Mi, CPU는 200m로 제한하며 상태는 재시작 때 사라진다. 설정과 대응 표, 시험 명령은 [알림 운영 절차](../../../../docs/ha-runbook.md#alert-response)에 있다. Prometheus의 예상 namespace와 관측 서비스 목록은 실제 설치 범위에 맞춰 바꾼다.
 2026-11-22의 별도 단일 노드 kind 검증에서 깨끗한 Grafana에 46개 패널/행을 등록하고 두 합성 namespace의 gateway/feed/load Pod를 수집했다. 모든 PromQL과 LogQL이 Grafana 데이터 소스 proxy를 통해 오류 없이 실행됐고 CPU/throttling, RSS, 메모리 제한, 재시작, 부하 로그와 실험 annotation을 조회했다. 실제 STOMP 구독 후 큐 대기와 소켓 쓰기 p99에 표본이 생겼고, HA를 켜지 않은 Pod의 HA 패널과 OOM 이력이 없는 Pod는 빈 결과로 남았다. 두 namespace 값이 섞이지 않는지는 promtool fixture로도 검사했다. 이 작은 합성 부하로 운영 용량 병목이나 1,000 clients SLO를 입증하지 않는다.

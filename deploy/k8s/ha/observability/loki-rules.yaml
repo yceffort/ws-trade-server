@@ -1,7 +1,8 @@
 groups:
   - name: wts-ha-fencing
+    interval: 5s
     rules:
       - alert: WtsHaUnexpectedFencing
-        expr: sum by (namespace) (count_over_time({component="feed"} | json reason="fields.reason", event="fields.event" | event="ha_producer_stopped" | reason="producer-fenced" [5m])) > 0
+        expr: sum by (namespace) (count_over_time({component="feed"} | json reason="fields.reason", event="fields.event" | __error__="" | event="ha_producer_stopped" | reason="producer-fenced" [5m])) > 1
         labels: { severity: warning }
-        annotations: { summary: 'Producer fencing 발생. 계획된 leader 교체와 대조하고 반복 발생 시 중복 writer 또는 Lease 연결을 확인하세요.' }
+        annotations: { summary: '5분 안에 producer fencing이 반복됐습니다. 단발 계획 교체와 구분하고 중복 writer와 Lease를 확인하세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }

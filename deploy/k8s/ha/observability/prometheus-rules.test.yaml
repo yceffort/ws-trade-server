@@ -15,7 +15,7 @@ tests:
         alertname: WtsHaMetricsMissing
         exp_alerts:
           - exp_labels: { namespace: wts-ha, severity: critical }
-            exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }
+            exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace=wts-ha&var-pod=All' }
   - name: 수집 실패가 30초 지속되어야 알리고 성공하면 해제한다
     interval: 5s
     input_series:
@@ -29,7 +29,7 @@ tests:
         alertname: WtsHaMetricsMissing
         exp_alerts:
           - exp_labels: { job: wts-ha, namespace: wts-ha, instance: gateway, severity: critical }
-            exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }
+            exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace=wts-ha&var-pod=All' }
       - eval_time: 40s
         alertname: WtsHaMetricsMissing
         exp_alerts: []
@@ -49,7 +49,7 @@ tests:
         alertname: WtsHaMetricsMissing
         exp_alerts:
           - exp_labels: { namespace: wts-ha, severity: critical }
-            exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }
+            exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace=wts-ha&var-pod=All' }
       - eval_time: 50s
         alertname: WtsHaMetricsMissing
         exp_alerts: []
@@ -66,7 +66,7 @@ tests:
         alertname: WtsHaMetricsMissing
         exp_alerts:
           - exp_labels: { job: wts-ha, namespace: wts-ha, instance: gateway-a, severity: critical }
-            exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }
+            exp_annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace=wts-ha&var-pod=All' }
 
   - name: Ready는 namespace별로 합산하고 짧은 감소 뒤 유지 시간을 다시 센다
     interval: 5s
@@ -97,7 +97,7 @@ tests:
         alertname: WtsHaReadyReplicasLow
         exp_alerts:
           - exp_labels: { namespace: wts-ha, severity: warning }
-            exp_annotations: { summary: 'HA gateway Ready 수가 3 미만입니다. 배포를 중단하고 source와 broker freshness를 확인하세요.' }
+            exp_annotations: { summary: 'HA gateway Ready 수가 3 미만입니다. 배포를 중단하고 source와 broker freshness를 확인하세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace=wts-ha&var-pod=All' }
       - eval_time: 60s
         alertname: WtsHaReadyReplicasLow
         exp_alerts: []
@@ -124,7 +124,7 @@ tests:
         alertname: WtsHaSourceStale
         exp_alerts:
           - exp_labels: { namespace: wts-ha, pod: gateway-a, severity: critical }
-            exp_annotations: { summary: 'HA source 또는 broker 관측이 만료됐습니다.' }
+            exp_annotations: { summary: 'HA source 또는 broker 관측이 만료됐습니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace=wts-ha&var-pod=All' }
       - eval_time: 15s
         alertname: WtsHaSourceStale
         exp_alerts: []
@@ -135,7 +135,7 @@ tests:
         alertname: WtsHaSourceStale
         exp_alerts:
           - exp_labels: { namespace: wts-ha, pod: gateway-b, severity: critical }
-            exp_annotations: { summary: 'HA source 또는 broker 관측이 만료됐습니다.' }
+            exp_annotations: { summary: 'HA source 또는 broker 관측이 만료됐습니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace=wts-ha&var-pod=All' }
       - eval_time: 30s
         alertname: WtsHaSourceStale
         exp_alerts: []
@@ -156,7 +156,7 @@ tests:
         alertname: WtsHaReplicaLag
         exp_alerts:
           - exp_labels: { namespace: wts-ha, pod: gateway-a, severity: warning }
-            exp_annotations: { summary: 'HA log 위치 지연. Kafka control record를 포함하므로 이벤트 수가 아닙니다.' }
+            exp_annotations: { summary: 'HA log 위치 지연. Kafka control record를 포함하므로 이벤트 수가 아닙니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace=wts-ha&var-pod=All' }
       - eval_time: 20s
         alertname: WtsHaReplicaLag
         exp_alerts: []
@@ -179,7 +179,7 @@ tests:
         alertname: WtsHaReplayPressure
         exp_alerts:
           - exp_labels: { namespace: wts-ha, pod: gateway-a, severity: warning }
-            exp_annotations: { summary: 'Replay 대기열 또는 budget 초과. 클라이언트 checkpoint 진행과 N-1 용량을 확인하세요.' }
+            exp_annotations: { summary: 'Replay 대기열 또는 budget 초과. 클라이언트 checkpoint 진행과 N-1 용량을 확인하세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace=wts-ha&var-pod=All' }
       - eval_time: 40s
         alertname: WtsHaReplayPressure
         exp_alerts: []
@@ -199,7 +199,7 @@ tests:
         alertname: WtsHaReplayPressure
         exp_alerts: &replay_firing
           - exp_labels: { namespace: wts-ha, pod: gateway-a, severity: warning }
-            exp_annotations: { summary: 'Replay 대기열 또는 budget 초과. 클라이언트 checkpoint 진행과 N-1 용량을 확인하세요.' }
+            exp_annotations: { summary: 'Replay 대기열 또는 budget 초과. 클라이언트 checkpoint 진행과 N-1 용량을 확인하세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace=wts-ha&var-pod=All' }
       - eval_time: 5m
         alertname: WtsHaReplayPressure
         exp_alerts: *replay_firing
@@ -241,7 +241,7 @@ tests:
         alertname: WtsHaDrainOverdue
         exp_alerts:
           - exp_labels: { namespace: wts-ha, pod: gateway-a, severity: critical }
-            exp_annotations: { summary: 'Gateway drain 예산 초과. 다음 slot 변경을 멈추세요.' }
+            exp_annotations: { summary: 'Gateway drain 예산 초과. 다음 slot 변경을 멈추세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace=wts-ha&var-pod=All' }
       - eval_time: 15s
         alertname: WtsHaDrainOverdue
         exp_alerts: []
@@ -262,7 +262,7 @@ tests:
         alertname: WtsHaPolicyStale
         exp_alerts:
           - exp_labels: { namespace: wts-ha, pod: gateway-a, severity: critical }
-            exp_annotations: { summary: '공유 인증 정책 freshness 만료. 공급자 TLS와 정책 version을 확인하세요.' }
+            exp_annotations: { summary: '공유 인증 정책 freshness 만료. 공급자 TLS와 정책 version을 확인하세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace=wts-ha&var-pod=All' }
       - eval_time: 15s
         alertname: WtsHaPolicyStale
         exp_alerts: []

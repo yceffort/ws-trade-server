@@ -8,34 +8,77 @@ groups:
         expr: sum by (namespace) (wts_ha_gateway_ready) < 3
         for: 30s
         labels: { severity: warning }
-        annotations: { summary: 'HA gateway Ready 수가 3 미만입니다. 배포를 중단하고 source와 broker freshness를 확인하세요.' }
+        annotations: { summary: 'HA gateway Ready 수가 3 미만입니다. 배포를 중단하고 source와 broker freshness를 확인하세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
       - alert: WtsHaMetricsMissing
         expr: up{job="wts-ha"} == 0 or (wts_ha_expected_namespace unless on (namespace) up{job="wts-ha"})
         for: 30s
         labels: { severity: critical }
-        annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.' }
+        annotations: { summary: 'HA metrics 수집 실패. readiness 값이 없는 상태를 정상으로 판정하지 마세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
       - alert: WtsHaSourceStale
-        expr: wts_ha_source_age_seconds > 3 or wts_ha_broker_age_seconds > 3
+        expr: wts_ha_source_age_seconds > 3 or wts_ha_broker_age_seconds > 3 or wts_ha_source_age_seconds != wts_ha_source_age_seconds or wts_ha_broker_age_seconds != wts_ha_broker_age_seconds
         for: 5s
         labels: { severity: critical }
-        annotations: { summary: 'HA source 또는 broker 관측이 만료됐습니다.' }
+        annotations: { summary: 'HA source 또는 broker 관측이 만료됐습니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
       - alert: WtsHaReplicaLag
         expr: wts_ha_log_position_lag > 100
         for: 10s
         labels: { severity: warning }
-        annotations: { summary: 'HA log 위치 지연. Kafka control record를 포함하므로 이벤트 수가 아닙니다.' }
+        annotations: { summary: 'HA log 위치 지연. Kafka control record를 포함하므로 이벤트 수가 아닙니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
       - alert: WtsHaReplayPressure
         expr: wts_ha_replay_waiters > 96 or rate(wts_ha_replay_limits_total[5m]) > 0
         for: 30s
         labels: { severity: warning }
-        annotations: { summary: 'Replay 대기열 또는 budget 초과. 클라이언트 checkpoint 진행과 N-1 용량을 확인하세요.' }
+        annotations: { summary: 'Replay 대기열 또는 budget 초과. 클라이언트 checkpoint 진행과 N-1 용량을 확인하세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
       - alert: WtsHaDrainOverdue
         expr: wts_ha_drain_elapsed_seconds > 40
         for: 5s
         labels: { severity: critical }
-        annotations: { summary: 'Gateway drain 예산 초과. 다음 slot 변경을 멈추세요.' }
+        annotations: { summary: 'Gateway drain 예산 초과. 다음 slot 변경을 멈추세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
       - alert: WtsHaPolicyStale
         expr: wts_ha_policy_fresh == 0
         for: 5s
         labels: { severity: critical }
-        annotations: { summary: '공유 인증 정책 freshness 만료. 공급자 TLS와 정책 version을 확인하세요.' }
+        annotations: { summary: '공유 인증 정책 freshness 만료. 공급자 TLS와 정책 version을 확인하세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
+      - alert: WtsHaMetricsIncomplete
+        expr: (up{job="wts-ha"} == 1 unless on (namespace,pod) wts_ha_gateway_ready) or (up{job="wts-ha"} == 1 unless on (namespace,pod) wts_ha_source_age_seconds) or (up{job="wts-ha"} == 1 unless on (namespace,pod) wts_ha_broker_age_seconds) or (up{job="wts-ha"} == 1 unless on (namespace,pod) wts_ha_policy_fresh)
+        for: 30s
+        labels: { severity: critical }
+        annotations: { summary: '수집은 성공했지만 필수 HA 지표가 빠졌습니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
+      - alert: WtsLogsDropped
+        expr: increase(wts_logs_dropped_total[5m]) > 0
+        for: 10s
+        labels: { severity: warning }
+        annotations: { summary: '애플리케이션 로그 큐에서 로그를 폐기했습니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
+      - alert: WtsCollectorDropped
+        expr: increase(loki_write_dropped_entries_total[5m]) > 0
+        for: 10s
+        labels: { severity: critical }
+        annotations: { summary: 'Alloy가 Loki로 보내지 못한 로그를 폐기했습니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
+      - alert: WtsCollectorRetries
+        expr: increase(loki_write_batch_retries_total[5m]) > 0
+        for: 30s
+        labels: { severity: warning }
+        annotations: { summary: 'Alloy의 Loki 전송 재시도가 지속됩니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
+      - record: wts_observability_expected_target
+        expr: vector(1)
+        labels: { namespace: wts-observability, service: alloy }
+      - record: wts_observability_expected_target
+        expr: vector(1)
+        labels: { namespace: wts-observability, service: loki }
+      - record: wts_observability_expected_target
+        expr: vector(1)
+        labels: { namespace: wts-observability, service: alertmanager }
+      - alert: WtsObservabilityMissing
+        expr: up{job="wts-observability"} == 0 or (wts_observability_expected_target unless on (namespace,service) up{job="wts-observability"})
+        for: 30s
+        labels: { severity: critical }
+        annotations: { summary: '관측 구성 요소 수집 실패 또는 endpoint 소실입니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
+      - alert: WtsAlertDeliveryFailed
+        expr: increase(prometheus_notifications_errors_total[5m]) > 0 or increase(alertmanager_notifications_failed_total[5m]) > 0
+        for: 30s
+        labels: { severity: critical }
+        annotations: { summary: '알림 전달 경로에서 실패했습니다. 로컬 수신기와 Alertmanager를 확인하세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }
+      - alert: WtsWatchdog
+        expr: vector(1)
+        labels: { severity: info, namespace: wts-observability }
+        annotations: { summary: '관측 경로 생존 신호입니다. 수신이 멈추면 외부에서 관측 장애를 확인하세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md#alert-response', dashboard_url: 'http://localhost:3000/d/wts-overview?var-namespace={{ $labels.namespace }}&var-pod=All' }

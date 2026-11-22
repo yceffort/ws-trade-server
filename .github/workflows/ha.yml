@@ -42,7 +42,7 @@ jobs:
       - name: Verify dashboard queries and missing samples
         run: node deploy/k8s/ha/observability/dashboard-check.mjs
       - name: Verify HA alert thresholds and recovery
-        run: docker run --rm --entrypoint /bin/promtool -v "$PWD/deploy/k8s/ha/observability:/rules:ro" -w /rules prom/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 test rules prometheus-rules.test.yaml
+        run: docker run --rm --entrypoint /bin/promtool -v "$PWD/deploy/k8s/ha/observability:/rules:ro" -w /rules prom/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 test rules prometheus-rules.test.yaml alert-rules.test.json
       - name: Validate observability stack configs
         run: |
           stack="$PWD/deploy/k8s/ha/observability"
@@ -91,3 +91,15 @@ jobs:
           docker build -f edge/Dockerfile -t ws-trade-edge:test .
           docker build -f bench/ha/Dockerfile --build-arg HA_IMAGE=ws-trade-ha:test --build-arg EDGE_IMAGE=ws-trade-edge:test -t ws-trade-ha-load:test .
           docker run --rm --entrypoint sh ws-trade-ha-load:test -c 'test -x /app/ha-oracle && node --test /app/bench/ha/oracle.test.mjs /app/bench/ha/journal.test.mjs'
+
+  alert-delivery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node deploy/k8s/ha/observability/alert-smoke.mjs
