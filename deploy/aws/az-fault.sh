@@ -31,12 +31,16 @@ if [ "$ACTION" = isolate ]; then
 else
   GROUP=$(aws autoscaling describe-auto-scaling-groups --filters "Name=tag:eks:nodegroup-name,Values=server-$ZONE" "Name=tag:eks:cluster-name,Values=$CLUSTER" --query 'AutoScalingGroups[0].AutoScalingGroupName' --output text)
   INSTANCES=$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$GROUP" --query 'AutoScalingGroups[0].Instances[].InstanceId' --output text)
+  restore() {
+    aws autoscaling update-auto-scaling-group --auto-scaling-group-name "$GROUP" --min-size 0 --max-size 2 --desired-capacity 2
+    stamp "restored"
+  }
+  # 중간에 끊겨도 그 AZ의 노드 그룹이 0대로 남지 않게 한다.
+  trap restore EXIT
   # 대체 인스턴스가 바로 뜨지 않게 그룹 크기를 먼저 0으로 묶는다.
   aws autoscaling update-auto-scaling-group --auto-scaling-group-name "$GROUP" --min-size 0 --max-size 0 --desired-capacity 0
   # shellcheck disable=SC2086
   aws ec2 terminate-instances --instance-ids $INSTANCES >/dev/null
   stamp "terminated ap-northeast-2$ZONE servers"
   sleep "$SECONDS_DOWN"
-  aws autoscaling update-auto-scaling-group --auto-scaling-group-name "$GROUP" --min-size 0 --max-size 2 --desired-capacity 2
-  stamp "restored"
 fi
