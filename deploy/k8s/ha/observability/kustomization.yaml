@@ -11,6 +11,7 @@ resources:
   - stack/loki.yaml
   - stack/alloy.yaml
   - stack/grafana.yaml
+  - stack/kube-state-metrics.yaml
   - stack/network-policy.yaml
 configMapGenerator:
   - name: prometheus-config
@@ -21,3 +22,7 @@ configMapGenerator:
     files: [stack/config.alloy]
   - name: grafana-datasources
     files: [stack/datasources.yaml]
+  - name: grafana-providers
+    files: [stack/dashboards.yaml]
+  - name: grafana-dashboards
+    files: [dashboards/wts-overview.json]

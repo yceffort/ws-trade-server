@@ -1,0 +1,2194 @@
+{
+  "uid": "wts-overview",
+  "title": "WTS 서비스 전달 HA 자원",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "tags": [
+    "wts"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "wts-prometheus"
+        },
+        "query": {
+          "query": "label_values(kube_pod_labels{label_app_kubernetes_io_part_of=\"wts-ha\"}, namespace)",
+          "refId": "namespace"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "pod",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "wts-prometheus"
+        },
+        "query": {
+          "query": "label_values(kube_pod_labels{namespace=~\"${namespace:regex}\",label_app_kubernetes_io_part_of=\"wts-ha\"}, pod)",
+          "refId": "pod"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "서비스: STOMP와 HA 연결",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 2,
+      "title": "STOMP 활성 연결",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_stomp_connections{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "STOMP 구독",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_subscriptions{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "HA 활성 연결",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_ha_active_connections{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "HA 접속 /초",
+      "type": "timeseries",
+      "description": "큐 적재와 소켓 쓰기 완료는 클라이언트 적용 완료가 아니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod) (rate(wts_ha_connections_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "발행 /초",
+      "type": "timeseries",
+      "description": "큐 적재와 소켓 쓰기 완료는 클라이언트 적용 완료가 아니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod) (rate(wts_published_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "큐 적재 /초",
+      "type": "timeseries",
+      "description": "큐 적재와 소켓 쓰기 완료는 클라이언트 적용 완료가 아니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod) (rate(wts_enqueued_frames_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "접속 거절 /초",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod,reason) (rate(wts_connections_rejected_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "구독 거절 /초",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 25,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod,reason) (rate(wts_subscription_rejections_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "STOMP 종료 /초",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod,reason) (rate(wts_connections_closed_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "HA 종료 /초",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 33,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod,reason) (rate(wts_ha_closed_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "전달: 병합, 덮어쓰기, 누락을 따로 확인",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 41,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 13,
+      "title": "송신 큐 점유율",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_queued_frames{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"} / (wts_queue_capacity{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"} > 0)",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Hub 명령 대기",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 42,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_commands_queued{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "큐 대기 p99",
+      "type": "timeseries",
+      "description": "성공 표본이 없는 구간은 측정되지 않음. 서버 내부 경계이며 클라이언트 수신 시각이 아니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.99, sum by (namespace,pod,le) (rate(wts_queue_wait_seconds_bucket{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))) and on (namespace,pod) (sum by (namespace,pod) (increase(wts_queue_wait_seconds_count{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "소켓 쓰기 p99",
+      "type": "timeseries",
+      "description": "성공 표본이 없는 구간은 측정되지 않음. 서버 내부 경계이며 클라이언트 수신 시각이 아니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 50,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.99, sum by (namespace,pod,le) (rate(wts_socket_write_seconds_bucket{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))) and on (namespace,pod) (sum by (namespace,pod) (increase(wts_socket_write_seconds_count{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "느린 연결 차단 /초",
+      "type": "timeseries",
+      "description": "서로 다른 사건이며 합산하지 않는다. 링 덮어쓰기는 체결 건수가 아니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 58,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod) (rate(wts_slow_disconnections_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "title": "최신 우선 병합 /초",
+      "type": "timeseries",
+      "description": "서로 다른 사건이며 합산하지 않는다. 링 덮어쓰기는 체결 건수가 아니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 58,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod) (rate(wts_latest_skipped_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "title": "링 덮어쓰기 /초",
+      "type": "timeseries",
+      "description": "서로 다른 사건이며 합산하지 않는다. 링 덮어쓰기는 체결 건수가 아니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 66,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod) (rate(wts_ring_overruns_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "title": "seq 누락 /초",
+      "type": "timeseries",
+      "description": "서로 다른 사건이며 합산하지 않는다. 링 덮어쓰기는 체결 건수가 아니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 66,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod) (rate(wts_sequence_missing_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "title": "HA 복구",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 74,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 22,
+      "title": "Ready gateway 수",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 75,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace) (wts_ha_gateway_ready{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"})",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "Source 관측 나이",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 75,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_ha_source_age_seconds{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "title": "Broker 관측 나이",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 83,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_ha_broker_age_seconds{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "title": "Kafka 위치 lag",
+      "type": "timeseries",
+      "description": "Kafka 위치에는 control record도 포함된다. 체결 수나 시간 지연이 아니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 83,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_ha_log_position_lag{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "title": "Replay workers",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 91,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_ha_replay_workers{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "title": "Replay waiters",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 91,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_ha_replay_waiters{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "title": "Drain 경과",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 99,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_ha_drain_elapsed_seconds{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "title": "인증 정책 freshness",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 99,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_ha_policy_fresh{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "title": "인증 정책 관측 나이",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 107,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_ha_policy_age_seconds{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "title": "초기 catch-up 및 resume p99",
+      "type": "timeseries",
+      "description": "caught-up 전송까지의 서버 측 성공 표본이다. 클라이언트 적용 확인은 probe 화면에서 본다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 107,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.99, sum by (namespace,pod,le) (rate(wts_ha_catch_up_seconds_bucket{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))) and on (namespace,pod) (sum by (namespace,pod) (increase(wts_ha_catch_up_seconds_count{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "title": "Replay p99",
+      "type": "timeseries",
+      "description": "caught-up 전송까지의 서버 측 성공 표본이다. 클라이언트 적용 확인은 probe 화면에서 본다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 115,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.99, sum by (namespace,pod,le) (rate(wts_ha_replay_seconds_bucket{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))) and on (namespace,pod) (sum by (namespace,pod) (increase(wts_ha_replay_seconds_count{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "title": "Checkpoint /초",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 115,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod) (rate(wts_ha_checkpoints_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "title": "자원: gateway, edge, broker, feed, 부하 발생기",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 123,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 35,
+      "title": "CPU 사용 코어",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 124,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod,container) (rate(container_cpu_usage_seconds_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cores",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "title": "CPU throttling 구간 비율",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 124,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace,pod,container) (rate(container_cpu_cfs_throttled_periods_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\"}[$__rate_interval])) / (sum by (namespace,pod,container) (rate(container_cpu_cfs_periods_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "title": "RSS",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 132,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "container_memory_rss{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "title": "Working set",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 132,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "container_memory_working_set_bytes{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "title": "메모리 제한",
+      "type": "timeseries",
+      "description": "edge와 metrics는 restartPolicy Always인 init container다. 일반 컨테이너와 init 컨테이너를 함께 조회한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 140,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_pod_container_resource_limits{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\",resource=\"memory\"} or kube_pod_init_container_resource_limits{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\",resource=\"memory\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "title": "CPU 제한",
+      "type": "timeseries",
+      "description": "edge와 metrics는 restartPolicy Always인 init container다. 일반 컨테이너와 init 컨테이너를 함께 조회한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 140,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_pod_container_resource_limits{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\",resource=\"cpu\"} or kube_pod_init_container_resource_limits{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\",resource=\"cpu\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cores",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "title": "재시작 /초",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 148,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(kube_pod_container_status_restarts_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\"}[$__rate_interval]) or rate(kube_pod_init_container_status_restarts_total{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\"}[$__rate_interval])",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "title": "마지막 종료가 OOMKilled",
+      "type": "timeseries",
+      "description": "마지막 종료 사유이지 OOM 누적 횟수가 아니다. 시계열이 없으면 측정되지 않음.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 148,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_pod_container_status_last_terminated_reason{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\",reason=\"OOMKilled\"} or kube_pod_init_container_status_last_terminated_reason{namespace=~\"${namespace:regex}\",pod=~\"${pod:regex}\",container=~\"gateway|edge|broker|load|feed\",reason=\"OOMKilled\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "title": "부하 worker event-loop p99 최댓값",
+      "type": "timeseries",
+      "description": "각 worker의 실행 시작 후 p99 중 최댓값. 전체 표본을 합친 p99가 아니다.",
+      "datasource": {
+        "type": "loki",
+        "uid": "wts-loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 156,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max_over_time({namespace=~\"${namespace:regex}\",component=\"ha-load\",container=\"load\"} | pod=~\"${pod:regex}\" | json | event=\"ha_load_sample\" | unwrap event_loop_p99_seconds | __error__=\"\" [1m])",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "loki",
+            "uid": "wts-loki"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "title": "수집 성공",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 156,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{namespace=~\"${namespace:regex}\",job=\"wts-ha\",pod=~\"${pod:regex}\"}",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "title": "같은 시간대 로그와 실행 표시",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 164,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 99,
+      "title": "구조화 로그",
+      "type": "logs",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "wts-loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 165,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{namespace=~\"${namespace:regex}\"} | pod=~\"${pod:regex}\"",
+          "legendFormat": "{{namespace}} {{pod}} {{container}} {{reason}}",
+          "datasource": {
+            "type": "loki",
+            "uid": "wts-loki"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "sortOrder": "Descending"
+      },
+      "links": [
+        {
+          "title": "같은 시간대 로그",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
+          "targetBlank": true
+        }
+      ]
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "name": "배포 rollback 장애 주입",
+        "enable": true,
+        "iconColor": "orange",
+        "datasource": {
+          "type": "loki",
+          "uid": "wts-loki"
+        },
+        "expr": "{namespace=~\"${namespace:regex}\",component=\"ha-load\"} | json | event=\"ha_experiment\"",
+        "textFormat": "{{kind}} {{phase}}",
+        "titleFormat": "실험 시점"
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "운영 절차",
+      "url": "https://github.com/yceffort/ws-trade-server/blob/main/docs/ha-runbook.md",
+      "targetBlank": true
+    }
+  ]
+}

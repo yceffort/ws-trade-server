@@ -8,12 +8,14 @@ import { randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { compare,percentile,reconnectMetrics } from './oracle.mjs'
 import { measuredTargets } from './measurement.mjs'
+import { experiment,loadSample } from './observability.mjs'
 const exec=promisify(execFile)
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 const workers=[],exits=[],requests=new Map(),ready=new Set(),failures=[],verifications=[],actions=[]
 const windows=new Map()
-let server,config,stopped=false,activeScope=null
+let server,config,stopped=false,activeScope=null,observationTimer,observationTask
 async function mark(scope) {
+  const previous=activeScope
   if(scope)activeScope=scope
   const id=randomUUID()
   await new Promise((resolve,reject)=>{
@@ -23,6 +25,8 @@ async function mark(scope) {
     workers.forEach(worker=>worker.postMessage({type:'mark',scope,id}))
   })
   activeScope=scope
+  const event=experiment(scope??previous,scope?'start':'finish')
+  if(event)console.log(JSON.stringify(event))
 }
 function windowKey(request) {
   if(typeof request.window!=='string'||!request.window||request.window.length>64||typeof request.planHash!=='string'||!['wts-gateway-a','wts-gateway-b','wts-gateway-c'].includes(request.slot)||typeof request.rollback!=='boolean')throw new Error('invalid measurement window')
@@ -35,7 +39,7 @@ async function begin(request) {
   if(!windows.has(request.window)&&windows.size>=64)throw new Error('measurement window limit')
   if(ready.size!==config.clients||failures.length)throw new Error('all clients must be caught up before measurement')
   windows.set(request.window,key)
-  await mark({window:request.window})
+  await mark({window:request.window,rollback:request.rollback})
   return {...request,ok:true}
 }
 async function cancel(request) {
@@ -62,7 +66,7 @@ async function sample(){
   return await new Promise((resolve,reject)=>{
     const replies=[]
     const timer=setTimeout(()=>{requests.delete(id);reject(new Error('client worker sample deadline'))},5000)
-    requests.set(id,reply=>{replies.push(reply);if(replies.length===workers.length){clearTimeout(timer);requests.delete(id);resolve({clients:replies.flatMap(r=>r.clients),samples:replies.flatMap(r=>r.samples),client_event_loop_p99_ms:Math.max(...replies.map(r=>r.lag_p99_ms)),client_event_loop_max_ms:Math.max(...replies.map(r=>r.lag_max_ms))})}})
+    requests.set(id,reply=>{replies.push(reply);if(replies.length===workers.length){clearTimeout(timer);requests.delete(id);resolve({clients:replies.flatMap(r=>r.clients),samples:replies.flatMap(r=>r.samples),client_event_loop_p99_ms:replies.every(r=>r.lag_p99_ms!==null)?Math.max(...replies.map(r=>r.lag_p99_ms)):null,client_event_loop_max_ms:Math.max(...replies.map(r=>r.lag_max_ms))})}})
     workers.forEach(worker=>worker.postMessage({type:'sample',id}))
   })
 }
@@ -126,6 +130,13 @@ try {
   while(ready.size<config.clients&&!failures.length&&performance.now()<startup)await delay(100)
   if(ready.size!==config.clients||failures.length)throw new Error('initial client catchup failed')
   const started=performance.now()
+  const observe=()=>{
+    if(stopped)return
+    observationTask=sample().then(value=>console.log(JSON.stringify(loadSample(value))))
+      .catch(()=>console.log(JSON.stringify(loadSample({client_event_loop_p99_ms:null}))))
+      .finally(()=>{if(!stopped)observationTimer=setTimeout(observe,5000)})
+  }
+  observe()
   if(config.controlSocket){
     config.controlSocket=resolve(config.controlSocket)
     if(existsSync(config.controlSocket))throw new Error('control socket already exists')

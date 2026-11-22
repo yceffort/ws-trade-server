@@ -17,12 +17,13 @@ HA 배포의 settings에 `"metricsNamespace": "wts-observability"`를 처음 배
 
 ```sh
 kubectl --context CONTEXT apply -k deploy/k8s/ha/observability
+kubectl --context CONTEXT -n wts-observability create configmap kubelet-ca --from-file=ca.crt=/path/to/kubelet-serving-ca.crt
 kubectl --context CONTEXT -n wts-observability create secret generic grafana-admin --from-literal=password="$(openssl rand -hex 16)"
 kubectl --context CONTEXT -n wts-observability rollout status deployment/prometheus deployment/alloy deployment/grafana statefulset/loki
 kubectl --context CONTEXT -n wts-observability port-forward svc/grafana 3000:3000
 ```
 
-Grafana는 `grafana-admin` Secret이 생길 때까지 시작하지 않는다. 사용자 이름은 admin이고 비밀번호는 Secret에만 있다. `prometheus-rules.yaml`의 `wts_ha_expected_namespace`는 실제 HA namespace로 바꾼다(기본값 `wts-ha`). 바꾸지 않으면 다른 namespace에 배포했을 때 `WtsHaMetricsMissing`이 계속 울린다. 설정 파일은 CI(`.github/workflows/ha.yml`)가 `promtool check config`, `loki -verify-config`, `alloy fmt`로 검사한다.
+Prometheus는 `kubelet-ca` ConfigMap이 생길 때까지, Grafana는 `grafana-admin` Secret이 생길 때까지 시작하지 않는다. kubelet-serving-ca.crt에는 노드 kubelet serving 인증서의 발급 CA를 넣는다. API 서버 CA와 같다고 가정하지 않으며 노드 주소에 맞는 SAN도 필요하다. 사용자 이름은 admin이고 비밀번호는 Secret에만 있다. `prometheus-rules.yaml`의 `wts_ha_expected_namespace`는 실제 HA namespace로 바꾼다(기본값 `wts-ha`). 바꾸지 않으면 다른 namespace에 배포했을 때 `WtsHaMetricsMissing`이 계속 울린다. 설정 파일은 CI(`.github/workflows/ha.yml`)가 `promtool check config`, `loki -verify-config`, `alloy fmt`로 검사한다.
 
 ## 무엇을 모으는가
 
@@ -81,3 +82,24 @@ gateway의 로그 출력 큐가 넘쳐 버린 줄은 `wts_logs_dropped_total`로
 - 실행 중인 Loki는 보존 3일, Prometheus는 보존 1일과 1GiB로 떴고 PVC 두 개는 2Gi로 묶였다. kind 노드 일곱 개의 메모리 합계는 약 3.7GiB였다.
 
 확인한 장애는 60초짜리뿐이다. 그보다 긴 중단에서는 kubelet의 로그 회전(기본 컨테이너당 10MiB 파일 5개), Loki의 168시간 거절 기준, Alloy의 재시도 한도(기본값으로 계산하면 약 8.5분 뒤 batch를 버림, 측정하지 않음)가 유실 경계가 된다. 수집기가 멈춘 사이 지워진 Pod의 로그는 API로 읽을 수 없으므로 그 Pod의 읽지 못한 줄은 잃는다(Pod 삭제 뒤 API가 돌려준 오류 문장에서 본 동작이며, 중단 중 삭제는 시험하지 않았다).
+
+## 서비스, 전달, HA, 자원 대시보드
+
+Grafana의 WTS 폴더에 `wts-overview` 대시보드를 파일로 자동 등록한다. `dashboards/wts-overview.json`을 수정하고 다시 apply하면 ConfigMap hash로 Grafana가 재시작한다. UI 변경은 저장하지 않는다. namespace와 Pod 선택은 kube-state-metrics의 HA Pod 목록에서 읽고 모든 패널에 같은 범위를 적용한다. Pod 선택에서 All을 고르면 지워진 Pod의 같은 시간대 로그도 조회한다. 각 패널의 링크는 현재 시간 범위와 선택을 보존해 로그 패널로 이동한다.
+
+자원 지표는 kubelet cAdvisor(CPU 코어, throttling 구간 비율, RSS, working set)와 kube-state-metrics 2.16.0(Pod 목록, CPU/메모리 제한, 마지막 OOM 종료 사유, 재시작)에서 수집한다. kube-state-metrics는 pods list/watch만 허용한다. Prometheus는 kubelet의 HTTPS 지표 경로를 직접 수집하고 `nodes/metrics` GET만 허용한다. `nodes/proxy` 권한은 부여하지 않는다. kubelet serving CA와 SAN을 검증하며 신뢰 설정이 틀리면 수집 실패로 남긴다. edge는 restartPolicy Always인 init container라 일반 컨테이너와 init container 자원 및 재시작 지표를 함께 조회한다. 기본 CNI는 NetworkPolicy 집행 검증을 대신하지 않는다.
+
+`bench/ha/run.mjs`는 5초마다 각 worker의 실행 시작 후 event-loop p99 중 최댓값을 초 단위 JSON으로 출력한다. 전체 worker의 분포를 합친 p99가 아니다. `ha_experiment` 로그는 rollout, rollback, fault의 시작과 끝만 기록하며 대시보드 annotation으로 보인다. 실행 식별자, 토큰, cursor와 payload는 출력하지 않는다. 이 로그를 모으려면 부하 Job도 같은 Alloy 수집 범위(`app.kubernetes.io/part-of=wts-ha`)에 있어야 한다. 이전 부하 이미지에는 이 출력이 없으므로 이미지를 다시 빌드한다.
+
+빈 질의와 표본 없는 p99는 0으로 채우지 않고 측정되지 않음으로 표시한다. 송신 큐 적재와 flush는 클라이언트 적용 성공이 아니다. Kafka 위치 lag는 control record를 포함하는 위치 차이이며 체결 건수나 지연 시간으로 환산하지 않는다. 링 덮어쓰기, seq 누락, 최신 우선 병합과 느린 연결 차단도 합산하지 않는다. OOM 패널은 마지막 종료 사유이며 누적 횟수가 아니다.
+
+```sh
+node deploy/k8s/ha/observability/dashboard-check.mjs
+node --test bench/ha/observability.test.mjs
+```
+
+첫 명령은 실제 Prometheus 3.5.0 promtool로 모든 패널의 PromQL을 검사하고, 두 namespace의 분리, counter reset, 지표 없음과 표본 없는 p99를 검증한다. 실제 배포에서는 부하 Job과 gateway의 namespace를 선택해 CPU/throttling 및 event-loop 지연, rollout annotation과 같은 시간대 로그를 함께 확인한다. 각 수집 endpoint의 `up`도 확인한다. 대시보드가 열리는 것만으로 1,000 clients 용량이나 실제 장애 도메인을 검증했다고 판단하지 않는다.
+
+공식 명세는 [Grafana 파일 provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/), [kube-state-metrics Pod 지표](https://github.com/kubernetes/kube-state-metrics/blob/v2.16.0/docs/metrics/workload/pod-metrics.md), [cAdvisor 지표](https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md)를 따른다.
+
+2026-11-22의 별도 단일 노드 kind 검증에서 깨끗한 Grafana에 46개 패널/행을 등록하고 두 합성 namespace의 gateway/feed/load Pod를 수집했다. 모든 PromQL과 LogQL이 Grafana 데이터 소스 proxy를 통해 오류 없이 실행됐고 CPU/throttling, RSS, 메모리 제한, 재시작, 부하 로그와 실험 annotation을 조회했다. 실제 STOMP 구독 후 큐 대기와 소켓 쓰기 p99에 표본이 생겼고, HA를 켜지 않은 Pod의 HA 패널과 OOM 이력이 없는 Pod는 빈 결과로 남았다. 두 namespace 값이 섞이지 않는지는 promtool fixture로도 검사했다. 이 작은 합성 부하로 운영 용량 병목이나 1,000 clients SLO를 입증하지 않는다.

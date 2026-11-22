@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: wts
+    orgId: 1
+    folder: WTS
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    options: { path: /var/lib/grafana/dashboards }
