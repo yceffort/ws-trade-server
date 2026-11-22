@@ -12,6 +12,8 @@ resources:
   - stack/alloy.yaml
   - stack/grafana.yaml
   - stack/kube-state-metrics.yaml
+  - stack/alertmanager.yaml
+  - stack/alert-receiver.yaml
   - stack/network-policy.yaml
 configMapGenerator:
   - name: prometheus-config
@@ -26,3 +28,9 @@ configMapGenerator:
     files: [stack/dashboards.yaml]
   - name: grafana-dashboards
     files: [dashboards/wts-overview.json]
+  - name: alertmanager-config
+    files: [stack/alertmanager.yml]
+  - name: alert-receiver-source
+    files: [alert-receiver.mjs]
+  - name: loki-rules
+    files: [rules.yaml=loki-rules.yaml]
