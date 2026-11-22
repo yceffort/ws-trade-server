@@ -8,7 +8,8 @@ acl() { "${compose[@]}" exec -T kafka1 /opt/kafka/bin/kafka-acls.sh "${admin[@]}
 # 기본 1GiB는 개발용이다. 목표 처리량에서 24시간을 보관하려면 docs/ha-capacity.md의 산정대로 늘린다.
 retention_ms=${WTS_HA_RETENTION_MS:-86400000}
 retention_bytes=${WTS_HA_RETENTION_BYTES:-1073741824}
-if ! [[ $retention_ms =~ ^[0-9]+$ && $retention_bytes =~ ^[0-9]+$ ]] || ((retention_ms < 60000 || retention_bytes < 16777216)); then
+# 앞자리 0을 받지 않아야 아래 산술식이 8진수로 읽지 않는다.
+if ! [[ $retention_ms =~ ^[1-9][0-9]*$ && $retention_bytes =~ ^[1-9][0-9]*$ ]] || ((retention_ms < 60000 || retention_bytes < 16777216)); then
   echo "WTS_HA_RETENTION_MS는 60000 이상, WTS_HA_RETENTION_BYTES는 16777216 이상의 정수여야 한다" >&2
   exit 1
 fi
