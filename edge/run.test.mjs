@@ -33,7 +33,8 @@ const edge = (env) => {
   // worker가 시작하지 못하면 stack trace처럼 JSON이 아닌 줄도 stderr에 나온다.
   createInterface({ input: child.stderr }).on('line', (line) => { try { events.push(JSON.parse(line).fields) } catch {} })
   const until = async (predicate) => { while (!predicate(events)) await new Promise((resolve) => setTimeout(resolve, 20)) }
-  return { child, events, until, exited: once(child, 'exit') }
+  // exit 뒤에도 stderr가 남아 있을 수 있어 close까지 기다린 뒤 로그를 검사한다.
+  return { child, events, until, exited: once(child, 'close') }
 }
 
 test('workers share one port, relay connections and stop together', { timeout: 15000 }, async (t) => {
