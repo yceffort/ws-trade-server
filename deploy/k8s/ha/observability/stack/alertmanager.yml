@@ -17,7 +17,7 @@ receivers:
         max_alerts: 64
 inhibit_rules:
   - source_matchers: ['alertname="WtsHaMetricsMissing"']
-    target_matchers: ['alertname=~"WtsHaReadyReplicasLow|WtsHaMetricsIncomplete"']
+    target_matchers: ['alertname="WtsHaReadyReplicasLow"']
     equal: [namespace]
   - source_matchers: ['alertname="WtsObservabilityMissing"', 'service="alloy"']
     target_matchers: ['alertname=~"WtsCollectorDropped|WtsCollectorRetries"']
