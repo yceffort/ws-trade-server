@@ -22,7 +22,7 @@ Producer fencing은 프로세스가 종료되는 사건이므로 scrape 직전 �
 | drain 40초 초과 | 다음 slot 변경을 멈춘다. native broker 호출, replica task 종료와 sidecar 상태를 확인한다. 60초 grace 이후 강제 종료가 발생했으면 client oracle로 복구를 확인한다. |
 | policy freshness 만료 | 공급자 TLS, 자격 증명, version rollback과 subject generation을 확인한다. 오래된 정책의 유효 시간을 임의 연장하지 않는다. |
 | 반복 fencing 또는 writer 두 개 | source 입력을 멈추고 Lease 소유권과 transactional.id를 확인한다. 기존 committed checkpoint로만 복구하며 수신 여부가 불명확한 마지막 batch는 같은 ID로 replay한다. |
-| 보관 범위 목표 미달(`ha-oracle retention` 종료 코드 2) | 체결 증가량과 `retention.bytes`를 [용량 기록](ha-capacity.md#체결-로그-보관-용량-2026-11-22)과 비교한다. 늘릴 때 Compose는 `WTS_HA_RETENTION_BYTES`를 주고 `deploy/ha/bootstrap.sh`를 다시 실행하고, k8s는 settings의 `retentionBytes`를 바꾼 뒤 완료된 `wts-bootstrap-VERSION` Job을 지우고 bootstrap 단계를 다시 적용한다. 두 bootstrap 모두 기존 토픽에 같은 값을 적용한다. 이미 지워진 구간은 돌아오지 않으며 그 앞 cursor의 클라이언트는 `cursor-expired`를 받는다. |
+| 보관 범위 목표 미달(`ha-oracle retention` 종료 코드 2) | 체결 증가량과 `retention.bytes`를 [용량 기록](ha-capacity.md#체결-로그-보관-용량-2026-11-22)과 비교한다. 늘릴 때 Compose는 `WTS_HA_RETENTION_BYTES`를 주고 `deploy/ha/bootstrap.sh`를 다시 실행한다. 이 스크립트는 기존 토픽에도 같은 값을 적용한다. k8s는 settings의 `retentionBytes`를 바꾸고, 운용 중인 클러스터에는 `deploy/k8s/ha/README.md`의 `kafka-configs --alter` 절차로 적용한다. bootstrap Job은 초기화를 포함하므로 다시 실행하지 않는다. 이미 지워진 구간은 돌아오지 않으며 그 앞 cursor의 클라이언트는 `cursor-expired`를 받는다. |
 | broker quorum 부족 | 임의 초기화나 PVC 삭제 없이 quorum과 ISR을 복구한다. 가용성 5초 목표를 적용하지 않고 복구 후 committed oracle를 수행한다. |
 
 ## 배포 실패
