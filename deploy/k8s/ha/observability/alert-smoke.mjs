@@ -25,6 +25,17 @@ function start(name, port, image, ...args) {
     ...(port ? ['-p', `127.0.0.1::${port}`] : []), '-v', `${source}:/rules:ro`, '-v', `${directory}:/config:ro`, image, ...args)
   return port ? `http://127.0.0.1:${docker('port', full, String(port)).split(':').at(-1)}` : null
 }
+let cleaned = false
+function cleanup() {
+  if (cleaned) return
+  cleaned = true
+  for (const name of names.toReversed()) { try { docker('rm', '-f', '-v', name) } catch {} }
+  try { docker('network', 'rm', network) } catch {}
+  rmSync(directory, { recursive: true, force: true })
+}
+for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+  process.once(signal, () => { cleanup(); process.exit(code) })
+}
 try {
   docker('network', 'create', network)
   writeFileSync(join(directory, 'fixture.cjs'), `let age=0;require('node:http').createServer((q,r)=>{if(q.url==='/fault')age=4;if(q.url==='/recover')age=0;r.setHeader('content-type','text/plain; version=0.0.4');r.end('wts_ha_gateway_ready 1\\nwts_ha_source_age_seconds '+age+'\\nwts_ha_broker_age_seconds 0\\nwts_ha_policy_fresh 1\\n')}).listen(8080)`)
@@ -100,8 +111,4 @@ try {
   assert.equal((await events()).some(event => event.name === 'WtsHaUnexpectedFencing' && event.namespace === 'other'), false)
   await wait(() => received('WtsHaUnexpectedFencing', 'resolved'), 'Loki recovery notification', 330000)
   console.log('Prometheus/Loki 발생, 중복 억제, namespace 분리, endpoint 소실 및 복구 통지 통과')
-} finally {
-  for (const name of names.reverse()) { try { docker('rm', '-f', name) } catch {} }
-  try { docker('network', 'rm', network) } catch {}
-  rmSync(directory, { recursive: true, force: true })
-}
+} finally { cleanup() }
