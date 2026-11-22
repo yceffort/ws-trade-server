@@ -1,13 +1,30 @@
 import { pathToFileURL } from 'node:url'
 import { Application, FileStore, readBounded } from './ha-state.mjs'
 
-const terminal = new Set(['cursor-expired', 'invalid-cursor', 'invalid-resume', 'start-out-of-range', 'forbidden-scope', 'auth-invalid', 'auth-expired', 'auth-revoked'])
+const terminal = new Set(['cursor-expired', 'invalid-cursor', 'invalid-resume', 'start-out-of-range', 'forbidden-scope', 'auth-invalid', 'auth-revoked'])
+// 진행 없이 토큰 갱신이 이만큼 연속으로 실패하면 멈춘다. 같은 만료 토큰으로 계속 재접속하지 않는다.
+const REFRESHES = 3
 
 export async function runClient({ urls, token, store, startAt, signal, ca, maxAttempts = Infinity, onCommit = () => {}, onFrame = () => {}, onAttempt = () => {}, onDisconnect = () => {} }) {
   const { default: WebSocket } = await import('../edge/node_modules/ws/wrapper.mjs')
-  let failures = 0, noProgress = 0, attempt = 0
+  let failures = 0, noProgress = 0, attempt = 0, refreshes = 0, expired
+  const pause = delay => new Promise(resolve => {
+    const done = () => { clearTimeout(timeout); signal?.removeEventListener('abort', done); resolve() }
+    const timeout = setTimeout(done, delay)
+    signal?.addEventListener('abort', done, { once: true })
+  })
   while (!signal?.aborted) {
     if (attempt >= maxAttempts) throw new Error('attempt-limit')
+    let credential
+    try { credential = await token({ signal }) } catch (error) { if (error?.message === 'auth-invalid') throw error }
+    if (signal?.aborted) return store.load()
+    if (credential === undefined || credential === expired) {
+      // 공급자가 토큰을 주지 못했거나 서버가 만료로 거절한 토큰을 다시 주면 접속하지 않고 기다렸다 다시 묻는다.
+      if (++refreshes > REFRESHES) throw new Error(credential === undefined ? 'token-unavailable' : 'auth-expired')
+      failures = Math.min(failures + 1, 6)
+      await pause(Math.random() * Math.min(30000, 500 * 2 ** failures))
+      continue
+    }
     const before = store.load()
     const application = new Application(store)
     const socket = new WebSocket(urls[attempt++ % urls.length], 'wts.ha.v1', { ca, handshakeTimeout: 3000, maxPayload: 48 * 1024 })
@@ -30,10 +47,7 @@ export async function runClient({ urls, token, store, startAt, signal, ca, maxAt
       if (ready && socket.readyState === WebSocket.OPEN) socket.send('{"type":"heartbeat"}')
     }, 1000)
     socket.on('error', () => { reason = 'connection-error' })
-    socket.once('open', async () => {
-      try { socket.send(JSON.stringify({ type: 'connect', token: await token() })) }
-      catch { reason = 'auth-invalid'; stop() }
-    })
+    socket.once('open', () => socket.send(JSON.stringify({ type: 'connect', token: credential })))
     socket.on('message', (data, binary) => {
       receiveDeadline()
       queued += data.length
@@ -76,16 +90,16 @@ export async function runClient({ urls, token, store, startAt, signal, ca, maxAt
     const after = store.load()
     const progressed = after.offset !== null && (before.offset === null || BigInt(after.offset) > BigInt(before.offset))
     if (terminal.has(reason) || reason === 'client-apply-failed') throw new Error(reason, { cause: applyError })
+    if (progressed) refreshes = 0
+    if (reason === 'auth-expired') {
+      expired = credential
+      if (++refreshes > REFRESHES) throw new Error(reason)
+    }
     if (!progressed && reason === 'replay-limit') {
       if (++noProgress >= 3) throw new Error('no-checkpoint-progress')
     } else noProgress = 0
     failures = progressed ? 0 : Math.min(failures + 1, 6)
-    const delay = attempt === 1 ? Math.random() * 500 : Math.random() * Math.min(30000, 500 * 2 ** failures)
-    await new Promise(resolve => {
-      const done = () => { clearTimeout(timeout); signal?.removeEventListener('abort', done); resolve() }
-      const timeout = setTimeout(done, delay)
-      signal?.addEventListener('abort', done, { once: true })
-    })
+    await pause(attempt === 1 ? Math.random() * 500 : Math.random() * Math.min(30000, 500 * 2 ** failures))
   }
   return store.load()
 }
@@ -105,8 +119,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => controller.abort())
     const state = await runClient({ urls, token: () => `Bearer ${readBounded(args['--token-file'], 16384).toString('utf8').trim()}`, store: new FileStore(args['--state'], mode, topics), startAt: mode === 'events' ? { log_id: args['--log-id'], partition: 0, offset: args['--start-at'] } : undefined, signal: controller.signal })
     console.log(JSON.stringify({ applied: state.count, offset: state.offset, digest: state.digest }))
-  } catch {
-    console.error('HA 클라이언트가 복구를 완료하지 못했습니다. 설정, 권한과 저장 위치를 확인하세요.')
+  } catch (error) {
+    // 토큰, cursor, 파일 경로가 섞일 수 있는 원문 대신 정해 둔 코드만 내보낸다.
+    const codes = new Set([...terminal, 'auth-expired', 'token-unavailable', 'client-apply-failed', 'no-checkpoint-progress', 'invalid-options', 'invalid-endpoint'])
+    console.error(JSON.stringify({ error: codes.has(error?.message) ? error.message : 'client-failed' }))
     process.exitCode = 1
   }
 }

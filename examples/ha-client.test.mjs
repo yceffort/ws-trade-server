@@ -131,3 +131,89 @@ test('durable apply backpressure pauses burst input and resumes without losing e
     assert.equal(args.store.load().count,'2000');assert.equal(attempts,1);assert.ok(pauses>0)
   }finally{clearTimeout(timeout);close(mock)}
 })
+
+const event = i => JSON.stringify({type:'event',event_id:`demo/trades/epoch/${i}`,topic:'a',position:{log_id:'test',partition:0,offset:String(i)},body:{}})
+// 합성 서버의 connect와 resume 응답을 연결 번호별로 정한다. 받은 토큰과 resume을 기록한다.
+async function scripted(onResume, onConnect = socket => socket.send('{"type":"connected"}')) {
+  const mock = await server(), seen = {tokens:[],resumes:[],connections:0}
+  mock.on('connection',socket => {
+    const n = ++seen.connections
+    socket.on('message',bytes => {
+      const frame = JSON.parse(bytes)
+      if (frame.type === 'connect') { seen.tokens.push(frame.token); onConnect(socket,n) }
+      if (frame.type === 'resume') { seen.resumes.push(frame.cursor ?? null); onResume(socket,n) }
+    })
+  })
+  return {mock,seen}
+}
+async function quickly(run) {
+  const random = Math.random
+  Math.random = () => 0
+  try { return await run() } finally { Math.random = random }
+}
+
+test('an expired session refreshes its token and resumes from the persisted cursor without loss or duplicates',async()=>{
+  const controller = new AbortController()
+  const {mock,seen} = await scripted((socket,n) => {
+    if (n === 1) { for (const i of [1,2,3]) socket.send(event(i)); socket.send('{"type":"checkpoint","offset":"3","cursor":"c3"}'); socket.send('{"type":"error","code":"auth-expired"}') }
+    else { for (const i of [3,4,5]) socket.send(event(i)); socket.send('{"type":"checkpoint","offset":"5","cursor":"c5"}') }
+  })
+  const args = options(mock), tokens = ['Bearer old','Bearer new']
+  let calls = 0
+  try {
+    await quickly(() => runClient({...args,token:()=>tokens[calls++],signal:controller.signal,onCommit(state){if(state.offset==='5')controller.abort()}}))
+    const saved = args.store.load()
+    assert.deepEqual(seen.tokens,tokens); assert.deepEqual(seen.resumes,[null,'c3']); assert.equal(calls,2)
+    assert.equal(saved.count,'5'); assert.equal(saved.cursor,'c5')
+  } finally { close(mock) }
+})
+
+test('the expired token is not reused and repeated refresh failures stop at the bound',async()=>{
+  for (const fresh of [false,true]) {
+    const {mock,seen} = await scripted(() => {},socket => socket.send('{"type":"error","code":"auth-expired"}'))
+    const args = options(mock)
+    let calls = 0
+    try {
+      await assert.rejects(quickly(() => runClient({...args,token:()=>fresh?`Bearer t${++calls}`:(calls++,'Bearer old')})),/auth-expired/)
+      // 같은 토큰이면 처음 한 번만 접속하고, 매번 새 토큰이어도 만료가 이어지면 4번째 접속에서 멈춘다.
+      assert.equal(seen.connections,fresh?4:1); assert.equal(calls,4); assert.equal(args.store.load().offset,null)
+    } finally { close(mock) }
+  }
+})
+
+test('token provider failures are retried while transient and stop when permanent',async()=>{
+  const controller = new AbortController()
+  const {mock,seen} = await scripted(socket => { socket.send(event(1)); socket.send('{"type":"checkpoint","offset":"1","cursor":"c1"}') })
+  let calls = 0
+  try {
+    await quickly(() => runClient({...options(mock),signal:controller.signal,token(){if(calls++===0)throw new Error('provider-busy');return 'Bearer ok'},onCommit(){controller.abort()}}))
+    assert.equal(calls,2); assert.equal(seen.connections,1)
+    await assert.rejects(runClient({...options(mock),token(){throw new Error('auth-invalid')}}),/auth-invalid/)
+    await assert.rejects(quickly(() => runClient({...options(mock),token(){throw new Error('provider-down')}})),/token-unavailable/)
+    assert.equal(seen.connections,1)
+  } finally { close(mock) }
+})
+
+test('revoked and out of scope sessions stop without refreshing and keep the saved cursor',async()=>{
+  for (const code of ['auth-revoked','forbidden-scope']) {
+    const {mock,seen} = await scripted(socket => socket.send(JSON.stringify({type:'error',code})))
+    const args = options(mock), saved = args.store.load()
+    saved.offset = '5'; saved.cursor = 'c5'; args.store.commit(saved)
+    let calls = 0
+    try {
+      await assert.rejects(runClient({...args,token:()=>(calls++,'Bearer test')}),new RegExp(code))
+      assert.equal(calls,1); assert.equal(seen.connections,1); assert.deepEqual(seen.resumes,['c5'])
+      assert.equal(args.store.load().cursor,'c5')
+    } finally { close(mock) }
+  }
+})
+
+test('cancelling while the token provider waits returns the saved state without connecting',async()=>{
+  const {mock,seen} = await scripted(() => {})
+  const controller = new AbortController(), args = options(mock)
+  setTimeout(() => controller.abort(),100)
+  try {
+    const state = await runClient({...args,signal:controller.signal,token:({signal})=>new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(new Error('cancelled'))))})
+    assert.deepEqual(state,args.store.load()); assert.equal(seen.connections,0)
+  } finally { close(mock) }
+})
