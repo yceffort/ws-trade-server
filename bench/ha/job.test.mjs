@@ -61,3 +61,9 @@ test('load Pod can be pinned to dedicated tainted nodes without leaking placemen
   for(const value of ['load',[],{role:1}])assert.throws(()=>loadJob(settings,{nodeSelector:value}),/nodeSelector/)
   for(const value of [{},[{key:1,effect:'NoSchedule'}],[{key:'dedicated',effect:'Sometimes'}]])assert.throws(()=>loadJob(settings,{tolerations:value}),/tolerations/)
 })
+
+test('tolerations follow the Kubernetes rules for omitted key, value and effect',()=>{
+  const pod=tolerations=>loadJob(settings,{tolerations}).items.find(o=>o.kind==='Job').spec.template.spec
+  for(const value of [[{key:'dedicated',operator:'Exists'}],[{operator:'Exists',effect:'NoSchedule'}],[{operator:'Exists'}],[{key:'dedicated',value:'load'}],[{key:'dedicated',operator:'Equal',value:'load',effect:'NoSchedule'}]])assert.deepEqual(pod(value).tolerations,value)
+  for(const value of [[{effect:'NoSchedule'}],[{operator:'Equal',value:'load'}],[{key:'',value:'load'}],[{key:'dedicated',operator:'Exists',value:'load'}],[{key:'dedicated',operator:'In'}],[null],['dedicated']])assert.throws(()=>loadJob(settings,{tolerations:value}),/tolerations/)
+})

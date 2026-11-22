@@ -17,7 +17,12 @@ export function loadJob(s,options={}) {
   const external=config.externalEgress??[];delete config.externalEgress
   const {nodeSelector,tolerations}=config;delete config.nodeSelector;delete config.tolerations
   if(nodeSelector!==undefined&&(typeof nodeSelector!=='object'||nodeSelector===null||Array.isArray(nodeSelector)||Object.values(nodeSelector).some(value=>typeof value!=='string')))throw new Error('nodeSelector requires string labels')
-  if(tolerations!==undefined&&(!Array.isArray(tolerations)||tolerations.some(t=>typeof t?.key!=='string'||!['Equal','Exists'].includes(t.operator??'Equal')||(t.value!==undefined&&typeof t.value!=='string')||!['NoSchedule','PreferNoSchedule','NoExecute'].includes(t.effect))))throw new Error('tolerations require key, operator, value and effect')
+  // Kubernetes 규칙을 따른다. key는 Exists에서만 비울 수 있고, Exists에는 value를 줄 수 없으며, effect를 비우면 모든 effect에 맞는다.
+  if(tolerations!==undefined&&(!Array.isArray(tolerations)||tolerations.some(t=>{
+    if(typeof t!=='object'||t===null)return true
+    const operator=t.operator??'Equal',key=t.key??'',value=t.value??''
+    return !['Equal','Exists'].includes(operator)||typeof key!=='string'||typeof value!=='string'||(operator==='Exists'?value!=='':key==='')||(t.effect!==undefined&&!['NoSchedule','PreferNoSchedule','NoExecute'].includes(t.effect))
+  })))throw new Error('tolerations must follow the Kubernetes toleration rules')
   if(!Array.isArray(external)||external.length>16||external.some(rule=>{
     const [address,prefix,...extra]=typeof rule?.cidr==='string'?rule.cidr.split('/'):[]
     const family=address&&isIP(address)
