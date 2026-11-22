@@ -1,0 +1,108 @@
+{
+ "issue": 95,
+ "measured_at": "2026-11-23",
+ "tool": "edge/capacity.mjs",
+ "environment": {
+  "host": "Apple M1, 8 cores (4 performance, 4 efficiency), macOS, Node 24.14.0",
+  "same_host": "synthetic upstream, edge and receiving clients share one host",
+  "per_connection_rate": "one 450-byte text frame every 10ms from the synthetic upstream",
+  "rss_note": "macOS RSS of the primary and workers is summed, so shared pages are counted more than once"
+ },
+ "command": "WTS_EDGE_WORKERS=<1|2> node edge/capacity.mjs <steps> 20 4 20",
+ "runs": [
+  {
+   "clients": 200,
+   "workers": 1,
+   "open": 200,
+   "sent_per_s": 16813,
+   "delivered_per_s": 16823,
+   "edge_cores": 0.34,
+   "rss_mib": 96,
+   "failed": {}
+  },
+  {
+   "clients": 400,
+   "workers": 1,
+   "open": 400,
+   "sent_per_s": 33742,
+   "delivered_per_s": 33742,
+   "edge_cores": 0.51,
+   "rss_mib": 128,
+   "failed": {}
+  },
+  {
+   "clients": 600,
+   "workers": 1,
+   "open": 600,
+   "sent_per_s": 53693,
+   "delivered_per_s": 53693,
+   "edge_cores": 0.8,
+   "rss_mib": 252,
+   "failed": {}
+  },
+  {
+   "clients": 800,
+   "workers": 1,
+   "open": 721,
+   "sent_per_s": 69643,
+   "delivered_per_s": 69651,
+   "edge_cores": 0.95,
+   "rss_mib": 285,
+   "failed": {
+    "ECONNRESET": 79
+   }
+  },
+  {
+   "clients": 1000,
+   "workers": 1,
+   "open": 875,
+   "sent_per_s": 84993,
+   "delivered_per_s": 85018,
+   "edge_cores": 0.95,
+   "rss_mib": 323,
+   "failed": {
+    "ECONNRESET": 125
+   }
+  },
+  {
+   "clients": 600,
+   "workers": 2,
+   "open": 600,
+   "sent_per_s": 53357,
+   "delivered_per_s": 53333,
+   "edge_cores": 1.11,
+   "rss_mib": 305,
+   "failed": {}
+  },
+  {
+   "clients": 1000,
+   "workers": 2,
+   "open": 1000,
+   "sent_per_s": 91611,
+   "delivered_per_s": 91615,
+   "edge_cores": 1.7,
+   "rss_mib": 433,
+   "failed": {}
+  },
+  {
+   "clients": 1400,
+   "workers": 2,
+   "open": 1400,
+   "sent_per_s": 120530,
+   "delivered_per_s": 120463,
+   "edge_cores": 1.84,
+   "rss_mib": 628,
+   "failed": {}
+  },
+  {
+   "clients": 1800,
+   "workers": 2,
+   "open": 1800,
+   "sent_per_s": 130170,
+   "delivered_per_s": 130084,
+   "edge_cores": 1.84,
+   "rss_mib": 685,
+   "failed": {}
+  }
+ ]
+}
