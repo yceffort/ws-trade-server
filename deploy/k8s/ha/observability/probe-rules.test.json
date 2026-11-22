@@ -1,0 +1,174 @@
+{
+  "rule_files": [
+    "probe-rules.yaml"
+  ],
+  "evaluation_interval": "5s",
+  "tests": [
+    {
+      "name": "failed application threshold recovery and namespace isolation",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "wts_probe_success{namespace=\"wts-ha\",pod=\"probe\",target=\"ha-wss\",protocol=\"ha\"}",
+          "values": "1 0x6 1x2"
+        },
+        {
+          "series": "wts_probe_success{namespace=\"other\",pod=\"probe\",target=\"ha-wss\",protocol=\"ha\"}",
+          "values": "1x12"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "30s",
+          "alertname": "WtsProbeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "35s",
+          "alertname": "WtsProbeFailed",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "namespace": "wts-ha",
+                "pod": "probe",
+                "target": "ha-wss",
+                "protocol": "ha",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "WSS 클라이언트 적용 probe가 실패했습니다. 실패 단계와 서버 지표를 대조하세요.",
+                "runbook_url": "https://github.com/yceffort/ws-trade-server/blob/main/probe/README.md",
+                "dashboard_url": "http://localhost:3000/d/wts-probe?var-namespace=wts-ha"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "40s",
+          "alertname": "WtsProbeFailed",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "worker execution deadline overdue even when metrics endpoint is healthy",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "wts_probe_next_deadline_seconds{namespace=\"wts-ha\",pod=\"probe\",target=\"ha-wss\",protocol=\"ha\"}",
+          "values": "30x14"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "60s",
+          "alertname": "WtsProbeStale",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "65s",
+          "alertname": "WtsProbeStale",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "namespace": "wts-ha",
+                "pod": "probe",
+                "target": "ha-wss",
+                "protocol": "ha",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Probe 결과가 설정한 실행 주기와 기한 안에 갱신되지 않았습니다.",
+                "runbook_url": "https://github.com/yceffort/ws-trade-server/blob/main/probe/README.md",
+                "dashboard_url": "http://localhost:3000/d/wts-probe?var-namespace=wts-ha"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "another namespace cannot hide total endpoint disappearance",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "up{job=\"wts-probe\",namespace=\"other\",pod=\"probe\"}",
+          "values": "1x12"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "25s",
+          "alertname": "WtsProbeMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "30s",
+          "alertname": "WtsProbeMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "namespace": "wts-ha",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "배포한 probe의 수집 endpoint가 실패하거나 사라졌습니다.",
+                "runbook_url": "https://github.com/yceffort/ws-trade-server/blob/main/probe/README.md",
+                "dashboard_url": "http://localhost:3000/d/wts-probe?var-namespace=wts-ha"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "worker counter reset does not report a new crash",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "wts_probe_worker_failures_total{namespace=\"wts-ha\",pod=\"probe\",target=\"ha-wss\",protocol=\"ha\"}",
+          "values": "100x5 0x60"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "1m",
+          "alertname": "WtsProbeWorkerFailed",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "actual worker failure alerts immediately",
+      "interval": "5s",
+      "input_series": [
+        {
+          "series": "wts_probe_worker_failures_total{namespace=\"wts-ha\",pod=\"probe\",target=\"ha-wss\",protocol=\"ha\"}",
+          "values": "0 1x3"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "5s",
+          "alertname": "WtsProbeWorkerFailed",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "namespace": "wts-ha",
+                "pod": "probe",
+                "target": "ha-wss",
+                "protocol": "ha",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Probe worker가 실행 기한이나 메모리 한도 안에 결과를 내지 못했습니다.",
+                "runbook_url": "https://github.com/yceffort/ws-trade-server/blob/main/probe/README.md",
+                "dashboard_url": "http://localhost:3000/d/wts-probe?var-namespace=wts-ha"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

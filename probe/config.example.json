@@ -1,0 +1,26 @@
+{
+  "host": "127.0.0.1",
+  "port": 9464,
+  "intervalMs": 30000,
+  "targets": [
+    {
+      "target": "stomp-wss",
+      "protocol": "stomp",
+      "url": "wss://localhost:8443/ws",
+      "tokenFile": "/credentials/token",
+      "caFile": "/credentials/ca.crt",
+      "deadlineMs": 15000
+    },
+    {
+      "target": "ha-wss",
+      "protocol": "ha",
+      "url": "wss://localhost:8443/experimental/ha/ws",
+      "tokenFile": "/credentials/token",
+      "caFile": "/credentials/ca.crt",
+      "deadlineMs": 15000,
+      "topics": ["/topic/v1/kr/stock/trade/A005930"],
+      "headCommand": ["/app/ha-oracle", "head", "/credentials/gateway.json", "/source/source.json"],
+      "rangeCommand": ["/app/ha-oracle", "range", "/credentials/gateway.json", "/source/source.json"]
+    }
+  ]
+}

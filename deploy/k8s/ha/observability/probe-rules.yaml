@@ -1,0 +1,25 @@
+groups:
+  - name: wts-probe
+    rules:
+      - record: wts_probe_expected_namespace
+        expr: vector(1)
+        labels: { namespace: wts-ha }
+      - alert: WtsProbeFailed
+        expr: wts_probe_success == 0
+        for: 30s
+        labels: { severity: critical }
+        annotations: { summary: 'WSS 클라이언트 적용 probe가 실패했습니다. 실패 단계와 서버 지표를 대조하세요.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/probe/README.md', dashboard_url: 'http://localhost:3000/d/wts-probe?var-namespace={{ $labels.namespace }}' }
+      - alert: WtsProbeStale
+        expr: time() > wts_probe_next_deadline_seconds or (up{job="wts-probe"} == 1 unless on (namespace,pod) wts_probe_next_deadline_seconds)
+        for: 30s
+        labels: { severity: critical }
+        annotations: { summary: 'Probe 결과가 설정한 실행 주기와 기한 안에 갱신되지 않았습니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/probe/README.md', dashboard_url: 'http://localhost:3000/d/wts-probe?var-namespace={{ $labels.namespace }}' }
+      - alert: WtsProbeWorkerFailed
+        expr: increase(wts_probe_worker_failures_total[5m]) > 0
+        labels: { severity: critical }
+        annotations: { summary: 'Probe worker가 실행 기한이나 메모리 한도 안에 결과를 내지 못했습니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/probe/README.md', dashboard_url: 'http://localhost:3000/d/wts-probe?var-namespace={{ $labels.namespace }}' }
+      - alert: WtsProbeMissing
+        expr: up{job="wts-probe"} == 0 or (wts_probe_expected_namespace unless on (namespace) up{job="wts-probe"})
+        for: 30s
+        labels: { severity: critical }
+        annotations: { summary: '배포한 probe의 수집 endpoint가 실패하거나 사라졌습니다.', runbook_url: 'https://github.com/yceffort/ws-trade-server/blob/main/probe/README.md', dashboard_url: 'http://localhost:3000/d/wts-probe?var-namespace={{ $labels.namespace }}' }

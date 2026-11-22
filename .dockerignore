@@ -26,3 +26,10 @@ bench/**
 !bench/ha/
 bench/ha/**
 !bench/ha/*.mjs
+
+!probe/
+!probe/*.mjs
+!examples/latest-state.mjs
+!bench/soak/
+bench/soak/**
+!bench/soak/client.mjs

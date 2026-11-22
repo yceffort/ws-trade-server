@@ -42,6 +42,7 @@ jobs:
         run: |
           cargo build --locked --bin gateway --bin feed
           node tests/websocket-e2e.test.mjs
+          node --test probe/*.test.mjs
       - name: Exercise combined lifecycle scenarios
         run: node bench/soak.mjs --seconds 6 --cycles 2 --connections 4 --bin-dir target/debug --out /tmp/soak.json
       - name: Show lifecycle result
