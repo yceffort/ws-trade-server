@@ -6,12 +6,14 @@ import { readBounded } from '../../examples/ha-state.mjs'
 import { Journal } from './journal.mjs'
 import { extend,payloadHash,zero,percentile } from './oracle.mjs'
 import { Measurement } from './measurement.mjs'
+import { REASONS,watch } from './reasons.mjs'
 
 const {ids,config,head}=workerData
 const controller=new AbortController()
 const journal=new Journal(join(config.stateDirectory,`worker-${ids[0]}.journal`))
 const clients=[]
 const samples=[]
+const reasons={}
 const lag=monitorEventLoopDelay({resolution:20});lag.enable()
 let marking=null
 parentPort.on('message',message=>{
@@ -24,18 +26,21 @@ parentPort.on('message',message=>{
   if(message.type==='sample')parentPort.postMessage({type:'sample',id:message.id,clients:clients.map(client=>{
     const state=client.store.durable()
     return {id:client.id,topics:state.topics,log_id:state.log_id,offset:state.offset,count:state.count,digest:state.digest,payload_digest:client.payloadDigest,failed:client.failed,caught_up:client.caughtUp,attempts:client.attempts,disconnects:client.disconnects,last_reason:client.lastReason}
-  }),samples,lag_p99_ms:lag.count?lag.percentile(99)/1e6:null,lag_max_ms:lag.max/1e6})
+  }),samples,reasons,lag_p99_ms:lag.count?lag.percentile(99)/1e6:null,lag_max_ms:lag.max/1e6})
 })
 const tasks=ids.map(async id=>{
   await new Promise(resolve=>setTimeout(resolve,id*config.startupIntervalMs))
   const client={id,store:journal.store(id,config.topics),payloadDigest:zero,failed:null,disconnects:0,measurement:new Measurement(),caughtUp:false,attempts:0,lastReason:null}
   client.measurement.mark(marking)
   clients.push(client)
-  let attemptAt=0,pending=new Map(),initial=true
+  let attemptAt=0,pending=new Map(),initial=true,failed=()=>null
   try {
     await runClient({urls:config.urls,token:()=>readBounded(config.tokenFile,16384).toString('utf8').trim(),store:client.store,startAt:{log_id:head.log_id,partition:0,offset:head.next},signal:controller.signal,
-      onAttempt(){client.attempts++;client.caughtUp=false;attemptAt=performance.now();pending=new Map()},
-      onDisconnect(reason){client.measurement.disconnect(performance.now());client.disconnects++;client.caughtUp=false;client.lastReason=['source-stale','heartbeat-timeout','connection-error','connection-closed','draining','replay-limit','retry-later','receive-deadline','client-overflow'].includes(reason)?reason:'other';parentPort.postMessage({type:'not-ready',client:id})},
+      onAttempt(socket){client.attempts++;client.caughtUp=false;attemptAt=performance.now();pending=new Map();failed=watch(socket)},
+      onDisconnect(reason){
+        if(reason==='connection-error')reason=failed()??reason
+        client.measurement.disconnect(performance.now());client.disconnects++;client.caughtUp=false;client.lastReason=['source-stale','heartbeat-timeout','connection-closed','draining','replay-limit','retry-later','receive-deadline','client-overflow',...REASONS].includes(reason)?reason:'other';reasons[client.lastReason]=(reasons[client.lastReason]??0)+1;parentPort.postMessage({type:'not-ready',client:id})
+      },
       onFrame(frame,socket){
         if(frame.type==='event'){
           const digest=payloadHash(frame.body)
