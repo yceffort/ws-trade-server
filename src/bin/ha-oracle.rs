@@ -49,11 +49,16 @@ fn run() -> Result<bool, Error> {
                 if Instant::now() >= deadline {
                     return Err(Error::Deadline);
                 }
-                if let Some(record) = reader.poll(Duration::from_millis(100))? {
-                    oldest = Some(match LogRecord::from_json(&record.payload, &source)? {
-                        LogRecord::Trade(event) => event.received_at_ms(),
-                        LogRecord::Status(status) => status.at_ms.0,
-                    });
+                match reader.poll(Duration::from_millis(100))? {
+                    Some(record) => {
+                        oldest = Some(match LogRecord::from_json(&record.payload, &source)? {
+                            LogRecord::Trade(event) => event.received_at_ms(),
+                            LogRecord::Status(status) => status.at_ms.0,
+                        });
+                    }
+                    // high watermark 아래에 abort나 제어 레코드만 있으면 committed 레코드 없이 끝에 닿는다.
+                    None if reader.at_end() => break,
+                    None => {}
                 }
             }
             let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| Error::InvalidState)?.as_millis() as u64;
