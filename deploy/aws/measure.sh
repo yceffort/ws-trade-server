@@ -28,13 +28,6 @@ STATUS=$?
 kill $SAMPLER 2>/dev/null; wait $SAMPLER 2>/dev/null
 
 LOAD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/component=ha-load -o name | head -1)
-# job-run.mjs는 kubectl 호출이 한 번만 실패해도 보고서 없이 끝난다(AZ 장애 시험에서 관측). 그때는 부하 Pod가 보고서를 쓸 때까지 직접 기다린다.
-if [ ! -s "$OUT/report.json" ] && [ -n "$LOAD" ]; then
-  for _ in $(seq 240); do
-    kubectl -n "$NS" exec "$LOAD" -c load -- cat /state/report.json > "$OUT/report.json" 2>/dev/null && [ -s "$OUT/report.json" ] && { STATUS=0; break; }
-    sleep 5
-  done
-fi
 [ -z "$LOAD" ] || kubectl -n "$NS" exec "$LOAD" -c load -- sh -c 'cat /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory.events /sys/fs/cgroup/cpu.stat' > "$OUT/load-cgroup.txt" 2>/dev/null
 for POD in $(gateways); do
   kubectl -n "$NS" logs "$POD" -c edge --since-time="$STARTED" 2>/dev/null | grep edge_summary > "$OUT/edge-$(basename "$POD").log"
