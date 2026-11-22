@@ -25,15 +25,26 @@ if (process.argv[2] === 'fault') {
   const container = compose(['ps', '-q', broker]).trim()
   const network = `${project}_default`
   const attached = JSON.parse(docker(['inspect', '--format', '{{json .NetworkSettings.Networks}}', container]))[network]
+  let restored = false
+  const restore = () => {
+    if (restored) return
+    restored = true
+    try {
+      // 같은 IP로 복원해 다른 broker의 DNS cache가 다른 인증서를 가진 피어를 가리키지 않게 한다.
+      docker(['network', 'connect', '--alias', broker, '--ip', attached.IPAddress, network, container])
+    } catch {
+      // Docker 20.10은 Compose 기본 network에 IP 지정을 거절한다. 그때는 alias만 복원한다.
+      docker(['network', 'connect', '--alias', broker, network, container])
+    }
+  }
+  // 차단 중에 중단되어도 broker를 끊긴 채로 남기지 않는다.
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { restore(); process.exit(1) })
   const started = performance.now()
   docker(['network', 'disconnect', network, container])
-  await sleep(Number(process.argv[3]) * 1000)
   try {
-    // 같은 IP로 복원해 다른 broker의 DNS cache가 다른 인증서를 가진 피어를 가리키지 않게 한다.
-    docker(['network', 'connect', '--alias', broker, '--ip', attached.IPAddress, network, container])
-  } catch {
-    // Docker 20.10은 Compose 기본 network에 IP 지정을 거절한다. 그때는 alias만 복원한다.
-    docker(['network', 'connect', '--alias', broker, network, container])
+    await sleep(Number(process.argv[3]) * 1000)
+  } finally {
+    restore()
   }
   console.log(JSON.stringify({ ok: true, broker, isolated_ms: Math.round(performance.now() - started) }))
   process.exit(0)
