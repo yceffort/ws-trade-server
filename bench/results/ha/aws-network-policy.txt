@@ -1,0 +1,21 @@
+VPC CNI v1.22.4-eksbuild.14, enableNetworkPolicy=true, 표준 모드. 2026-11-22 13:12 KST. curl의 TCP 연결 시간으로 판정(연결 제한 4초).
+막혀야 하는 경로
+D1 다른 namespace Pod -> gateway Pod 8443: 막힘
+D4 다른 namespace Pod -> broker Pod 9092: 막힘
+D2 gateway(Deployment) -> broker 9093: 막힘
+D5 gateway(Deployment) -> 외부 1.1.1.1:443: 막힘
+D3 부하 라벨 Job Pod -> 외부 1.1.1.1:443: 막힘
+D3' 부하 라벨 단독 Pod(owner 없음) -> 외부 1.1.1.1:443: 막힘
+D6 부하 라벨 Job Pod -> broker 9093: 막힘
+externalEgress를 주지 않은 부하 라벨 Job Pod -> NLB 443: 막힘
+열려야 하는 경로
+A2 gateway(Deployment) -> broker 9092: 연결됨
+A6 부하 라벨 Job Pod -> broker(StatefulSet) 9092: 연결됨
+A6' 부하 라벨 단독 Pod -> broker 9092: 연결됨
+A4 feed -> API server(Lease 갱신): 갱신됨
+A1, A7 NLB 서브넷 -> gateway 8443, 부하 Pod -> NLB 443(externalEgress 지정): smoke-nlb-policy 실행이 통과
+대조: 정책 없는 namespace의 Pod -> 외부 1.1.1.1:443: 연결됨
+Service 포트 변환: dev-policy-client 정책(대상 Pod 포트 8443)의 PolicyEndpoint egress에 정책 Pod IP:8443과 함께 Service ClusterIP:443이 들어 있었다. 컨트롤러가 Service port(443)와 targetPort(8443)를 풀어서 넣었다.
+새 연결로 확인: gateway의 ipBlock 허용을 ClusterIP 밖(192.0.2.1/32)으로 바꿔도 gateway -> 정책 Service ClusterIP:443은 연결됐고, 같은 조건에서 gateway -> kubernetes ClusterIP:443은 막혔다.
+gateway Service(type LoadBalancer, port 443, 이름 붙은 targetPort wss)는 달랐다. 부하 Job 정책의 PolicyEndpoint egress에는 gateway Pod IP:8443만 있고 gateway Service ClusterIP:443은 없었다. 클러스터 내부 Service 경로 smoke(smoke-service-policy)는 30 clients 모두 connect-aborted로 실패했다.
+집행을 켜는 순간(aws-node 교체, 13:03 KST) active feed가 broker 연결을 약 9초 잃고 ha-deadline으로 재시작했다.

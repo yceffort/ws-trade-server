@@ -53,3 +53,27 @@ checkpoint 전송 오류 수정 커밋 `2d5fb98`과 고정 이미지로 1,000명
 | `receive-deadline`, `connection-closed` | 연결된 뒤 3초 동안 frame이 없었거나 소켓이 오류 frame 없이 닫혔다 | edge의 `buffer_limit`, `relay_error`, `upstream_closed` |
 
 부하 발생기로 판정하는 경우는 부하 Pod의 event loop p99가 100ms 이상이거나 부하 노드 CPU가 80% 이상인데, 서버 노드 CPU는 80% 미만이고 `wts_ha_replay_waiters`가 128에 닿지 않으며 서버 쪽 사유(`rejected-503`, `rejected-502`, `source-stale`, `retry-later`, `replay-limit`)가 없는 때다. 서버로 판정하는 경우는 부하 Pod의 event loop p99가 100ms 미만이고 부하 노드 CPU가 80% 미만인데도 실패가 나오는 때이며, 위 표로 edge의 TLS 종료, gateway의 admission과 replay, broker 중 어디인지 가린다. 양쪽이 함께 포화하면 판정하지 않고 부하 노드를 늘려 다시 잰다. 100ms는 통과한 30 clients 실행의 p99 약 25ms와 실패한 1,000 clients 실행의 241~670ms 사이에서 고른 값이고, 80%와 함께 이 실험의 규약이다.
+
+## AWS 실측 (2026-11-22)
+
+[#90](https://github.com/yceffort/ws-trade-server/issues/90)과 [#91](https://github.com/yceffort/ws-trade-server/issues/91)의 측정이다. 서울 리전 AZ 3개의 EKS 1.35에서 AZ마다 4 vCPU Graviton spot 노드 2대에 gateway 3개, feed 2개, broker 3개를 두고 부하 발생기는 전용 on-demand 8 vCPU 노드에서 돌렸다. 클라이언트는 내부용 NLB(IP target, TCP 443, cross-zone 꺼짐, 등록 해제 지연 300초)를 거쳐 edge의 TLS로 붙었고 VPC CNI의 NetworkPolicy 집행을 켰다. 구성과 순서는 [`deploy/aws/README.md`](../deploy/aws/README.md), 버전과 노드 구성은 `bench/results/ha/aws-environment.txt`에 있다. 서버 노드는 spot이고 측정 중 세 번 교체됐다. 인터넷에 노출된 LB 경로, AZ 전체 장애(EBS 포함), 서로 다른 release의 혼합, on-demand 노드에서의 반복은 재지 않았다.
+
+| 시험 | 결과 | 증거(`bench/results/ha/`) |
+| --- | --- | --- |
+| NLB 경로 smoke, 30 clients | 6,180 events 누락 0 중복 0, 끊김 0 | `aws-smoke-nlb.json` |
+| 클러스터 내부 Service 경로, 30 clients | 정책 집행 상태에서 30개 모두 `connect-aborted`, 초기 접속 실패 | `aws-smoke-service-denied.json` |
+| NetworkPolicy 허용과 거부 | 막혀야 하는 8개 경로가 모두 막히고 열려야 하는 경로는 열림. Deployment, StatefulSet, Job, owner 없는 Pod 모두 집행됨 | `aws-network-policy.txt` |
+| 초기 접속 계단, 100, 250, 500, 1,000 clients 각 3회 | 12회 모두 60초 안에 전원 catch-up, 끊김 0, 누락 0 | `aws-stair.json` |
+| 1,000 clients 계획 배포와 feed failover, 929초 | 90,700 events 누락 0 중복 0. 계획 재접속 p99 1.73초(slot별 1.49~2.11초), feed failover 10.7초, `measured_targets_met` 참 | `aws-rollout-1000.json` |
+| 같은 배포, readiness gate 켬 | 91,720 events 누락 0 중복 0. 계획 재접속 p99 1.85초(slot별 1.30~1.96초) | `aws-rollout-1000-readiness-gate.json` |
+| Pod 장애 6종, 100 clients | 6종 모두 복구 뒤 누락 0 중복 0. feed failover 10.8초 | `aws-faults-100.json` |
+| AZ b의 서브넷 차단 180초, 1,000 clients | 88,608 events 누락 0 중복 0, 전원 복귀 | `aws-az-isolate-1000.json` |
+| AZ b의 서버 인스턴스 종료 240초, 1,000 clients 2회 | 2회차 91,651 events 누락 0 중복 0. 종료 21~22초 뒤부터 gateway b의 클라이언트가 빠지고 77초, 106초에 전원 복귀. 1회차는 최종 보고서 수집 실패 | `aws-az-stop-1000.json`, `aws-timelines.txt` |
+
+자원을 분리한 이 환경에서는 1,000 clients가 실패하지 않아 위 판정 기준을 적용할 실패가 없다. 계단 측정에서 부하 컨테이너의 CPU는 100 clients에서 0.48~0.53, 250에서 1.0, 500에서 1.9, 1,000에서 3.8~4.0 core로 client당 약 4 mCPU씩 늘었다. 1,000에서는 한도 4 core에 닿아 throttle이 256~292회, event loop p99가 213~220ms였다. 같은 실행에서 서버 노드 CPU는 최대 49%, gateway 컨테이너 0.64~1.02 core, edge 0.72~0.84 core, broker 0.62~0.83 core였고 replay 대기는 최대 1, replay 작업은 최대 8이었다. kind 호스트는 CPU 10개를 서버와 부하 발생기가 함께 썼고 부하 발생기 하나가 그중 4개를 필요로 한다. kind의 실패를 자원을 줄여 다시 만들어 보지는 않았으므로 이것은 kind 실패의 원인을 직접 확인한 것이 아니라 그 방향의 근거다. 1,000 clients를 넘겨 재려면 부하 Pod의 CPU 한도부터 올려야 한다.
+
+계획 배포에서 readiness gate가 없으면 slot 교체 6번 모두 그 AZ에 healthy target이 없는 16초 구간이 있었다. 새 target이 `initial`인 동안 옛 target이 `draining`으로 넘어갔기 때문이다. 그 구간에도 재접속 p99는 1.5초 안팎이었다. gate를 켜면 그 구간이 없었고 slot마다 약 30초가 더 걸렸다(forward 3분 48초에서 5분 36초, rollback 4분 12초에서 6분 1초). gateway가 준비 상태를 잃으면 target이 등록 해제됐다가 다시 등록되고 healthy까지 약 30초가 걸린다. feed failover 때 gateway 3개가 모두 그랬고 그동안 클라이언트는 `initial` 상태의 target으로 다시 붙었다. 모든 연결에 1초 간격 heartbeat가 흘러 NLB의 idle timeout 350초에 닿은 연결은 없었다. 조용한 연결이 실제로 idle timeout에 닿는 경우는 재지 않았다.
+
+Pod 장애의 복구 시간은 kind보다 길었고 원인은 가리지 않았다. 장애 재접속 p99와 장애 주입부터의 복구 p99는 gateway-kill 0.59초와 1.70초, feed-failover 35.0초와 38.1초, broker-one 56.5초와 59.6초, broker-quorum 81.1초와 81.6초, gateway-restart 25.1초와 26.2초, full-restart 102.4초와 103.4초다. kind의 30 clients 실행은 차례로 0.53초와 1.59초, 22.9초와 25.9초, 재접속 없음, 62.9초와 63.2초, 8.4초와 9.5초, 15.1초와 15.6초였다. 여섯 가지 중 gateway-kill을 뺀 다섯에서 gateway 3개의 NLB target이 모두 등록 해제됐다가 다시 등록됐다. 다시 등록되기까지 feed-failover는 약 9초, broker-one은 약 21초, broker-quorum은 약 37초, gateway-restart는 약 5초, full-restart는 약 64초였다(2초 간격 기록). broker 한 대를 내렸을 때 gateway 전체가 준비 상태를 잃는 것은 kind에서 없던 일이며 [#94](https://github.com/yceffort/ws-trade-server/issues/94)에서 다룬다.
+
+AZ b의 서브넷을 차단하자 `receive-deadline` 353건과 `source-stale` 647건이 나왔다. 앞은 차단된 b 경로의 연결이 기한으로 끊긴 것, 뒤는 b와 무관한 gateway a와 c가 스스로 끊은 것으로 본다. 차단 17초 뒤 a와 c의 target이 등록 해제됐다가 33초에 다시 등록됐고, AZ a에 있던 active feed는 `ha-deadline`으로 재시작해 30초 뒤 다시 active가 됐다. 그동안 `rejected-503`이 5,834건 쌓였다. broker 한 대를 예고 없이 잃으면 그 AZ의 3분의 1이 아니라 전체 클라이언트가 한 번 끊긴다는 뜻이다([#94](https://github.com/yceffort/ws-trade-server/issues/94)). 이 실행은 상태 기록 도구의 버그로 차단 구간의 클라이언트 수 변화를 남기지 못했다. 인스턴스 종료에서는 EC2 종료가 OS 종료를 거쳐 gateway b가 스스로 drain했고 broker도 정상 종료해, gateway b의 337~345개만 끊겼다. gateway 2개가 500개씩 받는 동안 edge는 0.96~1.0 core로 단일 스레드 한계에 있었고 gateway 컨테이너는 0.95~1.04 core였다. 1,000 clients는 유지됐지만 N-1의 여유는 없다([#95](https://github.com/yceffort/ws-trade-server/issues/95)).

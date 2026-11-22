@@ -1,0 +1,60 @@
+{
+  "ok": true,
+  "committed_missing": 0,
+  "duplicate_applies": 0,
+  "comparison": {
+    "ok": true,
+    "clients": 1000,
+    "committed_events": 91651,
+    "failures": []
+  },
+  "reconnect_p99_ms": null,
+  "reconnect_samples": 0,
+  "fault_reconnect_p99_ms": null,
+  "fault_reconnect_samples": 0,
+  "reconnect_slo_status": "not-measured",
+  "recovery_from_fault_p99_ms": null,
+  "disconnect_reasons": {
+    "draining": 337,
+    "rejected-503": 223,
+    "other": 159,
+    "connection-closed": 12
+  },
+  "client_event_loop_p99_ms": 101.253119,
+  "client_event_loop_max_ms": 549.453823,
+  "log_id": "ha-v1",
+  "range_start": "742662",
+  "verified_through": "852569",
+  "duration_ms": 929580.6076059999,
+  "clients": 1000,
+  "actions": [],
+  "rollout_verifications": [],
+  "failures": [],
+  "environment": {
+    "kind": "aws-eks-internal-nlb",
+    "region": "ap-northeast-2",
+    "kubernetes": "1.35",
+    "server_nodes": "6 spot, 4 vCPU Graviton3 (c7g.xlarge and m7g.xlarge), 2 per AZ",
+    "load_node": "dedicated on-demand c7g.2xlarge",
+    "nlb": {
+      "scheme": "internal",
+      "target_type": "ip",
+      "cross_zone": false,
+      "deregistration_delay_seconds": 300,
+      "preserve_client_ip": false,
+      "tcp_idle_timeout_seconds": 350
+    },
+    "network_policy_enforced": true,
+    "external_lb_verified": true,
+    "physical_domains_verified": false,
+    "code_commit": "cb5a34c (merge of 69f34f5 and db2c18c)",
+    "images": {
+      "gateway": "wts-ha/gateway@sha256:df59b957645dbaf2bf031a6c64d9de25bd5f9c1dc71ed827414b0bebd8a3394f",
+      "edge": "wts-ha/edge@sha256:1dbbed21588abbcc2ba33df55d865c4e844c95f2b464355dbdee1888492c0ca3",
+      "load": "wts-ha/load@sha256:a72c58aa1019d579f60841dd56faadcfdcbf962bf4880bd8b1fa3c10ddd02276"
+    }
+  },
+  "measured_targets_met": false,
+  "production_slo_proven": false,
+  "external_evidence_review_required": true
+}

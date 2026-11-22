@@ -1,0 +1,312 @@
+{
+  "ok": true,
+  "committed_missing": 0,
+  "duplicate_applies": 0,
+  "comparison": {
+    "ok": true,
+    "clients": 100,
+    "committed_events": 77010,
+    "failures": []
+  },
+  "reconnect_p99_ms": null,
+  "reconnect_samples": 0,
+  "fault_reconnect_p99_ms": 100823.16750299995,
+  "fault_reconnect_samples": 537,
+  "reconnect_slo_status": "not-measured",
+  "recovery_from_fault_p99_ms": 101726.37413299998,
+  "disconnect_reasons": {
+    "connection-closed": 139,
+    "source-stale": 417,
+    "rejected-503": 874,
+    "connect-aborted": 2021
+  },
+  "client_event_loop_p99_ms": 22.708223,
+  "client_event_loop_max_ms": 78.970879,
+  "log_id": "ha-v1",
+  "range_start": "395918",
+  "verified_through": "488259",
+  "duration_ms": 924475.1555460001,
+  "clients": 100,
+  "actions": [
+    {
+      "name": "gateway-kill",
+      "fault": "f8d7da62-6aa3-4362-9e6a-feb4aeaf748e",
+      "elapsed_ms": 20095.404300999995,
+      "result": {
+        "ok": true,
+        "action": "gateway-kill",
+        "elapsed_ms": 20051.282049999998,
+        "deleted": [
+          "wts-gateway-a-7b9bd8f846-td5pn"
+        ]
+      },
+      "recovery": {
+        "fault": "f8d7da62-6aa3-4362-9e6a-feb4aeaf748e",
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 100,
+          "committed_events": 5260,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 586.9763000000021,
+        "fault_reconnect_samples": 37,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 1702.8066709999985,
+        "disconnect_reasons": {
+          "connection-closed": 37
+        },
+        "client_event_loop_p99_ms": 22.773759,
+        "client_event_loop_max_ms": 78.970879,
+        "log_id": "ha-v1",
+        "range_start": "395918",
+        "verified_through": "402157"
+      }
+    },
+    {
+      "name": "feed-failover",
+      "fault": "22555ea6-e69a-4b77-a173-3bb66eecbe25",
+      "elapsed_ms": 17221.937661999997,
+      "result": {
+        "ok": true,
+        "action": "feed-failover",
+        "elapsed_ms": 17174.553451,
+        "feed_failover_ms": 10838,
+        "old_pod": "wts-feed-8694f647b8-2jjjp"
+      },
+      "recovery": {
+        "fault": "22555ea6-e69a-4b77-a173-3bb66eecbe25",
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 100,
+          "committed_events": 13060,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 35026.53023200002,
+        "fault_reconnect_samples": 100,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 38144.40063500001,
+        "disconnect_reasons": {
+          "connection-closed": 37,
+          "source-stale": 102,
+          "rejected-503": 315,
+          "connect-aborted": 132
+        },
+        "client_event_loop_p99_ms": 22.609919,
+        "client_event_loop_max_ms": 78.970879,
+        "log_id": "ha-v1",
+        "range_start": "395918",
+        "verified_through": "408973"
+      }
+    },
+    {
+      "name": "broker-one",
+      "fault": "a157d846-e1cc-4be8-8624-95cb93ad37b6",
+      "elapsed_ms": 28237.454608,
+      "result": {
+        "ok": true,
+        "action": "broker-one",
+        "elapsed_ms": 28190.564144,
+        "deleted": [
+          "wts-broker-0"
+        ]
+      },
+      "recovery": {
+        "fault": "a157d846-e1cc-4be8-8624-95cb93ad37b6",
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 100,
+          "committed_events": 19990,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 56539.792386999994,
+        "fault_reconnect_samples": 100,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 59565.08269900002,
+        "disconnect_reasons": {
+          "connection-closed": 37,
+          "source-stale": 205,
+          "rejected-503": 570,
+          "connect-aborted": 460
+        },
+        "client_event_loop_p99_ms": 22.708223,
+        "client_event_loop_max_ms": 78.970879,
+        "log_id": "ha-v1",
+        "range_start": "395918",
+        "verified_through": "416041"
+      }
+    },
+    {
+      "name": "broker-quorum",
+      "fault": "26445c7c-26a5-4141-b795-742d2b12de2c",
+      "elapsed_ms": 57784.796709999995,
+      "result": {
+        "ok": true,
+        "action": "broker-quorum",
+        "elapsed_ms": 57737.382325000006,
+        "quorum_pause_ms": 15000
+      },
+      "recovery": {
+        "fault": "26445c7c-26a5-4141-b795-742d2b12de2c",
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 100,
+          "committed_events": 25860,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 81137.711286,
+        "fault_reconnect_samples": 100,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 81630.58414199998,
+        "disconnect_reasons": {
+          "connection-closed": 39,
+          "source-stale": 317,
+          "rejected-503": 863,
+          "connect-aborted": 851
+        },
+        "client_event_loop_p99_ms": 22.708223,
+        "client_event_loop_max_ms": 78.970879,
+        "log_id": "ha-v1",
+        "range_start": "395918",
+        "verified_through": "423470"
+      }
+    },
+    {
+      "name": "gateway-restart",
+      "fault": "4413a938-df56-40f0-a02c-7ee69a06d13d",
+      "elapsed_ms": 20135.521456999995,
+      "result": {
+        "ok": true,
+        "action": "gateway-restart",
+        "elapsed_ms": 20088.866771,
+        "deleted": [
+          "wts-gateway-a-7b9bd8f846-n2gsr",
+          "wts-gateway-b-55bcc7dfc4-gp8sd",
+          "wts-gateway-c-77dd85bf58-gsq4r"
+        ]
+      },
+      "recovery": {
+        "fault": "4413a938-df56-40f0-a02c-7ee69a06d13d",
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 100,
+          "committed_events": 30950,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 25120.735553000006,
+        "fault_reconnect_samples": 100,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 26219.78605200001,
+        "disconnect_reasons": {
+          "connection-closed": 139,
+          "source-stale": 317,
+          "rejected-503": 863,
+          "connect-aborted": 1226
+        },
+        "client_event_loop_p99_ms": 22.904831,
+        "client_event_loop_max_ms": 78.970879,
+        "log_id": "ha-v1",
+        "range_start": "395918",
+        "verified_through": "432290"
+      }
+    },
+    {
+      "name": "full-restart",
+      "fault": "901fafa9-40bc-45b3-a0ab-f78cf19191b5",
+      "elapsed_ms": 79238.74809399998,
+      "result": {
+        "ok": true,
+        "action": "full-restart",
+        "elapsed_ms": 79189.835318,
+        "restarted": [
+          "gateway",
+          "feed",
+          "broker"
+        ],
+        "persistent_volumes_retained": true
+      },
+      "recovery": {
+        "fault": "901fafa9-40bc-45b3-a0ab-f78cf19191b5",
+        "ok": true,
+        "committed_missing": 0,
+        "duplicate_applies": 0,
+        "comparison": {
+          "ok": true,
+          "clients": 100,
+          "committed_events": 40290,
+          "failures": []
+        },
+        "reconnect_p99_ms": null,
+        "reconnect_samples": 0,
+        "fault_reconnect_p99_ms": 102447.767895,
+        "fault_reconnect_samples": 100,
+        "reconnect_slo_status": "not-measured",
+        "recovery_from_fault_p99_ms": 103349.50121299998,
+        "disconnect_reasons": {
+          "connection-closed": 139,
+          "source-stale": 417,
+          "rejected-503": 874,
+          "connect-aborted": 2021
+        },
+        "client_event_loop_p99_ms": 22.708223,
+        "client_event_loop_max_ms": 78.970879,
+        "log_id": "ha-v1",
+        "range_start": "395918",
+        "verified_through": "441375"
+      }
+    }
+  ],
+  "rollout_verifications": [],
+  "failures": [],
+  "environment": {
+    "kind": "aws-eks-internal-nlb",
+    "region": "ap-northeast-2",
+    "kubernetes": "1.35",
+    "server_nodes": "6 spot, 4 vCPU Graviton3 (c7g.xlarge and m7g.xlarge), 2 per AZ",
+    "load_node": "dedicated on-demand c7g.2xlarge",
+    "nlb": {
+      "scheme": "internal",
+      "target_type": "ip",
+      "cross_zone": false,
+      "deregistration_delay_seconds": 300,
+      "preserve_client_ip": false,
+      "tcp_idle_timeout_seconds": 350
+    },
+    "network_policy_enforced": true,
+    "external_lb_verified": true,
+    "physical_domains_verified": false,
+    "code_commit": "cb5a34c (merge of 69f34f5 and db2c18c)",
+    "images": {
+      "gateway": "wts-ha/gateway@sha256:df59b957645dbaf2bf031a6c64d9de25bd5f9c1dc71ed827414b0bebd8a3394f",
+      "edge": "wts-ha/edge@sha256:1dbbed21588abbcc2ba33df55d865c4e844c95f2b464355dbdee1888492c0ca3",
+      "load": "wts-ha/load@sha256:a72c58aa1019d579f60841dd56faadcfdcbf962bf4880bd8b1fa3c10ddd02276"
+    }
+  },
+  "measured_targets_met": false,
+  "production_slo_proven": false,
+  "external_evidence_review_required": true
+}
