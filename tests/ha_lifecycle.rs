@@ -157,6 +157,20 @@ async fn ha_bootstrap_stale_recovery_and_drain_keep_explicit_states() {
     assert!(request(http, "GET", "/livez").await.starts_with("HTTP/1.1 200"));
     let feed = ha_support::feed(serde_json::from_slice(&read("feed.json")).unwrap(), source.clone());
     server.wait_ready(Duration::from_secs(30)).await.unwrap();
+    // 앞 시험이 남긴 3초 가까이 된 source 상태로 잠깐 준비되었다가 곧 내려가면 접속과 resume이 거절된다.
+    // gateway가 이 시험의 feed가 쓴 상태를 반영할 때까지 기다린 뒤 접속한다.
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while !request(http, "GET", "/ha-metrics").await.lines().any(|line| {
+            line.strip_prefix("wts_ha_source_age_seconds ")
+                .and_then(|age| age.parse::<f64>().ok())
+                .is_some_and(|age| age < 1.0)
+        }) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap();
+    server.wait_ready(Duration::from_secs(5)).await.unwrap();
     let connect = || async {
         let mut req = format!("ws://{}/experimental/ha/ws", server.addr).into_client_request().unwrap();
         req.headers_mut().insert("sec-websocket-protocol", "wts.ha.v1".parse().unwrap());
