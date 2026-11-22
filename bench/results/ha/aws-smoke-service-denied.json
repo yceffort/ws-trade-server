@@ -1,0 +1,29 @@
+{
+  "ok": false,
+  "reason": "initial client catchup failed",
+  "clients": 30,
+  "ready": 0,
+  "log_id": "ha-v1",
+  "range_start": "38846",
+  "failures": [],
+  "diagnostics": {
+    "clients": 30,
+    "caught_up": 0,
+    "failures": 0,
+    "minimum_offset": null,
+    "maximum_offset": null,
+    "reasons": {
+      "connect-aborted": 30
+    },
+    "disconnect_reasons": {
+      "connect-aborted": 211
+    },
+    "active_measurement": null,
+    "completed_actions": [],
+    "client_event_loop_p99_ms": 20.676607,
+    "client_event_loop_max_ms": 37.978111
+  },
+  "actions": [],
+  "rollout_verifications": [],
+  "production_slo_proven": false
+}

@@ -1,0 +1,138 @@
+NLB target 상태와 부하 실행기 상태가 바뀐 시점(UTC). target은 2초, 상태는 3초 간격으로 기록했다. 주소는 지웠다.
+
+## 계획 배포, readiness gate 끔 (aws-rollout-1000.json). feed-failover 04:39, forward 04:40:07~04:43:55, rollback 04:44:01~04:48:13
+04:38:55 a[healthy] b[healthy] c[healthy]
+04:39:23 a[draining] b[draining] c[draining]
+04:39:30 a[initial] b[initial] c[initial]
+04:40:00 a[healthy] b[healthy] c[healthy]
+04:40:21 a[healthy+initial] b[healthy] c[healthy]
+04:40:35 a[draining+initial] b[healthy] c[healthy]
+04:40:51 a[draining+healthy] b[healthy] c[healthy]
+04:41:33 a[draining+healthy] b[healthy+initial] c[healthy]
+04:41:47 a[draining+healthy] b[draining+initial] c[healthy]
+04:42:03 a[draining+healthy] b[draining+healthy] c[healthy]
+04:42:47 a[draining+healthy] b[draining+healthy] c[healthy+initial]
+04:43:01 a[draining+healthy] b[draining+healthy] c[draining+initial]
+04:43:17 a[draining+healthy] b[draining+healthy] c[draining+healthy]
+04:44:13 a[draining+healthy] b[draining+healthy] c[draining+healthy+initial]
+04:44:27 a[draining+healthy] b[draining+healthy] c[draining+draining+initial]
+04:44:43 a[draining+healthy] b[draining+healthy] c[draining+draining+healthy]
+04:45:34 a[healthy] b[draining+healthy+initial] c[draining+draining+healthy]
+04:45:48 a[healthy] b[draining+draining+initial] c[draining+draining+healthy]
+04:46:04 a[healthy] b[draining+draining+healthy] c[draining+draining+healthy]
+04:46:46 a[healthy] b[draining+healthy] c[draining+draining+healthy]
+04:46:57 a[healthy+initial] b[draining+healthy] c[draining+draining+healthy]
+04:47:11 a[draining+initial] b[draining+healthy] c[draining+draining+healthy]
+04:47:27 a[draining+healthy] b[draining+healthy] c[draining+draining+healthy]
+04:48:02 a[draining+healthy] b[draining+healthy] c[draining+healthy]
+04:49:27 a[draining+healthy] b[draining+healthy] c[healthy]
+04:50:48 a[draining+healthy] b[healthy] c[healthy]
+04:52:10 a[healthy] b[healthy] c[healthy]
+
+## 계획 배포, readiness gate 켬 (aws-rollout-1000-readiness-gate.json). forward 06:04:58~06:10:34, rollback 06:10:41~06:16:42
+06:04:51 a[healthy] b[healthy] c[healthy]
+06:05:12 a[healthy+initial] b[healthy] c[healthy]
+06:05:42 a[healthy+healthy] b[healthy] c[healthy]
+06:05:58 a[draining+healthy] b[healthy] c[healthy]
+06:07:01 a[draining+healthy] b[healthy+initial] c[healthy]
+06:07:28 a[draining+healthy] b[healthy+healthy] c[healthy]
+06:07:47 a[draining+healthy] b[draining+healthy] c[healthy]
+06:08:49 a[draining+healthy] b[draining+healthy] c[healthy+initial]
+06:09:19 a[draining+healthy] b[draining+healthy] c[healthy+healthy]
+06:09:35 a[draining+healthy] b[draining+healthy] c[draining+healthy]
+06:10:55 a[draining+healthy] b[draining+healthy] c[draining+healthy+initial]
+06:10:59 a[healthy] b[draining+healthy] c[draining+healthy+initial]
+06:11:25 a[healthy] b[draining+healthy] c[draining+healthy+healthy]
+06:11:41 a[healthy] b[draining+healthy] c[draining+draining+healthy]
+06:12:46 a[healthy] b[healthy] c[draining+draining+healthy]
+06:12:48 a[healthy] b[healthy+initial] c[draining+draining+healthy]
+06:13:18 a[healthy] b[healthy+healthy] c[draining+draining+healthy]
+06:13:37 a[healthy] b[draining+healthy] c[draining+draining+healthy]
+06:14:35 a[healthy] b[draining+healthy] c[draining+healthy]
+06:14:48 a[healthy+initial] b[draining+healthy] c[draining+healthy]
+06:15:18 a[healthy+healthy] b[draining+healthy] c[draining+healthy]
+06:15:35 a[draining+healthy] b[draining+healthy] c[draining+healthy]
+06:16:41 a[draining+healthy] b[draining+healthy] c[healthy]
+
+## AZ b 서브넷 차단 (aws-az-isolate-1000.json). 차단 05:17:14, 복원 05:20:16. 이 실행은 상태 기록 도구의 버그로 차단 구간의 상태 기록이 없다
+05:16:30 a[healthy] b[healthy] c[healthy]
+05:17:31 a[draining] b[healthy] c[draining]
+05:17:47 a[initial] b[unhealthy] c[initial]
+05:17:58 a[initial] b[draining] c[initial]
+05:18:17 a[healthy] b[draining] c[healthy]
+05:20:25 a[healthy] b[initial] c[healthy]
+05:20:54 a[healthy] b[healthy] c[healthy]
+05:20:56 caught_up=1000 {"connect-aborted": 672, "receive-deadline": 353, "rejected-503": 5834, "source-stale": 647}
+
+## AZ b 서버 인스턴스 종료 1회차 (최종 보고서 수집 실패). 종료 05:30:59, 복원 요청 05:35:00
+05:30:50 a[healthy] b[healthy] c[healthy]
+05:31:41 a[healthy] b[draining] c[healthy]
+05:35:43 a[healthy] b[draining+initial] c[healthy]
+05:36:11 a[healthy] b[draining+healthy] c[healthy]
+05:36:42 a[healthy] b[healthy] c[healthy]
+05:30:53 caught_up=1000 {}
+05:31:20 caught_up=985 {"draining": 15}
+05:31:24 caught_up=923 {"connection-closed": 7, "draining": 144, "other": 36, "rejected-503": 72}
+05:31:27 caught_up=909 {"connection-closed": 7, "draining": 280, "other": 103, "rejected-503": 153}
+05:31:31 caught_up=959 {"connection-closed": 7, "draining": 345, "other": 149, "rejected-503": 229}
+05:31:35 caught_up=978 {"connection-closed": 7, "draining": 345, "other": 162, "rejected-503": 242}
+05:31:39 caught_up=984 {"connection-closed": 7, "draining": 345, "other": 164, "rejected-503": 247}
+05:31:43 caught_up=988 {"connection-closed": 8, "draining": 345, "other": 165, "rejected-503": 248}
+05:31:46 caught_up=991 {"connection-closed": 9, "draining": 345, "other": 167, "rejected-503": 248}
+05:31:50 caught_up=992 {"connection-closed": 9, "draining": 345, "other": 169, "rejected-503": 248}
+05:31:54 caught_up=993 {"connection-closed": 9, "draining": 345, "other": 169, "rejected-503": 248}
+05:31:58 caught_up=994 {"connection-closed": 9, "draining": 345, "other": 169, "rejected-503": 248}
+05:32:05 caught_up=997 {"connection-closed": 9, "draining": 345, "other": 169, "rejected-503": 248}
+05:32:09 caught_up=998 {"connection-closed": 9, "draining": 345, "other": 169, "rejected-503": 248}
+05:32:13 caught_up=999 {"connection-closed": 9, "draining": 345, "other": 169, "rejected-503": 248}
+05:32:16 caught_up=1000 {"connection-closed": 9, "draining": 345, "other": 169, "rejected-503": 248}
+
+## AZ b 서버 인스턴스 종료 2회차 (aws-az-stop-1000.json). 종료 05:48:14, 복원 요청 05:52:14
+05:48:01 a[healthy] b[healthy] c[healthy]
+05:48:56 a[healthy] b[draining] c[healthy]
+05:52:53 a[healthy] b[draining+initial] c[healthy]
+05:53:23 a[healthy] b[draining+healthy] c[healthy]
+05:53:56 a[healthy] b[healthy] c[healthy]
+05:48:02 caught_up=1000 {}
+05:48:36 caught_up=952 {"connection-closed": 1, "draining": 70, "other": 8, "rejected-503": 28}
+05:48:40 caught_up=928 {"connection-closed": 6, "draining": 202, "other": 44, "rejected-503": 111}
+05:48:44 caught_up=918 {"connection-closed": 8, "draining": 329, "other": 105, "rejected-503": 184}
+05:48:48 caught_up=967 {"connection-closed": 12, "draining": 337, "other": 139, "rejected-503": 214}
+05:48:51 caught_up=978 {"connection-closed": 12, "draining": 337, "other": 149, "rejected-503": 221}
+05:48:55 caught_up=985 {"connection-closed": 12, "draining": 337, "other": 152, "rejected-503": 223}
+05:48:59 caught_up=992 {"connection-closed": 12, "draining": 337, "other": 156, "rejected-503": 223}
+05:49:03 caught_up=995 {"connection-closed": 12, "draining": 337, "other": 157, "rejected-503": 223}
+05:49:07 caught_up=998 {"connection-closed": 12, "draining": 337, "other": 158, "rejected-503": 223}
+05:49:14 caught_up=999 {"connection-closed": 12, "draining": 337, "other": 158, "rejected-503": 223}
+05:49:33 caught_up=999 {"connection-closed": 12, "draining": 337, "other": 159, "rejected-503": 223}
+05:50:00 caught_up=1000 {"connection-closed": 12, "draining": 337, "other": 159, "rejected-503": 223}
+
+## Pod 장애 6종 (aws-faults-100.json). 측정 시작은 04:56:25쯤이고 장애는 그 뒤 30, 100, 170, 240, 350, 430초에 gateway-kill, feed-failover, broker-one, broker-quorum, gateway-restart, full-restart 순서로 주입했다
+04:56:21 a[healthy] b[healthy] c[healthy]
+04:56:58 a[draining] b[healthy] c[healthy]
+04:57:05 a[draining+initial] b[healthy] c[healthy]
+04:57:33 a[draining+healthy] b[healthy] c[healthy]
+04:58:13 a[draining+draining] b[healthy] c[draining]
+04:58:15 a[draining+draining] b[draining] c[draining]
+04:58:22 a[draining+initial] b[initial] c[initial]
+04:58:50 a[draining+healthy] b[healthy] c[initial]
+04:58:52 a[draining+healthy] b[healthy] c[healthy]
+04:59:22 a[draining+draining] b[draining] c[healthy]
+04:59:24 a[draining+draining] b[draining] c[draining]
+04:59:43 a[draining+initial] b[initial] c[initial]
+05:00:13 a[draining+healthy] b[healthy] c[healthy]
+05:00:29 a[draining+draining] b[draining] c[healthy]
+05:00:32 a[draining+draining] b[draining] c[draining]
+05:01:06 a[draining+draining] b[initial] c[draining]
+05:01:08 a[draining+initial] b[initial] c[initial]
+05:01:36 a[draining+initial] b[healthy] c[initial]
+05:01:38 a[draining+healthy] b[healthy] c[healthy]
+05:01:59 a[healthy] b[healthy] c[healthy]
+05:02:20 a[draining] b[draining] c[draining]
+05:02:25 a[draining+initial] b[draining+initial] c[draining+initial]
+05:02:55 a[draining+healthy] b[draining+healthy] c[draining+healthy]
+05:03:39 a[draining+draining] b[draining+draining] c[draining+draining]
+05:04:43 a[draining+initial] b[draining+draining+initial] c[draining+draining+initial]
+05:05:14 a[draining+healthy] b[draining+draining+healthy] c[draining+draining+healthy]
+05:07:20 a[draining+healthy] b[draining+healthy] c[draining+healthy]
+05:08:39 a[healthy] b[healthy] c[healthy]

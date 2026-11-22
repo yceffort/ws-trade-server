@@ -1,0 +1,119 @@
+{
+  "ok": true,
+  "committed_missing": 0,
+  "duplicate_applies": 0,
+  "comparison": {
+    "ok": true,
+    "clients": 1000,
+    "committed_events": 91720,
+    "failures": []
+  },
+  "reconnect_p99_ms": 1852.9648860000307,
+  "reconnect_samples": 2641,
+  "fault_reconnect_p99_ms": null,
+  "fault_reconnect_samples": 0,
+  "reconnect_slo_status": "pass",
+  "recovery_from_fault_p99_ms": null,
+  "disconnect_reasons": {
+    "draining": 2629,
+    "connection-closed": 12
+  },
+  "client_event_loop_p99_ms": 115.212287,
+  "client_event_loop_max_ms": 535.298047,
+  "log_id": "ha-v1",
+  "range_start": "867186",
+  "verified_through": "977177",
+  "duration_ms": 929648.001517,
+  "clients": 1000,
+  "actions": [],
+  "rollout_verifications": [
+    {
+      "slot": "wts-gateway-a",
+      "planHash": "10ba0f1c066a5db734916c685494507cd11533d87890c90c49b4fe77e89aaa80",
+      "window": "9ea3e85c-cf70-4a3f-b6e9-c351cd47f9a9",
+      "rollback": false,
+      "ok": true,
+      "reconnect_p99_ms": 1304.3006040000037,
+      "reconnect_slo_status": "pass",
+      "verified_through": "882269"
+    },
+    {
+      "slot": "wts-gateway-b",
+      "planHash": "10ba0f1c066a5db734916c685494507cd11533d87890c90c49b4fe77e89aaa80",
+      "window": "9a4fc603-5a2d-4999-984a-edcdb5202d74",
+      "rollback": false,
+      "ok": true,
+      "reconnect_p99_ms": 1567.3894250000012,
+      "reconnect_slo_status": "pass",
+      "verified_through": "894965"
+    },
+    {
+      "slot": "wts-gateway-c",
+      "planHash": "10ba0f1c066a5db734916c685494507cd11533d87890c90c49b4fe77e89aaa80",
+      "window": "bf94582a-2251-48bf-9cc7-9de6b45ef914",
+      "rollback": false,
+      "ok": true,
+      "reconnect_p99_ms": 1751.658346000011,
+      "reconnect_slo_status": "pass",
+      "verified_through": "908369"
+    },
+    {
+      "slot": "wts-gateway-c",
+      "planHash": "4e61f58cf5981c8a61636bace7ac530bd6ee872cc99a421e91e91d4a00dfb90a",
+      "window": "50b47eeb-9276-4f7f-a225-68de5d7c3650",
+      "rollback": true,
+      "ok": true,
+      "reconnect_p99_ms": 1459.5934640000341,
+      "reconnect_slo_status": "pass",
+      "verified_through": "923153"
+    },
+    {
+      "slot": "wts-gateway-b",
+      "planHash": "4e61f58cf5981c8a61636bace7ac530bd6ee872cc99a421e91e91d4a00dfb90a",
+      "window": "c4efef9b-4490-4507-a61c-0feb79c6540f",
+      "rollback": true,
+      "ok": true,
+      "reconnect_p99_ms": 1963.688649000018,
+      "reconnect_slo_status": "pass",
+      "verified_through": "936869"
+    },
+    {
+      "slot": "wts-gateway-a",
+      "planHash": "4e61f58cf5981c8a61636bace7ac530bd6ee872cc99a421e91e91d4a00dfb90a",
+      "window": "c72c3f54-81ab-4e18-91cd-4a158e0980bd",
+      "rollback": true,
+      "ok": true,
+      "reconnect_p99_ms": 1949.9525129999965,
+      "reconnect_slo_status": "pass",
+      "verified_through": "951293"
+    }
+  ],
+  "failures": [],
+  "environment": {
+    "kind": "aws-eks-internal-nlb",
+    "region": "ap-northeast-2",
+    "kubernetes": "1.35",
+    "server_nodes": "6 spot, 4 vCPU Graviton3 (c7g.xlarge and m7g.xlarge), 2 per AZ",
+    "load_node": "dedicated on-demand c7g.2xlarge",
+    "nlb": {
+      "scheme": "internal",
+      "target_type": "ip",
+      "cross_zone": false,
+      "deregistration_delay_seconds": 300,
+      "preserve_client_ip": false,
+      "tcp_idle_timeout_seconds": 350
+    },
+    "network_policy_enforced": true,
+    "external_lb_verified": true,
+    "physical_domains_verified": false,
+    "code_commit": "cb5a34c (merge of 69f34f5 and db2c18c)",
+    "images": {
+      "gateway": "wts-ha/gateway@sha256:df59b957645dbaf2bf031a6c64d9de25bd5f9c1dc71ed827414b0bebd8a3394f",
+      "edge": "wts-ha/edge@sha256:1dbbed21588abbcc2ba33df55d865c4e844c95f2b464355dbdee1888492c0ca3",
+      "load": "wts-ha/load@sha256:a72c58aa1019d579f60841dd56faadcfdcbf962bf4880bd8b1fa3c10ddd02276"
+    }
+  },
+  "measured_targets_met": false,
+  "production_slo_proven": false,
+  "external_evidence_review_required": true
+}

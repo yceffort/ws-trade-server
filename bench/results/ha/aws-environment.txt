@@ -1,0 +1,36 @@
+수집 시각(UTC): 2026-11-22T06:16:57Z
+EKS: 1.35 eks.29
+노드: v1.35.9-eks-9adbfea Amazon Linux 2023.12.20261118 kernel 6.12.115-140.210.amzn2023.aarch64 containerd://2.3.7+unknown
+addon vpc-cni: v1.22.4-eksbuild.14
+addon coredns: v1.13.2-eksbuild.75
+addon kube-proxy: v1.35.3-eksbuild.69
+addon aws-ebs-csi-driver: v1.68.1-eksbuild.1
+addon eks-pod-identity-agent: v1.4.1-eksbuild.3
+addon metrics-server: v0.9.1-eksbuild.2
+aws-load-balancer-controller: v3.6.3
+노드 구성:
+   1   ap-northeast-2a c7g.2xlarge ON_DEMAND load
+   1   ap-northeast-2a c7g.xlarge SPOT server
+   1   ap-northeast-2a m7g.xlarge SPOT server
+   2   ap-northeast-2b c7g.xlarge SPOT server
+   2   ap-northeast-2c m7g.xlarge SPOT server
+ASG 활동(노드 그룹별):
+  server-a 2026-11-22T03:47:38.981000+00:00	a user request created an AutoScalingGroup changing the desired capacity from 0 to 2.  an instance was started in response to a difference between desired a
+  server-a 2026-11-22T03:47:38.981000+00:00	a user request created an AutoScalingGroup changing the desired capacity from 0 to 2.  an instance was started in response to a difference between desired a
+  server-b 2026-11-22T05:52:23.073000+00:00	a user request update of AutoScalingGroup constraints to min: 0, max: 2, desired: 2 changing the desired capacity from 0 to 2.  an instance was started in r
+  server-b 2026-11-22T05:52:23.073000+00:00	a user request update of AutoScalingGroup constraints to min: 0, max: 2, desired: 2 changing the desired capacity from 0 to 2.  an instance was started in r
+  server-b 2026-11-22T05:48:19.833000+00:00	a user request update of AutoScalingGroup constraints to min: 0, max: 0, desired: 0 changing the desired capacity from 2 to 0.  an instance was taken out of
+  server-b 2026-11-22T05:48:19.624000+00:00	a user request update of AutoScalingGroup constraints to min: 0, max: 0, desired: 0 changing the desired capacity from 2 to 0.  an instance was taken out of
+  server-b 2026-11-22T05:35:08.610000+00:00	a user request update of AutoScalingGroup constraints to min: 0, max: 2, desired: 2 changing the desired capacity from 0 to 2.  an instance was started in r
+  server-b 2026-11-22T05:35:08.610000+00:00	a user request update of AutoScalingGroup constraints to min: 0, max: 2, desired: 2 changing the desired capacity from 0 to 2.  an instance was started in r
+  server-b 2026-11-22T05:31:05.450000+00:00	a user request update of AutoScalingGroup constraints to min: 0, max: 0, desired: 0 changing the desired capacity from 2 to 0.  an instance was taken out of
+  server-b 2026-11-22T05:31:05.315000+00:00	a user request update of AutoScalingGroup constraints to min: 0, max: 0, desired: 0 changing the desired capacity from 2 to 0.  an instance was taken out of
+  server-b 2026-11-22T03:55:40.252000+00:00	an instance was taken out of service in response to an EC2 instance rebalance recommendation.
+  server-b 2026-11-22T03:53:46.875000+00:00	an instance was launched in response to an EC2 instance rebalance recommendation.
+  server-b 2026-11-22T03:49:43.762000+00:00	an instance was taken out of service in response to an EC2 instance rebalance recommendation.
+  server-b 2026-11-22T03:48:32.048000+00:00	an instance was launched in response to an EC2 instance rebalance recommendation.
+  server-c 2026-11-22T05:10:25.100000+00:00	an instance was taken out of service in response to an EC2 instance rebalance recommendation.
+  server-c 2026-11-22T05:09:14.724000+00:00	an instance was launched in response to an EC2 instance rebalance recommendation.
+  server-c 2026-11-22T03:47:36.979000+00:00	a user request created an AutoScalingGroup changing the desired capacity from 0 to 2.  an instance was started in response to a difference between desired a
+  server-c 2026-11-22T03:47:36.979000+00:00	a user request created an AutoScalingGroup changing the desired capacity from 0 to 2.  an instance was started in response to a difference between desired a
+  load 2026-11-22T04:10:53.676000+00:00	a user request update of AutoScalingGroup constraints to min: 0, max: 1, desired: 1 changing the desired capacity from 0 to 1.  an instance was started in respo

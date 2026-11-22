@@ -28,7 +28,7 @@ Producer fencing은 프로세스가 종료되는 사건이므로 scrape 직전 �
 
 ## 운영 승인 전 필요한 증거
 
-실제 외부 LB의 WebSocket upgrade, 인증서, idle timeout, endpoint 제거 지연, drain과 재접속 p99를 측정한다. 서로 다른 물리 장애 도메인과 zone 내부 surge 노드, N-1 및 4 Pod 순간 용량을 확보하고 단일 도메인 손실을 시험한다. CNI allow/deny, 스토리지 복구, 실제 N/N-1 release 혼합과 rollback 결과도 남긴다. 단일 호스트 kind 결과로 이 조건을 완료했다고 판정하지 않는다.
+실제 외부 LB의 WebSocket upgrade, 인증서, idle timeout, endpoint 제거 지연, drain과 재접속 p99를 측정한다. 서로 다른 물리 장애 도메인과 zone 내부 surge 노드, N-1 및 4 Pod 순간 용량을 확보하고 단일 도메인 손실을 시험한다. CNI allow/deny, 스토리지 복구, 실제 N/N-1 release 혼합과 rollback 결과도 남긴다. 단일 호스트 kind 결과로 이 조건을 완료했다고 판정하지 않는다. 2026-11-22의 AWS 실측은 내부용 NLB의 WebSocket upgrade와 인증서, target 등록과 해제 지연, drain과 계획 재접속 p99, CNI allow와 deny, AZ 하나의 서브넷 차단과 인스턴스 종료, N-1을 쟀다([용량 시험 기록](ha-capacity.md)). 인터넷에 노출된 LB 경로, idle timeout에 실제로 닿는 연결, EBS를 포함한 AZ 전체 장애, 스토리지 복구, 서로 다른 release의 N/N-1 혼합은 재지 않았다.
 
 Kafka 클라이언트 오류는 native 원문 대신 고정 facility 분류와 오류 enum 코드만 기록한다. `PartitionEOF`는 현재 committed 경계에 도달했다는 정상 소비 상태이므로 오류 로그에서 제외한다. 인증 설정, 토큰과 payload는 이 로그에 기록하지 않는다.
 
