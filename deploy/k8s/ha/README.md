@@ -64,7 +64,7 @@ SIGTERM/SIGINT는 다음 patch를 중단하고 finally에서 잠금을 해제하
 
 ## 단일 호스트 개발 시험
 
-`kind.yaml`은 control-plane 1개와 zone label이 있는 worker 6개를 만든다. 실제 물리 zone이 아니며 기본 kind CNI는 NetworkPolicy 강제 적용을 검증하지 못한다. 기존 context를 변경하지 말고 별도 kubeconfig와 이름으로 생성한다. `dev-secrets.mjs settings.json deploy/local/ha-k8s`는 새 합성 인증서, 역할 credential, JWT와 개발 전용 단일 policy Pod를 생성한다. 결과 디렉터리는 0700, Secret JSON은 0600이며 Git에 넣지 않는다. 같은 디렉터리가 있으면 cluster identity를 조용히 바꾸지 않고 실패한다. 개발 인증 자료는 7일, client JWT는 1시간이다.
+`kind.yaml`은 control-plane 1개와 zone label이 있는 worker 6개를 만든다. 실제 물리 zone이 아니며 기본 kind CNI는 NetworkPolicy 강제 적용을 검증하지 못한다. 기존 context를 변경하지 말고 별도 kubeconfig와 이름으로 생성한다. `dev-secrets.mjs settings.json deploy/local/ha-k8s`는 새 합성 인증서, 역할 credential, JWT와 개발 전용 단일 policy Pod를 생성한다. 결과 디렉터리는 0700, Secret JSON은 0600이며 Git에 넣지 않는다. 같은 디렉터리가 있으면 cluster identity를 조용히 바꾸지 않고 실패한다. 개발 인증 자료는 7일, client JWT는 1시간이다. 서명 키는 출력 디렉터리의 `client-key.pem`에 남고 `node deploy/k8s/ha/dev-token.mjs settings.json 출력디렉터리`가 새 token을 만든다.
 
 기본 구조와 배포 중단/재개/실패/rollback 회귀는 `node --test deploy/k8s/ha/rollout.test.mjs`로 실행한다. 실제 kind 시험과 운영 환경 수용 시험은 별도의 증거를 보존한다. 단일 호스트 결과로 1,000 client SLO, 실제 LB drain이나 zone 손실의 가용성을 주장하지 않는다.
 

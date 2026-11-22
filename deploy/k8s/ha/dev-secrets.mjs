@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { generateKeyPairSync } from 'node:crypto'
 import { render } from './render.mjs'
+import { clientToken } from './dev-token.mjs'
 
 try {
   const settings=JSON.parse(readFileSync(process.argv[2]))
@@ -61,9 +62,8 @@ try {
   secret(`wts-dev-policy-${settings.version}`,{'cert.pem':policyPair.cert,'key.pem':policyPair.key,'policy.json':JSON.stringify(policy)})
   const policyConfig={url:`https://${policyHost}/policy`,issuer:`https://${policyHost}`,audience:'wts-ha',ca_file:'/credentials/ca.crt',credential_file:null,max_token_seconds:3600}
   secret(`wts-gateway-${settings.version}`,{'ca.crt':ca,'gateway.json':client('gateway'),'policy-client.json':JSON.stringify(policyConfig),'cursor-keys.json':readFileSync(join(base,'cursor-keys.json'))})
-  const encoded=value=>Buffer.from(JSON.stringify(value)).toString('base64url')
-  const message=`${encoded({alg:'RS256',typ:'at+jwt',kid:'dev-1'})}.${encoded({iss:policyConfig.issuer,aud:policyConfig.audience,sub:'dev-client',jti:'dev-client-1',iat:now,nbf:now,exp:now+3600,topics})}`
-  const token=`Bearer ${message}.${sign('RSA-SHA256',Buffer.from(message),privateKey).toString('base64url')}`
+  const token=clientToken(privateKey,policyConfig.issuer,topics,now)
+  put('client-key.pem',privateKey.export({type:'pkcs8',format:'pem'}))
   secret(`wts-dev-client-${settings.version}`,{'ca.crt':ca,token})
   put('token',token);put('ca.crt',ca)
   put('secrets.json',JSON.stringify({apiVersion:'v1',kind:'List',items:objects},null,2))
