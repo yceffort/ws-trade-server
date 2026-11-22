@@ -19,7 +19,7 @@
 | 경로와 프로토콜 | `/ws`, `v12.stomp`. 캡처 계약을 따른다 | `/experimental/ha/ws`, `wts.ha.v1`. 이 저장소가 정한 JSON 프로토콜([HA 프로토콜](docs/ha-protocol.md)) |
 | 입력 | `feed`가 쓰는 공유 메모리 링 | Kafka broker 3개의 복제 로그. active와 standby feed가 transaction으로 쓴다([복제 로그](deploy/ha/README.md)) |
 | 인증 | 선택. 로컬 JSON 토큰 파일 | 로컬 JSON 토큰 파일 또는 공유 JWT와 HTTPS 정책 공급자([공유 인증](docs/ha-auth.md)) |
-| 재접속 | 다시 구독한다. 끊긴 동안의 체결은 복구하지 않고 최신 상태는 `GET /snapshots`로 조회한다 | 서명 cursor로 보관 범위 안의 committed 체결을 다시 받는다. 클라이언트가 event ID로 중복을 거른다 |
+| 재접속 | 다시 구독한다. 끊긴 동안의 체결은 복구하지 않는다. `--http-addr`와 `--snapshot-topics`를 켜면 지정한 topic의 최신 본문을 `GET /snapshots`로 조회할 수 있다 | 서명 cursor로 보관 범위 안의 committed 체결을 다시 받는다. 클라이언트가 event ID로 중복을 거른다 |
 | 데이터 보장 | 느린 연결은 끊고 링이 덮어쓰이면 체결을 잃는다. 잃은 양은 seq 누락으로 센다 | 상태와 cursor를 함께 영속화하는 클라이언트는 보관 범위 안에서 committed 기록과 같은 순서로 적용한다. 시험은 oracle로 누락과 중복 적용이 0인지 본다 |
 | 실행과 배포 | `cargo run --bin feed`, `--bin gateway`. [단일 Pod](deploy/k8s/README.md), Recreate | `--features ha`. gateway와 edge 3개, broker 3개, feed 2개의 [별도 k8s 구성](deploy/k8s/ha/README.md)과 직렬 rollout |
 | 검증 환경 | 단위, 통합, 캡처 대조, Compose, kind | 단일 호스트 Compose 장애 시험, kind 수용 시험, AWS EKS 실측 |
