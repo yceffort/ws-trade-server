@@ -13,10 +13,15 @@ export async function runClient({ urls, token, store, startAt, signal, ca, maxAt
     const timeout = setTimeout(done, delay)
     signal?.addEventListener('abort', done, { once: true })
   })
+  // 공급자가 signal을 무시해도 취소가 먼저면 끝낸다. 취소 뒤에 늦게 온 결과는 한 번 정해진 Promise가 버린다.
+  const acquire = () => new Promise((resolve, reject) => {
+    signal?.addEventListener('abort', resolve, { once: true })
+    Promise.resolve().then(() => token({ signal })).then(resolve, reject).finally(() => signal?.removeEventListener('abort', resolve))
+  })
   while (!signal?.aborted) {
     if (attempt >= maxAttempts) throw new Error('attempt-limit')
     let credential
-    try { credential = await token({ signal }) } catch (error) { if (error?.message === 'auth-invalid') throw error }
+    try { credential = await acquire() } catch (error) { if (error?.message === 'auth-invalid') throw error }
     if (signal?.aborted) return store.load()
     if (credential === undefined || credential === expired) {
       // 공급자가 토큰을 주지 못했거나 서버가 만료로 거절한 토큰을 다시 주면 접속하지 않고 기다렸다 다시 묻는다.

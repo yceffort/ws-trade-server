@@ -210,10 +210,19 @@ test('revoked and out of scope sessions stop without refreshing and keep the sav
 
 test('cancelling while the token provider waits returns the saved state without connecting',async()=>{
   const {mock,seen} = await scripted(() => {})
-  const controller = new AbortController(), args = options(mock)
-  setTimeout(() => controller.abort(),100)
+  const unhandled = []
+  const record = error => unhandled.push(error)
+  process.on('unhandledRejection',record)
   try {
-    const state = await runClient({...args,signal:controller.signal,token:({signal})=>new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(new Error('cancelled'))))})
-    assert.deepEqual(state,args.store.load()); assert.equal(seen.connections,0)
-  } finally { close(mock) }
+    // signal을 따르는 공급자와, signal을 무시하고 취소 뒤에 늦게 거부하는 공급자를 함께 본다.
+    for (const token of [({signal})=>new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(new Error('cancelled')))),()=>new Promise((_,reject)=>setTimeout(()=>reject(new Error('late')),300))]) {
+      const controller = new AbortController(), args = options(mock)
+      setTimeout(() => controller.abort(),100)
+      const started = performance.now()
+      const state = await runClient({...args,signal:controller.signal,token})
+      assert.ok(performance.now() - started < 250); assert.deepEqual(state,args.store.load())
+    }
+    await new Promise(resolve => setTimeout(resolve,400))
+    assert.equal(seen.connections,0); assert.deepEqual(unhandled,[])
+  } finally { process.off('unhandledRejection',record); close(mock) }
 })
