@@ -66,13 +66,18 @@ docker run --rm --entrypoint /bin/promtool -v "$PWD/deploy/k8s/ha/observability:
 | WtsAlertDeliveryFailed | Prometheus 또는 Alertmanager 전달 실패. 수신기와 네트워크 확인 | 5분간 새 전달 실패 없음 |
 | WtsWatchdog | 1분마다 수신되는 생존 신호. 멈추면 관측 스택 바깥에서 확인 | 신호 수신 재개 |
 
-계획된 leader 교체의 단발 fencing은 기록만 하고, 5분 안에 반복되면 계획 여부와 무관하게 조사한다. `lease-lost`와 `producer-fenced`를 같은 사건으로 세지 않는다. 배포 중 일시 Ready 감소는 30초 유지 시간을 적용한다. 계획 배포라고 namespace 전체를 silence하지 않는다. Alertmanager는 namespace와 alertname으로 묶고 4시간 안에 같은 firing을 반복하지 않으며 복구 통지를 보낸다. metrics 소실이 활성인 namespace의 Ready 부족과 필수 지표 누락 알림은 중복 억제한다.
+계획된 leader 교체의 단발 fencing은 기록만 하고, 5분 안에 반복되면 계획 여부와 무관하게 조사한다. `lease-lost`와 `producer-fenced`를 같은 사건으로 세지 않는다. 배포 중 일시 Ready 감소는 30초 유지 시간을 적용한다. 계획 배포라고 namespace 전체를 silence하지 않는다. Alertmanager는 namespace와 alertname으로 묶고 4시간 안에 같은 firing을 반복하지 않으며 복구 통지를 보낸다. metrics 소실이 활성인 namespace의 Ready 부족 알림은 중복 억제한다. 수집 중인 다른 Pod의 필수 지표 누락은 별도 장애이므로 억제하지 않는다.
 
 수신기는 최대 100개 통지를 메모리에 보관하고 alertname, namespace, 상태만 남긴다. 재시작하면 기록을 잃으며 감사 저장소가 아니다. Alertmanager도 이 개발 구성에서는 emptyDir라 재시작 뒤 중복 억제 상태와 silence가 사라질 수 있다. Prometheus가 죽으면 스스로 알릴 수 없고 Alertmanager가 죽으면 같은 경로로 장애를 전달할 수 없다. WtsWatchdog 수신 간격을 관측 스택 외부에서 확인해야 이 공백을 감지할 수 있다. 실제 외부 통지는 사용자가 지정한 대상과 범위에서 별도 설정한다.
 
 ```sh
 node deploy/k8s/ha/observability/alert-smoke.mjs
 kubectl --context CONTEXT -n wts-observability port-forward svc/alert-receiver 18080:8080
+```
+
+port-forward를 실행한 터미널은 그대로 두고 다른 터미널에서 수신기를 조회한다.
+
+```sh
 curl http://127.0.0.1:18080/notifications
 ```
 

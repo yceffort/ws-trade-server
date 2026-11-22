@@ -30,7 +30,7 @@ try {
   writeFileSync(join(directory, 'fixture.cjs'), `let age=0;require('node:http').createServer((q,r)=>{if(q.url==='/fault')age=4;if(q.url==='/recover')age=0;r.setHeader('content-type','text/plain; version=0.0.4');r.end('wts_ha_gateway_ready 1\\nwts_ha_source_age_seconds '+age+'\\nwts_ha_broker_age_seconds 0\\nwts_ha_policy_fresh 1\\n')}).listen(8080)`)
   const fixture = start('fixture', 8080, node, '/config/fixture.cjs')
   const receiver = start('alert-receiver', 8080, node, '/rules/alert-receiver.mjs')
-  start('alertmanager', 9093, 'prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba', '--config.file=/rules/stack/alertmanager.yml', '--cluster.listen-address=')
+  const alertmanager = start('alertmanager', 9093, 'prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba', '--config.file=/rules/stack/alertmanager.yml', '--cluster.listen-address=')
   writeFileSync(join(directory, 'prometheus.json'), JSON.stringify({ global: { scrape_interval: '1s', evaluation_interval: '1s' }, rule_files: ['/rules/prometheus-rules.yaml'], alerting: { alertmanagers: [{ static_configs: [{ targets: ['alertmanager:9093'] }] }] }, scrape_configs: [{ job_name: 'wts-ha', static_configs: [{ targets: ['fixture:8080'], labels: { namespace: 'wts-ha', pod: 'gateway' } }] }] }))
   start('prometheus', 9090, prom, '--config.file=/config/prometheus.json')
   const lokiConfig = readFileSync(join(source, 'stack/loki-config.yaml'), 'utf8').replaceAll('/var/loki', '/tmp/loki').replace('directory: /etc/loki/rules', 'directory: /config/rules')
@@ -40,7 +40,7 @@ try {
   writeFileSync(join(directory, 'loki.yaml'), lokiConfig)
   const loki = start('loki', 3100, 'grafana/loki:3.5.3@sha256:3165cecce301ce5b9b6e3530284b080934a05cd5cafac3d3d82edcb887b45ecd', '-config.file=/config/loki.yaml')
   const events = async () => (await (await fetch(`${receiver}/notifications`)).json()).flatMap(event => event.alerts)
-  const received = async (name, status) => (await events()).some(event => event.name === name && event.status === status && event.namespace === 'wts-ha')
+  const received = async (name, status, namespace = 'wts-ha') => (await events()).some(event => event.name === name && event.status === status && event.namespace === namespace)
   await wait(async () => (await fetch(`${loki}/ready`)).ok, 'Loki startup', 120000)
   await wait(async () => (await fetch(`${fixture}/metrics`)).ok, 'fixture startup')
   await fetch(`${fixture}/fault`)
@@ -53,12 +53,31 @@ try {
   await wait(() => received('WtsHaMetricsMissing', 'firing'), 'missing endpoint notification')
   docker('start', `${network}-fixture`)
   await wait(() => received('WtsHaMetricsMissing', 'resolved'), 'scrape recovery notification')
+  const independent = [
+    { labels: { alertname: 'WtsHaMetricsMissing', namespace: 'inhibition-check', pod: 'a', severity: 'critical' } },
+    { labels: { alertname: 'WtsHaMetricsIncomplete', namespace: 'inhibition-check', pod: 'b', severity: 'critical' } },
+  ]
+  const notified = await fetch(`${alertmanager}/api/v2/alerts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(independent) })
+  assert.ok(notified.ok)
+  await wait(() => received('WtsHaMetricsIncomplete', 'firing', 'inhibition-check'), 'another Pod remains visible')
   const push = async namespace => {
     const response = await fetch(`${loki}/loki/api/v1/push`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ streams: [{ stream: { namespace, component: 'feed' }, values: [[String(BigInt(Date.now()) * 1000000n), JSON.stringify({ fields: { event: 'ha_producer_stopped', reason: 'producer-fenced' } })]] }] }) })
     assert.equal(response.status, 204)
   }
   await push('wts-ha'); await push('other')
-  await sleep(12000)
+  const query = 'sum(count_over_time({namespace="wts-ha",component="feed"} | json reason="fields.reason" | reason="producer-fenced" [5m]))'
+  await wait(async () => {
+    const data = await (await fetch(`${loki}/loki/api/v1/query?${new URLSearchParams({ query })}`)).json()
+    return Number(data.data?.result?.[0]?.value?.[1]) === 1
+  }, 'single fencing indexed')
+  const indexedAt = Date.now()
+  let rule
+  await wait(async () => {
+    const data = await (await fetch(`${loki}/prometheus/api/v1/rules`)).json()
+    rule = data.data?.groups?.flatMap(group => group.rules).find(rule => rule.name === 'WtsHaUnexpectedFencing')
+    return rule?.health === 'ok' && Date.parse(rule.lastEvaluation) >= indexedAt
+  }, 'single fencing evaluated')
+  assert.equal(rule.state, 'inactive')
   assert.equal(await received('WtsHaUnexpectedFencing', 'firing'), false)
   await push('wts-ha')
   await wait(() => received('WtsHaUnexpectedFencing', 'firing'), 'Loki repeated fencing notification')
