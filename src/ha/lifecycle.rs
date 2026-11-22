@@ -15,7 +15,6 @@ pub enum Phase {
 #[derive(Clone, Copy)]
 struct State {
     phase: Phase,
-    generation: u64,
     started: Option<Instant>,
 }
 
@@ -38,7 +37,7 @@ impl Lifecycle {
         if routing.saturating_add(spread).saturating_add(flush) > Duration::from_secs(40) || flush.is_zero() {
             return Err("invalid-drain-budget");
         }
-        let (state, _) = watch::channel(State { phase: Phase::Bootstrapping, generation: 0, started: None });
+        let (state, _) = watch::channel(State { phase: Phase::Bootstrapping, started: None });
         Ok(Self { state, routing, spread, flush })
     }
 
@@ -62,9 +61,6 @@ impl Lifecycle {
             };
             if state.phase == next {
                 return false;
-            }
-            if next == Phase::Degraded {
-                state.generation += 1;
             }
             state.phase = next;
             tracing::info!(event = "ha_lifecycle_changed", phase = ?next);
@@ -110,13 +106,10 @@ impl Lifecycle {
         }
     }
     pub async fn close_reason(&self, conn: u64) -> &'static str {
+        // source 지연과 replica 실패로 닫는 판단은 연결별 감시가 맡는다. 준비 상태가 내려가도 기존 연결은 여기서 닫지 않는다(#94).
         let mut receiver = self.state.subscribe();
-        let generation = receiver.borrow().generation;
         loop {
             let state = *receiver.borrow_and_update();
-            if state.generation != generation || matches!(state.phase, Phase::Degraded | Phase::Bootstrapping) {
-                return "source-stale";
-            }
             if state.phase == Phase::Stopped {
                 return "server-shutdown";
             }
@@ -164,15 +157,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_coalesced_degradation_invalidates_existing_connections() {
+    async fn a_degradation_rejects_new_connections_but_keeps_existing_ones() {
         let life = Lifecycle::default();
         life.health(true, false);
         let copy = life.clone();
         let waiting = tokio::spawn(async move { copy.close_reason(1).await });
         tokio::task::yield_now().await;
         life.health(false, false);
+        assert!(!life.ready());
+        life.health(true, true);
+        assert_eq!(life.phase(), Phase::Degraded);
         life.health(true, false);
-        assert_eq!(waiting.await.unwrap(), "source-stale");
-        assert!(life.ready());
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        life.stop();
+        assert_eq!(waiting.await.unwrap(), "server-shutdown");
     }
 }

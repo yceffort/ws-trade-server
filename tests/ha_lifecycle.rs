@@ -174,20 +174,21 @@ async fn ha_bootstrap_stale_recovery_and_drain_keep_explicit_states() {
         socket
     };
     let mut socket = connect().await;
-    feed.pause.store(true, std::sync::atomic::Ordering::Relaxed);
-    let stale = tokio::time::timeout(Duration::from_secs(6),async {
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
-        loop {
-            tokio::select! {
-                _ = heartbeat.tick() => { socket.send(Message::text(r#"{"type":"heartbeat"}"#)).await.unwrap(); },
-                message = socket.next() => {
-                    let frame:serde_json::Value = serde_json::from_str(&message.unwrap().unwrap().into_text().unwrap()).unwrap();
-                    if frame["type"] == "error" { break frame; }
-                }
+    let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
+    // 기존 연결은 오류 없이 유지되어야 하므로 heartbeat를 보내면서 첫 지정 프레임까지 읽는다.
+    let mut until = async |socket: &mut tokio_tungstenite::WebSocketStream<_>, wanted: &[&str]| loop {
+        tokio::select! {
+            _ = heartbeat.tick() => { socket.send(Message::text(r#"{"type":"heartbeat"}"#)).await.unwrap(); },
+            message = socket.next() => {
+                let frame:serde_json::Value = serde_json::from_str(&message.unwrap().unwrap().into_text().unwrap()).unwrap();
+                assert_ne!(frame["type"], "error", "{frame}");
+                if wanted.iter().any(|t| frame["type"] == *t) { break frame; }
             }
         }
-    }).await.unwrap();
-    assert_eq!(stale["code"], "source-stale");
+    };
+    tokio::time::timeout(Duration::from_secs(10), until(&mut socket, &["caught-up"])).await.unwrap();
+    feed.pause.store(true, std::sync::atomic::Ordering::Relaxed);
+    tokio::time::timeout(Duration::from_secs(6), until(&mut socket, &["source-stale"])).await.unwrap();
     tokio::time::timeout(Duration::from_secs(2), async {
         while !request(http, "GET", "/readyz").await.starts_with("HTTP/1.1 503") {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -198,6 +199,8 @@ async fn ha_bootstrap_stale_recovery_and_drain_keep_explicit_states() {
     assert!(request(http, "GET", "/livez").await.starts_with("HTTP/1.1 200"));
     feed.pause.store(false, std::sync::atomic::Ordering::Relaxed);
     server.wait_ready(Duration::from_secs(5)).await.unwrap();
+    // 재개 뒤에는 같은 연결로 공급 상태가 다시 온다.
+    tokio::time::timeout(Duration::from_secs(5), until(&mut socket, &["source-status", "event"])).await.unwrap();
     let mut fresh = connect().await;
     assert!(request(http, "POST", "/drain").await.starts_with("HTTP/1.1 200"));
     let started = life.drain_started().unwrap();
