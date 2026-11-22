@@ -94,3 +94,21 @@ AZ b의 서브넷을 차단하자 `receive-deadline` 353건과 `source-stale` 64
 개발 환경은 `retention.bytes` 1GiB를 그대로 쓴다. 24시간 보관을 목표로 하는 검증 환경은 k8s의 `retentionBytes` 또는 Compose의 `WTS_HA_RETENTION_BYTES`를 8GiB(8589934592)로 둔다. 실측의 약 1.7배로, 식별자가 길거나 체결이 큰 경우와 삭제 단위인 segment(16MiB)만큼의 여유를 둔 값이다. 여기에 compact 토픽 몇십 MB를 더해도 settings 예시의 broker PVC 20Gi 안이다. 이 설정에서 실제로 24시간 동안 원래 cursor로 복구되는지는 장시간 시험을 하지 않아 확인하지 않았다.
 
 보관 경계의 동작은 `deploy/ha/retention-boundary.mjs`가 확인한다. DeleteRecords로 로그 시작 위치를 앞당긴 뒤, 경계에 맞는 cursor는 이어서 복구되고 경계 앞의 events cursor와 state cursor는 `cursor-expired`, 경계 앞의 `start_at`은 `start-out-of-range`로 끝나며 저장 상태가 바뀌지 않는지 본다. 시간과 용량 retention도 broker가 로그 시작 위치를 앞당기는 일이라 클라이언트가 보는 결과는 같다. broker의 retention 검사 주기(기본 5분)와 segment 삭제 시점은 이 시험에 들어 있지 않다.
+
+## edge 하나의 한계 (2026-11-23)
+
+[#95](https://github.com/yceffort/ws-trade-server/issues/95)의 측정이다. AWS에서 gateway가 2개만 남아 Pod마다 500 연결을 받는 동안 edge가 0.96~1.0 core로 단일 스레드 한계에 있었다. edge만 따로 포화시키려고 `edge/capacity.mjs`로 쟀다. 합성 upstream이 연결마다 10ms마다 450바이트 프레임을 보내고, 가벼운 수신 클라이언트는 받은 수만 센다. Apple M1(고성능 코어 4개, 효율 코어 4개) 한 대에서 upstream, edge, 클라이언트를 함께 돌렸으며 결과는 `bench/results/ha/edge-capacity-m1.json`에 있다.
+
+| edge worker | 연결 시도 | 연결 성공 | 초당 전달 | edge core | 접속 실패 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 600 | 600 | 53,693 | 0.80 | 없음 |
+| 1 | 800 | 721 | 69,651 | 0.95 | `ECONNRESET` 79 |
+| 1 | 1,000 | 875 | 85,018 | 0.95 | `ECONNRESET` 125 |
+| 2 | 1,000 | 1,000 | 91,615 | 1.70 | 없음 |
+| 2 | 1,800 | 1,800 | 130,084 | 1.84 | 없음 |
+
+worker 하나는 이 호스트에서 약 720 연결(초당 약 70,000건)에 코어 하나를 다 썼다. 그 뒤에는 이미 붙은 연결의 전달은 유지했지만 새 TLS 접속이 `ECONNRESET`으로 끊겼다. TLS handshake도 같은 스레드가 처리하므로 재접속 폭주가 이 한계를 먼저 넘는다. AWS c7g에서는 500 연결에 1.0 core였으므로 코어당 한계는 호스트마다 다르다.
+
+edge는 이제 `WTS_EDGE_WORKERS`만큼 Node cluster worker를 띄워 같은 포트를 나눠 받는다. 한 worker가 죽으면 그 자리만 다시 띄우고, 듣기도 전에 죽으면 전체를 실패로 끝낸다. k8s 배포는 `edgeWorkers` 기본값 2를 쓰고, worker마다 연결 상한(1,024)과 버퍼가 따로 있어 edge 메모리 limit을 512Mi에서 1Gi로 올렸다. worker 2개로는 1,800 연결까지 접속 실패가 없었다.
+
+같은 600 연결에서 worker 2개는 1.11 core로 1개(0.80)보다 약 40% 더 썼다. 이 호스트의 효율 코어로 밀려난 영향으로 보지만 확인하지 않았다. N-1(1,000 clients, gateway 하나 손실)을 이 구성으로 AWS에서 다시 재지는 않았다. 로컬 전체 구성은 부하 발생기가 600~800 연결에서 먼저 포화되어 N-1 재측정에 쓰지 못했다.
