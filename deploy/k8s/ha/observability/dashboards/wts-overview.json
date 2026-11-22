@@ -29,7 +29,7 @@
         "refresh": 2,
         "multi": true,
         "includeAll": true,
-        "allValue": ".*",
+        "allValue": ".+",
         "current": {
           "text": "All",
           "value": "$__all"
@@ -115,7 +115,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -165,7 +165,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -215,7 +215,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -265,7 +265,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -315,7 +315,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -365,7 +365,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -415,7 +415,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -465,7 +465,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -515,7 +515,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -565,7 +565,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -627,7 +627,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -677,7 +677,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -727,7 +727,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -777,7 +777,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -827,7 +827,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -877,7 +877,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -927,7 +927,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -977,7 +977,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1039,7 +1039,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1089,7 +1089,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1139,7 +1139,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1189,7 +1189,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1239,7 +1239,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1289,7 +1289,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1339,7 +1339,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1389,7 +1389,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1439,7 +1439,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1489,7 +1489,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1539,7 +1539,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1589,7 +1589,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1651,7 +1651,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1701,7 +1701,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1751,7 +1751,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1801,7 +1801,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1851,7 +1851,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1901,7 +1901,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -1951,7 +1951,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -2001,7 +2001,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -2051,7 +2051,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -2101,7 +2101,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]
@@ -2162,7 +2162,7 @@
       "links": [
         {
           "title": "같은 시간대 로그",
-          "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=${pod:percentencode}&viewPanel=99",
+          "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&${pod:queryparam}&viewPanel=99",
           "targetBlank": true
         }
       ]

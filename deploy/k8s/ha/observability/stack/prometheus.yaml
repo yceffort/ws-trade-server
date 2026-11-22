@@ -10,7 +10,7 @@ rules:
     resources: [endpoints, services, pods, nodes]
     verbs: [get, list, watch]
   - apiGroups: [""]
-    resources: [nodes/proxy]
+    resources: [nodes/metrics]
     verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -51,9 +51,11 @@ spec:
           securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
           volumeMounts:
             - { name: config, mountPath: /etc/prometheus }
+            - { name: kubelet-ca, mountPath: /etc/kubelet-ca, readOnly: true }
             - { name: data, mountPath: /prometheus }
       volumes:
         - { name: config, configMap: { name: prometheus-config } }
+        - { name: kubelet-ca, configMap: { name: kubelet-ca } }
         - { name: data, persistentVolumeClaim: { claimName: prometheus-data } }
 ---
 apiVersion: v1
