@@ -111,7 +111,9 @@ ready replica가 2개 미만, quorum/ISR 부족, source heartbeat 5초 이상 �
 | 4 | [#49 resume 프로토콜](https://github.com/yceffort/ws-trade-server/issues/49) | #48, 다른 Pod에서 cursor 복구와 client 적용 oracle |
 | 4 | [#50 drain 상태 머신](https://github.com/yceffort/ws-trade-server/issues/50) | #48, bounded 종료와 routing 전파 시험 |
 | 4 | [#51 인증 일관성](https://github.com/yceffort/ws-trade-server/issues/51) | #46, #48, 키 회전 및 정책 공급자 장애 시험 |
-| 5 | [#52 HA 배포](https://github.com/yceffort/ws-trade-server/issues/52) | #47, #48, #49, #50, #51, 실제 LB와 장애 도메인 검증 |
-| 6 | [#53 HA 수용 시험](https://github.com/yceffort/ws-trade-server/issues/53) | #49~#52, 위 부하/장애 표 및 운영 runbook |
+| 5 | [#52 HA 배포](https://github.com/yceffort/ws-trade-server/issues/52) | #47, #48, #49, #50, #51. 실제 LB와 장애 도메인 검증은 #90으로 옮김 |
+| 6 | [#53 HA 수용 시험](https://github.com/yceffort/ws-trade-server/issues/53) | #49~#52, 위 부하/장애 표 및 운영 runbook. 1,000 clients 목표는 #91로 옮김 |
+| 7 | [#90 AWS 실측](https://github.com/yceffort/ws-trade-server/issues/90) | #52와 #53에서 옮긴 실제 LB, NetworkPolicy 집행, AZ 손실 검증 |
+| 7 | [#91 1,000 clients 병목](https://github.com/yceffort/ws-trade-server/issues/91) | #53에서 옮긴 용량 목표의 병목 위치 특정 |
 
 각 단계는 별도 worktree와 PR로 구현하고 CodeRabbit 지적과 필요한 회귀를 해결한다. Rust 변경에는 `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`를 적용한다. 기존 프레임을 건드리면 README의 캡처 계약 대조 절차를 수행하고 `contract/`는 직접 편집하지 않는다. 새로운 HA 형식과 임계값은 README의 미관측 실험 목록에 명시한다. 모든 단계의 완료 전에는 기존 single Pod 배포가 HA를 지원한다고 표시하지 않는다.

@@ -15,6 +15,14 @@ export function loadJob(s,options={}) {
   if(!Number.isInteger(duration)||duration<10||duration>900)throw new Error('durationSeconds must be an integer from 10 to 900')
   const fault=Boolean(config.enableFaults);delete config.enableFaults
   const external=config.externalEgress??[];delete config.externalEgress
+  const {nodeSelector,tolerations}=config;delete config.nodeSelector;delete config.tolerations
+  if(nodeSelector!==undefined&&(typeof nodeSelector!=='object'||nodeSelector===null||Array.isArray(nodeSelector)||Object.values(nodeSelector).some(value=>typeof value!=='string')))throw new Error('nodeSelector requires string labels')
+  // Kubernetes 규칙을 따른다. 빈 operator는 Equal이다. key는 Exists에서만 비울 수 있고, Exists에는 value를 줄 수 없으며, effect를 비우면 모든 effect에 맞는다.
+  if(tolerations!==undefined&&(!Array.isArray(tolerations)||tolerations.some(t=>{
+    if(typeof t!=='object'||t===null)return true
+    const key=t.key??'',value=t.value??'',effect=t.effect??'',operator=(t.operator??'')===''?'Equal':t.operator
+    return !['Equal','Exists'].includes(operator)||typeof key!=='string'||typeof value!=='string'||(operator==='Exists'?value!=='':key==='')||!['','NoSchedule','PreferNoSchedule','NoExecute'].includes(effect)
+  })))throw new Error('tolerations must follow the Kubernetes toleration rules')
   if(!Array.isArray(external)||external.length>16||external.some(rule=>{
     const [address,prefix,...extra]=typeof rule?.cidr==='string'?rule.cidr.split('/'):[]
     const family=address&&isIP(address)
@@ -31,7 +39,7 @@ export function loadJob(s,options={}) {
     volumes.push({name:'chaos',projected:{defaultMode:0o440,sources:[{serviceAccountToken:{path:'token',expirationSeconds:3600}},{configMap:{name:'kube-root-ca.crt',items:[{key:'ca.crt',path:'ca.crt'}]}}]}})
     mounts.push({name:'chaos',mountPath:'/var/run/chaos',readOnly:true})
   }
-  items.push(resource('batch/v1','Job',name,{spec:{backoffLimit:0,activeDeadlineSeconds:duration+600,template:{metadata:{labels},spec:{serviceAccountName:name,restartPolicy:'Never',automountServiceAccountToken:false,securityContext:{runAsNonRoot:true,runAsUser:10001,runAsGroup:10001,fsGroup:10001,seccompProfile:{type:'RuntimeDefault'}},containers:[{name:'load',image:s.loadImage,command:['sh','-c','node /app/bench/ha/run.mjs /config/load.json; result=$?; sleep 120; exit "$result"'],env:[{name:'NODE_OPTIONS',value:'--max-old-space-size=384'},{name:'NODE_EXTRA_CA_CERTS',value:'/client/ca.crt'},...(fault?[{name:'WTS_HA_ALLOW_FAULTS',value:'dedicated-test-namespace'}]:[])],securityContext:{allowPrivilegeEscalation:false,readOnlyRootFilesystem:true,capabilities:{drop:['ALL']}},volumeMounts:mounts,resources:{requests:{cpu:'1',memory:'512Mi'},limits:{cpu:'4',memory:'2Gi'}}}],volumes}}}}))
+  items.push(resource('batch/v1','Job',name,{spec:{backoffLimit:0,activeDeadlineSeconds:duration+600,template:{metadata:{labels},spec:{serviceAccountName:name,restartPolicy:'Never',automountServiceAccountToken:false,...(nodeSelector?{nodeSelector}:{}),...(tolerations?{tolerations}:{}),securityContext:{runAsNonRoot:true,runAsUser:10001,runAsGroup:10001,fsGroup:10001,seccompProfile:{type:'RuntimeDefault'}},containers:[{name:'load',image:s.loadImage,command:['sh','-c','node /app/bench/ha/run.mjs /config/load.json; result=$?; sleep 120; exit "$result"'],env:[{name:'NODE_OPTIONS',value:'--max-old-space-size=384'},{name:'NODE_EXTRA_CA_CERTS',value:'/client/ca.crt'},...(fault?[{name:'WTS_HA_ALLOW_FAULTS',value:'dedicated-test-namespace'}]:[])],securityContext:{allowPrivilegeEscalation:false,readOnlyRootFilesystem:true,capabilities:{drop:['ALL']}},volumeMounts:mounts,resources:{requests:{cpu:'1',memory:'512Mi'},limits:{cpu:'4',memory:'2Gi'}}}],volumes}}}}))
   const ports=(...numbers)=>numbers.map(port=>({protocol:'TCP',port}))
   items.push(resource('networking.k8s.io/v1','NetworkPolicy',name,{spec:{podSelector:{matchLabels:labels},policyTypes:['Ingress','Egress'],egress:[{to:[{namespaceSelector:{matchLabels:{'kubernetes.io/metadata.name':'kube-system'}},podSelector:{matchLabels:{'k8s-app':'kube-dns'}}}],ports:[...ports(53),{protocol:'UDP',port:53}]},{to:[podPeer('gateway')],ports:ports(8443)},{to:[podPeer('broker')],ports:ports(9092)},...external.map(rule=>({to:[{ipBlock:{cidr:rule.cidr}}],ports:ports(rule.port)})),...(fault?[{to:s.apiCIDRs.map(cidr=>({ipBlock:{cidr}})),ports:ports(443,6443)}]:[])]}}))
   for(const [component,port] of [['gateway',8443],['broker',9092]])items.push(resource('networking.k8s.io/v1','NetworkPolicy',`${name}-${component}`,{spec:{podSelector:podPeer(component).podSelector,policyTypes:['Ingress'],ingress:[{from:[{podSelector:{matchLabels:labels}}],ports:ports(port)}]}}))

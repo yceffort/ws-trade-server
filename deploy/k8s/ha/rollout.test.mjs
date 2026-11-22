@@ -147,6 +147,15 @@ test('manifest name limit and post-SNAT network range are separate from LB clien
   assert.deepEqual(items.find(o=>o.kind==='Service'&&o.metadata.name==='wts-gateway').spec.loadBalancerSourceRanges,['198.51.100.0/24'])
   assert.deepEqual(items.find(o=>o.kind==='NetworkPolicy'&&o.metadata.name==='gateway').spec.ingress[0].from,[{ipBlock:{cidr:'10.0.0.0/8'}}])
 })
+test('gateway Service annotations and extra certificate names come from settings',()=>{
+  const service=s=>render(s).items.find(o=>o.kind==='Service'&&o.metadata.name==='wts-gateway')
+  const annotations={'service.beta.kubernetes.io/aws-load-balancer-type':'external','service.beta.kubernetes.io/aws-load-balancer-nlb-target-type':'ip'}
+  assert.deepEqual(service({...settings,gatewayServiceAnnotations:annotations}).metadata.annotations,annotations)
+  assert.equal(service(settings).metadata.annotations,undefined)
+  for(const value of [[],'external',{'bad key':'v'},{'example.com/a':1}])assert.throws(()=>render({...settings,gatewayServiceAnnotations:value}),/Service annotations/)
+  render({...settings,gatewayNames:['gateway.wts-ha.internal']})
+  for(const value of ['gateway.internal',['*.example.com'],['a,DNS:evil'],['UPPER.example']])assert.throws(()=>render({...settings,gatewayNames:value}),/gateway names/)
+})
 
 test('terminated Pod history does not block rollout, while deleting Pods still do',async()=>{
   const api=new Kubernetes('test','wts-ha')

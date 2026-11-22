@@ -14,7 +14,7 @@ docker build -f bench/ha/Dockerfile --build-arg HA_IMAGE=ws-trade-ha:acceptance 
 node bench/ha/job-run.mjs CONTEXT settings.json options.json ./ha-results
 ```
 
-아래는 일반 부하 시험용 `options.json` 예시다. 필드를 생략하면 `requireReconnectSlo`는 `true`, `startupIntervalMs`는 `10`이다. Service 주소를 사용하는 시험과 실제 외부 LB URL을 사용하는 시험을 별도로 남긴다. 인증서의 SAN과 URL이 일치해야 한다. 측정용 부하 Pod는 서버와 분리된 노드에 두는 것이 좋으며, CPU throttling과 client event loop 지연도 결과와 함께 확인한다.
+아래는 일반 부하 시험용 `options.json` 예시다. 필드를 생략하면 `requireReconnectSlo`는 `true`, `startupIntervalMs`는 `10`이다. Service 주소를 사용하는 시험과 실제 외부 LB URL을 사용하는 시험을 별도로 남긴다. 인증서의 SAN과 URL이 일치해야 한다. 측정용 부하 Pod는 서버와 분리된 노드에 두는 것이 좋으며, CPU throttling과 client event loop 지연도 결과와 함께 확인한다. `nodeSelector`와 `tolerations`를 주면 부하 Pod를 taint를 건 전용 노드에 고정한다. 두 값은 Job의 Pod spec에만 들어가고 부하 설정에는 남지 않는다.
 
 ```json
 {"clients":1000,"workers":4,"durationSeconds":600,"startupIntervalMs":20,"requireReconnectSlo":false}

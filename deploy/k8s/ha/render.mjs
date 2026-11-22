@@ -9,6 +9,10 @@ export function render(s) {
   if (![s.gatewayImage,s.edgeImage].every(image => /^[\w./:-]+@sha256:[a-f0-9]{64}$/.test(image))) throw new Error('image digests required')
   for (const key of ['clientCIDRs','gatewayIngressCIDRs','policyCIDRs','apiCIDRs']) if (!Array.isArray(s[key]) || !s[key].length || s[key].some(c => !/^[0-9a-f.:]+\/\d{1,3}$/i.test(c))) throw new Error('explicit CIDRs required')
   if (s.metricsNamespace && !name.test(s.metricsNamespace)) throw new Error('invalid metrics namespace')
+  const annotations = s.gatewayServiceAnnotations ?? {}
+  if (typeof annotations !== 'object' || Array.isArray(annotations) || Object.entries(annotations).some(([key,value]) => !/^([a-z0-9.-]+\/)?[A-Za-z0-9][-_.A-Za-z0-9]*$/.test(key) || typeof value !== 'string')) throw new Error('invalid gateway Service annotations')
+  const names = s.gatewayNames ?? []
+  if (!Array.isArray(names) || names.some(n => typeof n !== 'string' || n.length > 253 || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$/.test(n))) throw new Error('invalid gateway names')
   const objects = []
   const resource = (apiVersion,kind,name,fields={}) => ({apiVersion,kind,metadata:{name,namespace:s.namespace},...fields})
   const add = (...args) => { const object = resource(...args); objects.push(object); return object }
@@ -55,7 +59,9 @@ export function render(s) {
     add('networking.k8s.io/v1','NetworkPolicy','ha-metrics',{spec:{podSelector:selector('gateway'),policyTypes:['Ingress'],ingress:[{from:[{namespaceSelector:{matchLabels:{'kubernetes.io/metadata.name':s.metricsNamespace}}}],ports:[{protocol:'TCP',port:9090}]}]}})
   }
   add('policy/v1','PodDisruptionBudget','wts-gateway',{spec:{minAvailable:2,selector:selector('gateway')}})
-  add('v1','Service','wts-gateway',{spec:{type:'LoadBalancer',externalTrafficPolicy:'Cluster',loadBalancerSourceRanges:s.clientCIDRs,selector:labels('gateway'),ports:[{name:'wss',port:443,targetPort:'wss'}]}})
+  const gateway = add('v1','Service','wts-gateway',{spec:{type:'LoadBalancer',externalTrafficPolicy:'Cluster',loadBalancerSourceRanges:s.clientCIDRs,selector:labels('gateway'),ports:[{name:'wss',port:443,targetPort:'wss'}]}})
+  // AWS처럼 LB 종류와 target 방식을 Service annotation으로 받는 제공자를 위한 값이다.
+  if (s.gatewayServiceAnnotations) gateway.metadata.annotations = {...annotations}
   add('apps/v1','Deployment','wts-feed',{spec:{replicas:2,strategy:{type:'RollingUpdate',rollingUpdate:{maxUnavailable:1,maxSurge:0}},selector:selector('feed'),template:{metadata:{labels:labels('feed')},spec:{serviceAccountName:'wts-feed',automountServiceAccountToken:false,terminationGracePeriodSeconds:30,securityContext:podSecurity,affinity:anti('feed'),topologySpreadConstraints:[{maxSkew:1,topologyKey:'topology.kubernetes.io/zone',whenUnsatisfiable:'DoNotSchedule',labelSelector:selector('feed')}],containers:[{name:'feed',image:s.gatewayImage,securityContext,args:['ha-feed','run','--kafka','/credentials/feed.json','--source','/source/source.json','--lease','/source/lease.json'],env:[{name:'POD_UID',valueFrom:{fieldRef:{fieldPath:'metadata.uid'}}}],volumeMounts:[mount('credentials','/credentials'),mount('source','/source'),mount('lease','/var/run/lease')],resources:{requests:{cpu:'100m',memory:'128Mi'},limits:{cpu:'1',memory:'512Mi'}}}],volumes:[secret('credentials',`wts-feed-${s.version}`),{name:'source',configMap:{name:configName}},{name:'lease',projected:{defaultMode:0o440,sources:[{serviceAccountToken:{path:'token',expirationSeconds:3600}},{configMap:{name:'kube-root-ca.crt',items:[{key:'ca.crt',path:'ca.crt'}]}}]}}]}}}})
   add('policy/v1','PodDisruptionBudget','wts-feed',{spec:{minAvailable:1,selector:selector('feed')}})
   add('v1','Service','wts-broker',{spec:{clusterIP:'None',publishNotReadyAddresses:true,selector:labels('broker'),ports:[{name:'kafka',port:9092},{name:'controller',port:9093}]}})

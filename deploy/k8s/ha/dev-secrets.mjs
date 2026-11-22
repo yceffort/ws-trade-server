@@ -50,7 +50,7 @@ try {
   secret(`wts-feed-${settings.version}`,{'ca.crt':ca,'feed.json':client('feed')})
   const policyHost=`wts-policy.${settings.namespace}.svc`
   const policyPair=issue('wts-policy',[policyHost,'wts-policy'])
-  const edgePair=issue('wts-gateway',['wts-gateway',`wts-gateway.${settings.namespace}.svc`,'localhost'])
+  const edgePair=issue('wts-gateway',['wts-gateway',`wts-gateway.${settings.namespace}.svc`,'localhost',...(settings.gatewayNames??[])])
   secret(`wts-tls-${settings.version}`,{'cert.pem':edgePair.cert,'key.pem':edgePair.key})
   const {publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:2048})
   const jwk=publicKey.export({format:'jwk'})
