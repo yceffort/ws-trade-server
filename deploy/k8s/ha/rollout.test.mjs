@@ -92,6 +92,11 @@ test('manifest preserves three zones, single surge, loopback probes, independent
   assert.ok(items.find(o=>o.kind==='NetworkPolicy'&&o.metadata.name==='default-deny'))
   assert.throws(()=>render({...settings,zones:['same','same','same']}),/distinct zones/)
   assert.throws(()=>render({...settings,gatewayImage:'example:latest'}),/digests required/)
+  // 보관 설정은 새 토픽 생성과 기존 토픽 변경에 같은 값으로 들어간다.
+  const bootstrap=JSON.stringify(render({...settings,retentionBytes:8589934592}).items.find(o=>o.kind==='Job'&&o.metadata.name.startsWith('wts-bootstrap')))
+  assert.match(bootstrap,/--config retention\.bytes=8589934592/)
+  assert.match(bootstrap,/--alter --entity-type topics --entity-name wts\.events\.v1 --add-config retention\.ms=86400000,retention\.bytes=8589934592/)
+  for(const retention of [{retentionBytes:1024},{retentionMs:'86400000'},{retentionBytes:-1}])assert.throws(()=>render({...settings,...retention}),/invalid event retention/)
 })
 
 test('rollback repairs failed second slot before checking untouched third slot',async()=>{

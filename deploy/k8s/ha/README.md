@@ -74,6 +74,12 @@ kind에 로컬 이미지를 넣을 때 `node deploy/k8s/ha/kind-images.mjs wts-h
 
 `version`은 bootstrap Job 이름의 63자 제한을 지키도록 49자 이하로 설정한다. `clientCIDRs`는 LoadBalancer의 외부 클라이언트 허용 범위이고, `gatewayIngressCIDRs`는 Pod에 실제 도착하는 패킷의 출발지 범위다. `externalTrafficPolicy: Cluster`에서 SNAT가 발생하는 환경은 관측한 노드 또는 LB 주소 범위를 후자에 지정해야 한다. 운영 CNI에서 허용된 외부 WSS 접속과 비허용 주소 차단을 각각 확인해야 하며, kind 기본 CNI 시험은 이 검증을 대신하지 않는다.
 
+`retentionMs`와 `retentionBytes`는 체결 로그의 보관 시간과 용량이며 기본값은 24시간과 1GiB다. 1GiB는 목표 처리량에서 약 5.2시간에 차는 개발용 값이고, 24시간 검증 환경은 `retentionBytes`를 8589934592(8GiB)로 둔다([용량 기록](../../../docs/ha-capacity.md#체결-로그-보관-용량-2026-11-22)). bootstrap은 처음 만드는 토픽에 이 값을 쓴다. bootstrap Job은 빈 데이터셋을 초기화하는 `ha-feed init`도 실행하므로 운용 중인 클러스터에 다시 적용하지 않는다. 이미 만든 클러스터는 settings를 바꾼 뒤 broker Pod에서 토픽 설정만 바꾼다. `RETENTION_MS`와 `RETENTION_BYTES`에는 settings의 `retentionMs`, `retentionBytes`와 같은 값을 넣는다. broker의 readiness probe와 같은 접속 설정을 쓴다.
+
+```sh
+kubectl --context CONTEXT -n NAMESPACE exec wts-broker-0 -c broker -- /opt/kafka/bin/kafka-configs.sh --bootstrap-server localhost:9092 --command-config /config/health.properties --alter --entity-type topics --entity-name wts.events.v1 --add-config retention.ms=RETENTION_MS,retention.bytes=RETENTION_BYTES
+```
+
 Rollback은 실제 template이 바뀐 슬롯을 역순으로 복구한 뒤 변경하지 않은 슬롯을 확인한다. 실패한 슬롯 자체는 unready여도 다른 두 슬롯이 15초 이상 Ready이고 종료 중인 Pod가 없으면 복구를 시작한다. 복구한 슬롯의 안정화와 committed oracle 확인을 마치기 전에는 다음 슬롯을 변경하지 않는다. 손상된 journal은 자동 초기화하지 않고 중단한다.
 
 검증 명령은 `phase=cancel`도 처리한다. 동일 planHash/slot/window/rollback의 활성 측정만 해제하고 동일 식별자와 `ok:true`로 응답하며, 이미 해제되었거나 시작되지 않은 구간의 취소는 상태를 바꾸지 않는다. 드라이버의 오류/중단 경로는 측정을 취소한 뒤 배포 잠금을 해제한다. 취소가 실패해도 잠금 해제는 시도한다. 강제 종료 뒤 rollback을 시작할 때는 journal에 남은 미완료 forward 측정을 먼저 취소한다. 다른 측정의 식별자로 구간을 해제해서는 안 된다.
