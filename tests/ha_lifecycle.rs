@@ -173,17 +173,24 @@ async fn ha_bootstrap_stale_recovery_and_drain_keep_explicit_states() {
             .unwrap();
         socket
     };
-    let mut socket = connect().await;
-    let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
-    // 기존 연결은 오류 없이 유지되어야 하므로 heartbeat를 보내면서 첫 지정 프레임까지 읽는다.
-    let mut until = async |socket: &mut tokio_tungstenite::WebSocketStream<_>, wanted: &[&str]| loop {
-        tokio::select! {
-            _ = heartbeat.tick() => { socket.send(Message::text(r#"{"type":"heartbeat"}"#)).await.unwrap(); },
-            message = socket.next() => {
-                let frame:serde_json::Value = serde_json::from_str(&message.unwrap().unwrap().into_text().unwrap()).unwrap();
-                assert_ne!(frame["type"], "error", "{frame}");
-                if wanted.iter().any(|t| frame["type"] == *t) { break frame; }
+    let (mut sink, mut socket) = connect().await.split();
+    // 기존 연결은 오류 없이 유지되어야 하므로 readiness를 기다리는 동안에도 heartbeat를 계속 보낸다.
+    let beat = tokio::spawn(async move {
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            heartbeat.tick().await;
+            if sink.send(Message::text(r#"{"type":"heartbeat"}"#)).await.is_err() {
+                break;
             }
+        }
+    });
+    let until = async |socket: &mut futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<_>>,
+                       wanted: &[&str]| loop {
+        let frame: serde_json::Value =
+            serde_json::from_str(&socket.next().await.unwrap().unwrap().into_text().unwrap()).unwrap();
+        assert_ne!(frame["type"], "error", "{frame}");
+        if wanted.iter().any(|t| frame["type"] == *t) {
+            break frame;
         }
     };
     tokio::time::timeout(Duration::from_secs(10), until(&mut socket, &["caught-up"])).await.unwrap();
@@ -220,6 +227,7 @@ async fn ha_bootstrap_stale_recovery_and_drain_keep_explicit_states() {
     assert_eq!(drained["type"], "draining");
     assert!(started.elapsed() >= Duration::from_millis(500));
     assert!(request(http, "GET", "/livez").await.starts_with("HTTP/1.1 200"));
+    beat.abort();
     server.shutdown().await;
     assert_eq!(life.phase(), Phase::Stopped);
 }
