@@ -10,6 +10,36 @@
 
 특정 회사의 내부 구조를 아는 것처럼 쓰지 않는다. 받아 온 원본은 `evidence/raw/`에 두고 커밋하지 않는다. 출처와 버전, 해시는 `evidence/README.md`에 적는다.
 
+## 두 실행 경로
+
+실행 경로가 둘이다. 기본 STOMP 경로는 캡처한 프레임을 재현하는 단일 서버다. HA 경로는 같은 합성 체결을 복제 로그에 쓰고 여러 gateway가 나눠 받으며, 끊긴 클라이언트가 이어 받게 하는 별도 실험이다.
+
+| 항목 | 기본 STOMP | HA |
+| --- | --- | --- |
+| 경로와 프로토콜 | `/ws`, `v12.stomp`. 캡처 계약을 따른다 | `/experimental/ha/ws`, `wts.ha.v1`. 이 저장소가 정한 JSON 프로토콜([HA 프로토콜](docs/ha-protocol.md)) |
+| 입력 | `feed`가 쓰는 공유 메모리 링 | Kafka broker 3개의 복제 로그. active와 standby feed가 transaction으로 쓴다([복제 로그](deploy/ha/README.md)) |
+| 인증 | 선택. 로컬 JSON 토큰 파일 | 로컬 JSON 토큰 파일 또는 공유 JWT와 HTTPS 정책 공급자([공유 인증](docs/ha-auth.md)) |
+| 재접속 | 다시 구독한다. 끊긴 동안의 체결은 복구하지 않고 최신 상태는 `GET /snapshots`로 조회한다 | 서명 cursor로 보관 범위 안의 committed 체결을 다시 받는다. 클라이언트가 event ID로 중복을 거른다 |
+| 데이터 보장 | 느린 연결은 끊고 링이 덮어쓰이면 체결을 잃는다. 잃은 양은 seq 누락으로 센다 | 상태와 cursor를 함께 영속화하는 클라이언트는 보관 범위 안에서 committed 기록과 같은 순서로 적용한다. 시험은 oracle로 누락과 중복 적용이 0인지 본다 |
+| 실행과 배포 | `cargo run --bin feed`, `--bin gateway`. [단일 Pod](deploy/k8s/README.md), Recreate | `--features ha`. gateway와 edge 3개, broker 3개, feed 2개의 [별도 k8s 구성](deploy/k8s/ha/README.md)과 직렬 rollout |
+| 검증 환경 | 단위, 통합, 캡처 대조, Compose, kind | 단일 호스트 Compose 장애 시험, kind 수용 시험, AWS EKS 실측 |
+
+## HA 구현과 검증 상태
+
+2026-11-23 `main` 기준이다. 구현한 것, 기능 시험을 통과한 것, 운영에 가까운 환경에서 잰 것을 나눠 적는다. 측정 수치와 환경은 [용량 기록](docs/ha-capacity.md)에 있다.
+
+- 구현: 복제 로그와 producer fencing, checkpoint 복구, [gateway 복원](docs/ha-gateway.md), 서명 cursor 재접속, 공유 JWT와 정책 갱신, [준비와 drain 상태 머신](docs/ha-lifecycle.md), 별도 k8s 구성과 직렬 rollout, [관측 스택과 알림](deploy/k8s/ha/observability/README.md), [WSS 합성 probe](probe/README.md).
+- 기능 시험(단일 호스트 Compose와 kind, CI의 `HA` workflow): producer 인계와 fencing, broker 1대 중단과 과반수 단절, gateway를 바꿔 가며 committed 대조, broker 하나를 예고 없이 끊는 동안 기존 연결 유지([#94](https://github.com/yceffort/ws-trade-server/issues/94)), 토큰 만료 뒤 재인증([#99](https://github.com/yceffort/ws-trade-server/issues/99)), 보관 경계 밖 cursor의 명시적 만료([#98](https://github.com/yceffort/ws-trade-server/issues/98)).
+- 운영 환경 실측(AWS EKS, 2026-11-22): 1,000 clients의 계획 배포와 feed failover가 누락 0, 중복 0으로 통과했다. 같은 측정에서 AZ 하나를 끊자 그 AZ와 무관한 gateway의 클라이언트까지 끊겼고(#94), gateway 2개가 남은 동안 edge가 단일 스레드 한계에 있었다([#95](https://github.com/yceffort/ws-trade-server/issues/95)). 두 문제의 대응은 로컬에서만 확인했고 AWS에서 다시 재지 않았다.
+
+아직 실험 범위 밖이거나 검증하지 않은 것:
+
+- 입력은 합성 feed뿐이다. 외부 source는 `ExternalSource` 규약과 시험만 있고 실제 연결은 없다.
+- 운영 인증 공급자는 없다. 정책 공급자와 토큰 발급은 개발용이다.
+- 서로 다른 release를 섞어 돌릴 때의 프로토콜과 snapshot 호환은 시험하지 않았다.
+- broker 디스크 손실 같은 스토리지 복구와 region 단위 DR은 범위 밖이다.
+- 목표 처리량에서 24시간 보관은 장시간 시험을 하지 않았다(#98).
+
 ## 프레임 캡처
 
 웹 화면의 소켓은 페이지가 아니라 SharedWorker 안에서 열려서 페이지의 Network 탭에는 프레임이 보이지 않는다. `capture/cdp-capture.mjs`는 CDP로 워커 타깃에 직접 붙어 핸드셰이크와 프레임을 받아 적는다.
@@ -40,7 +70,7 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 
 실측이 없어 STOMP 기본 동작으로 넣은 것:
 
-- [공통 입력 경계](docs/source-input.md)는 로컬 링과 broker 입력을 같은 bounded hub 큐에 전달한다. 별도 envelope의 안정적인 source/event 식별자와 십진 문자열 위치는 실험 규약이다. [복제 로그 실험](deploy/ha/README.md)은 선택적 `ha` feature로 Kafka transaction, producer fencing과 checkpoint 복구를 제공한다. [gateway 복원](docs/ha-gateway.md)은 완전 snapshot 이후 전체 로그를 읽는다. [서명 cursor와 클라이언트 복구](docs/ha-protocol.md), [공유 JWT 인증과 온라인 폐기](docs/ha-auth.md)를 제공하며 [별도 HA 배포 구성](deploy/k8s/ha/README.md)은 zone별 slot과 직렬 rollout을 제공한다. [HA 수용 시험](bench/ha/README.md)은 committed oracle와 지속 부하, 장애 주입, 배포 검증을 연결한다. [관측과 운영 절차](docs/ha-runbook.md), [용량 보고서](docs/ha-capacity.md)를 함께 확인한다. 실제 LB와 장애 도메인 검증은 별도로 필요하다.
+- [공통 입력 경계](docs/source-input.md)는 로컬 링과 broker 입력을 같은 bounded hub 큐에 전달한다. 별도 envelope의 안정적인 source/event 식별자와 십진 문자열 위치는 실험 규약이다. broker 입력을 쓰는 HA 경로는 위 "두 실행 경로"와 "HA 구현과 검증 상태"에 있다.
 
 - 구독 중이 아닌 id의 `UNSUBSCRIBE`도 `receipt`가 있으면 같은 `RECEIPT`로 답함
 - `UNSUBSCRIBE`에 `receipt`가 없으면 응답 없음
@@ -69,7 +99,6 @@ cargo run --bin gateway -- --addr 127.0.0.1:8080 --ring <경로> --poll-us 200
 - [Docker와 Kubernetes 배포](deploy/README.md)는 합성 feed용 실험 설정이다. 두 topic에 최근 10초 이내 snapshot이 있어야 준비 상태로 판단하며 WTS의 배포 구조나 실거래 휴장 정책을 재현한 것이 아니다.
 - [WSS 합성 probe](probe/README.md)는 고정 대상의 인증, 구독, 상태 적용과 재접속을 주기적으로 검증한다. HA는 committed oracle를 대조하고 STOMP는 단절 중 체결 무유실을 주장하지 않는다. 실행 기한과 지표는 이 저장소의 실험 정책이다.
 - [관측 대시보드](deploy/k8s/ha/observability/README.md)는 서비스, 전달, HA와 컨테이너 자원을 namespace/Pod별로 보여준다. 부하 worker event-loop 지연과 계획 배포, rollback, 장애 주입 로그를 함께 표시하며 이 구성과 임계값은 이 저장소의 실험 설계다.
-- [고가용성 및 재접속 복구 설계](docs/ha-design.md)는 단계별 구현 중이다. 복제 로그와 여러 gateway, cursor 복구 및 단계별 drain을 별도 HA 구성으로 계획하며 실제 증권사 동작을 관측한 내용이 아니다.
 - 연결마다 잡는 읽기 버퍼는 4 KiB(웹소켓 라이브러리 기본값은 128 KiB)
 - 송신 큐에 이미 쌓인 프레임은 4개까지 모아 소켓에 한 번에 씀. 프레임의 내용과 순서는 그대로임(측정은 `bench/README.md`의 "쓰기 묶음")
 
@@ -135,4 +164,4 @@ diff contract/wts-stomp.json evidence/raw/replay-contract.json
 
 [Kubernetes 안내](deploy/k8s/README.md)는 공유 링을 같은 Pod의 emptyDir에 두는 Deployment, Secret, probe와 kind 검증을 제공한다. 단일 replica와 Recreate를 사용하므로 교체 중 중단이 있으며 수평 확장이나 고가용성을 제공하지 않는다.
 
-고가용성과 계획된 배포 중 서비스 가용성의 후속 설계는 [HA 구조](docs/ha-design.md)와 [구현 및 검증 계획](docs/ha-rollout.md)에 있다. 현재 배포 설정을 변경하거나 HA 구현이 완료되었다는 뜻은 아니다.
+HA 구성은 이 단일 인스턴스 설정과 별개다. 배포는 [HA 배포](deploy/k8s/ha/README.md), 구조와 보장 범위는 [HA 구조](docs/ha-design.md), 배포 순서와 검증 목표는 [구현 및 검증 계획](docs/ha-rollout.md), 수용 시험은 [HA 수용 시험](bench/ha/README.md), 운영 확인은 [운영 절차](docs/ha-runbook.md)에 있다. 설계와 측정은 공개 자료와 이 저장소의 실험에서 나왔으며 실제 증권사 동작을 관측한 것이 아니다.
