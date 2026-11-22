@@ -131,6 +131,7 @@ try {
   if(ready.size!==config.clients||failures.length)throw new Error('initial client catchup failed')
   const started=performance.now()
   const observe=()=>{
+    if(stopped)return
     observationTask=sample().then(value=>console.log(JSON.stringify(loadSample(value))))
       .catch(()=>console.log(JSON.stringify(loadSample({client_event_loop_p99_ms:null}))))
       .finally(()=>{if(!stopped)observationTimer=setTimeout(observe,5000)})
