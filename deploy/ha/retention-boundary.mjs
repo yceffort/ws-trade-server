@@ -20,7 +20,9 @@ try {
   // 목표 위치 이상의 checkpoint를 저장하면 멈춘다. 그 시점의 상태와 cursor가 store에 남는다.
   const advance = async (store, target) => {
     const controller = new AbortController()
-    await client(store, { signal: controller.signal, onCommit(state) { if (BigInt(state.offset) >= target) controller.abort() } })
+    // 진행하지 못하면 runClient가 계속 재시도하므로 기한을 두고, 기한으로 끝났으면 목표에 닿았는지 따로 확인한다.
+    await client(store, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]), onCommit(state) { if (BigInt(state.offset) >= target) controller.abort() } })
+    assert.ok(store.load().offset !== null && BigInt(store.load().offset) >= target, `client did not reach offset ${target}`)
     return store
   }
   const old = await advance(new MemoryStore('events', head.topics), BigInt(head.next) + 200n)
