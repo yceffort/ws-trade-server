@@ -6,7 +6,8 @@
   "host": "Apple M1, 8 cores (4 performance, 4 efficiency), macOS, Node 24.14.0",
   "same_host": "synthetic upstream, edge and receiving clients share one host",
   "per_connection_rate": "one 450-byte text frame every 10ms from the synthetic upstream",
-  "rss_note": "macOS RSS of the primary and workers is summed, so shared pages are counted more than once"
+  "rss_note": "macOS RSS of the primary and workers is summed, so shared pages are counted more than once",
+  "fields": "open is the number of connections still open at the end of the window, opened is the cumulative count, closed counts close codes of connections that opened and then closed"
  },
  "command": "WTS_EDGE_WORKERS=<1|2> node edge/capacity.mjs <steps> 20 4 20",
  "runs": [
@@ -14,95 +15,122 @@
    "clients": 200,
    "workers": 1,
    "open": 200,
-   "sent_per_s": 16813,
-   "delivered_per_s": 16823,
-   "edge_cores": 0.34,
+   "opened": 200,
+   "sent_per_s": 16772,
+   "delivered_per_s": 16770,
+   "edge_cores": 0.31,
+   "workers_replaced": false,
    "rss_mib": 96,
-   "failed": {}
+   "failed": {},
+   "closed": {}
   },
   {
    "clients": 400,
    "workers": 1,
    "open": 400,
-   "sent_per_s": 33742,
-   "delivered_per_s": 33742,
-   "edge_cores": 0.51,
-   "rss_mib": 128,
-   "failed": {}
+   "opened": 400,
+   "sent_per_s": 33604,
+   "delivered_per_s": 33605,
+   "edge_cores": 0.49,
+   "workers_replaced": false,
+   "rss_mib": 158,
+   "failed": {},
+   "closed": {}
   },
   {
    "clients": 600,
    "workers": 1,
    "open": 600,
-   "sent_per_s": 53693,
-   "delivered_per_s": 53693,
-   "edge_cores": 0.8,
-   "rss_mib": 252,
-   "failed": {}
+   "opened": 600,
+   "sent_per_s": 53567,
+   "delivered_per_s": 53556,
+   "edge_cores": 0.79,
+   "workers_replaced": false,
+   "rss_mib": 254,
+   "failed": {},
+   "closed": {}
   },
   {
    "clients": 800,
    "workers": 1,
-   "open": 721,
-   "sent_per_s": 69643,
-   "delivered_per_s": 69651,
-   "edge_cores": 0.95,
-   "rss_mib": 285,
+   "open": 750,
+   "opened": 750,
+   "sent_per_s": 72915,
+   "delivered_per_s": 72881,
+   "edge_cores": 0.96,
+   "workers_replaced": false,
+   "rss_mib": 291,
    "failed": {
-    "ECONNRESET": 79
-   }
+    "ECONNRESET": 50
+   },
+   "closed": {}
   },
   {
    "clients": 1000,
    "workers": 1,
-   "open": 875,
-   "sent_per_s": 84993,
-   "delivered_per_s": 85018,
+   "open": 899,
+   "opened": 899,
+   "sent_per_s": 87119,
+   "delivered_per_s": 87118,
    "edge_cores": 0.95,
-   "rss_mib": 323,
+   "workers_replaced": false,
+   "rss_mib": 321,
    "failed": {
-    "ECONNRESET": 125
-   }
+    "ECONNRESET": 101
+   },
+   "closed": {}
   },
   {
    "clients": 600,
    "workers": 2,
    "open": 600,
-   "sent_per_s": 53357,
-   "delivered_per_s": 53333,
+   "opened": 600,
+   "sent_per_s": 53270,
+   "delivered_per_s": 53281,
    "edge_cores": 1.11,
-   "rss_mib": 305,
-   "failed": {}
+   "workers_replaced": false,
+   "rss_mib": 300,
+   "failed": {},
+   "closed": {}
   },
   {
    "clients": 1000,
    "workers": 2,
    "open": 1000,
-   "sent_per_s": 91611,
-   "delivered_per_s": 91615,
-   "edge_cores": 1.7,
-   "rss_mib": 433,
-   "failed": {}
+   "opened": 1000,
+   "sent_per_s": 91509,
+   "delivered_per_s": 91511,
+   "edge_cores": 1.67,
+   "workers_replaced": false,
+   "rss_mib": 435,
+   "failed": {},
+   "closed": {}
   },
   {
    "clients": 1400,
    "workers": 2,
    "open": 1400,
-   "sent_per_s": 120530,
-   "delivered_per_s": 120463,
-   "edge_cores": 1.84,
-   "rss_mib": 628,
-   "failed": {}
+   "opened": 1400,
+   "sent_per_s": 120076,
+   "delivered_per_s": 120103,
+   "edge_cores": 1.85,
+   "workers_replaced": false,
+   "rss_mib": 626,
+   "failed": {},
+   "closed": {}
   },
   {
    "clients": 1800,
    "workers": 2,
    "open": 1800,
-   "sent_per_s": 130170,
-   "delivered_per_s": 130084,
-   "edge_cores": 1.84,
-   "rss_mib": 685,
-   "failed": {}
+   "opened": 1800,
+   "sent_per_s": 129338,
+   "delivered_per_s": 129334,
+   "edge_cores": 1.87,
+   "workers_replaced": false,
+   "rss_mib": 658,
+   "failed": {},
+   "closed": {}
   }
  ]
 }
