@@ -56,3 +56,11 @@ test('처음에는 성공과 지연 표본을 만들지 않고 실패에 비밀 
 test('원격 평문 주소와 높은 cardinality 입력을 거절한다', () => {
   for (const overrides of [{ url: 'ws://example.org/experimental/ha/ws' }, { target: 'token=secret' }, { deadlineMs: 100000 }, { topics: Array(5).fill('a') }]) assert.throws(() => validate({ ...config, ...overrides }))
 })
+
+test('계속 끊기는 서버의 재시도와 전체 실행 시간은 유한하다', async t => {
+  const conf = await mock(t, (frame, socket) => socket.terminate())
+  const at = performance.now()
+  const result = await probe({ ...conf, deadlineMs: 200 }, dependencies)
+  assert.equal(result.ok, false); assert.ok(result.attempts <= 3)
+  assert.ok(performance.now() - at < 1000)
+})

@@ -280,7 +280,7 @@
   "links": [
     {
       "title": "서버와 자원, 로그",
-      "url": "/d/wts-overview?${__url_time_range}&var-namespace=${namespace:percentencode}&var-pod=All"
+      "url": "/d/wts-overview?${__url_time_range}&${namespace:queryparam}&var-pod=All"
     }
   ]
 }

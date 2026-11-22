@@ -86,14 +86,15 @@ export async function probe(config, dependencies = {}) {
       const head = await command(config.headCommand)
       if (typeof head.log_id !== 'string' || !/^(0|[1-9]\d*)$/.test(head.next) || !config.topics.every(topic => head.topics?.includes(topic))) throw new Error('invalid-oracle-head')
       const store = new MemoryStore('events', [...config.topics].sort())
-      let pending = new Map(), bytes = 0, payloadDigest = zero, firstCount = null, caught = false, secondCaught = false, socket, attemptAt = 0
-      await runClient({ urls: [config.url], token, ca, store, startAt: { log_id: head.log_id, partition: 0, offset: head.next }, signal,
-        onAttempt(ws) { socket = ws; pending = new Map(); bytes = 0; caught = false; attemptAt = performance.now(); connection(ws) },
+      let pending = new Map(), bytes = 0, payloadDigest = zero, firstCount = null, caught = false, secondCaught = false, socket, attemptAt = 0, firstEvent = false
+      await runClient({ urls: [config.url], token, ca, store, maxAttempts: 3, startAt: { log_id: head.log_id, partition: 0, offset: head.next }, signal,
+        onAttempt(ws) { socket = ws; pending = new Map(); bytes = 0; caught = false; firstEvent = false; attemptAt = performance.now(); connection(ws) },
         onDisconnect(reason) { if (!controller.signal.aborted && ['auth-invalid', 'auth-expired', 'auth-revoked', 'forbidden-scope'].includes(reason)) failure = 'auth' },
         onFrame(frame) {
           if (frame.type === 'connected') { sample('auth', attemptAt); enter('subscribe') }
           if (frame.type === 'event') {
-            sample('first_event', attemptAt); enter('apply')
+            if (!firstEvent) { sample('subscribe', attemptAt); sample('first_event', attemptAt); firstEvent = true }
+            enter('apply')
             if (pending.size >= 10000 || (bytes += Buffer.byteLength(JSON.stringify(frame))) > 1024 * 1024) throw new Error('probe-memory-limit')
             const hash = payloadHash(frame.body)
             if (pending.has(frame.event_id) && pending.get(frame.event_id) !== hash) throw new Error('changed-event')

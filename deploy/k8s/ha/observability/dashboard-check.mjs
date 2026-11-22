@@ -7,8 +7,9 @@ import assert from 'node:assert/strict'
 const dashboard = JSON.parse(readFileSync(new URL('./dashboards/wts-overview.json', import.meta.url)))
 const directory = mkdtempSync(join(tmpdir(), 'wts-dashboard-'))
 chmodSync(directory, 0o755)
-const expand = expr => expr.replaceAll('${namespace:regex}', 'test-a').replaceAll('${pod:regex}', '.*').replaceAll('$__rate_interval', '1m')
-const expressions = dashboard.panels.flatMap(panel => panel.targets ?? []).filter(target => target.datasource.type === 'prometheus').map(target => expand(target.expr))
+const expand = expr => expr.replaceAll('${namespace:regex}', 'test-a').replaceAll('${pod:regex}', '.*').replaceAll('$__rate_interval', '1m').replaceAll('${target:regex}', 'ha-wss')
+const probeDashboard = JSON.parse(readFileSync(new URL('./dashboards/wts-probe.json', import.meta.url)))
+const expressions = [...dashboard.panels, ...probeDashboard.panels].flatMap(panel => panel.targets ?? []).filter(target => target.datasource.type === 'prometheus').map(target => expand(target.expr))
 try {
   writeFileSync(join(directory, 'rules.json'), JSON.stringify({ groups: [{ name: 'dashboards', rules: expressions.map((expr, i) => ({ record: `panel_${i}`, expr })) }] }))
   const expression = title => expand(dashboard.panels.find(panel => panel.title === title).targets.find(target => target.datasource.type === 'prometheus').expr)
