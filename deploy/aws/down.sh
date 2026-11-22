@@ -6,7 +6,12 @@ cd "$(dirname "$0")"
 export AWS_DEFAULT_REGION=ap-northeast-2 AWS_PAGER=""
 CLUSTER=wts-ha-aws
 export KUBECONFIG="$PWD/../local/aws/kubeconfig"
-count() { "$@" --output text 2>/dev/null | wc -w | tr -d ' '; }
+# 조회가 실패하면 0이 아니라 남은 것으로 센다. 확인하지 못한 것을 없다고 보고하지 않기 위해서다.
+count() {
+  local OUT
+  OUT=$("$@" --output text 2>/dev/null) || { echo "조회 실패: $2 $3" >&2; echo 1; return; }
+  printf '%s' "$OUT" | wc -w | tr -d ' '
+}
 
 if [ "${1:-}" != check ]; then
   # NLB와 EBS 볼륨은 클러스터 안의 컨트롤러가 지우므로 클러스터보다 먼저 namespace를 지운다.
