@@ -36,7 +36,7 @@
 - readiness gate가 없으면 slot을 교체할 때마다 새 target이 healthy가 되기 16초 전에 옛 target이 draining으로 넘어갔다. gate를 켜면 그 구간이 없었다.
 - edge의 `tls_aborted` 기준선은 Pod마다 10초에 9건이었다. kind의 6건에 NLB health check가 더해진 값이다.
 - spot 노드는 세 번 교체됐다(재조정 권고). CoreDNS 두 개가 모두 한 AZ에 있어서 AZ 장애는 CoreDNS가 없는 AZ에 주입했다.
-- `job-run.mjs`는 kubectl 호출이 한 번 실패하면 보고서 없이 끝난다([#96](https://github.com/yceffort/ws-trade-server/issues/96)). `measure.sh`가 그때 부하 Pod의 보고서를 직접 기다린다.
+- `job-run.mjs`는 polling 중의 kubectl 호출이 한 번 실패하면 보고서 없이 끝났다. 이 측정에서는 `measure.sh`가 부하 Pod의 보고서를 직접 기다렸다. 이후 [#96](https://github.com/yceffort/ws-trade-server/issues/96)에서 실행 기한 안에서 다시 묻게 고치고 그 우회를 지웠다.
 
 ## 비용
 
