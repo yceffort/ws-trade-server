@@ -39,7 +39,7 @@ snapshot은 최대 512KiB이며 `snapshot-begin`, 32KiB 원본 바이트 단위�
 
 서버와 클라이언트는 1초 heartbeat, 3초 수신 deadline을 쓴다. source가 stale이면 오류를 알리고 닫는다. 예제는 첫 재접속에 최대 500ms jitter를 적용하고 이후 실패에 최대 30초 지수 지연을 쓴다. replay-limit 때문에 동일 위치에서 진행하지 못한 재시도는 3회에서 멈춘다. 첫 checkpoint 이전의 일시적인 연결 실패는 재시도하며 재개 위치를 바꾸지 않는다. 진행 여부는 재서명된 cursor 문자열이 아니라 영속화한 offset 증가로 판단한다. `invalid-cursor`, `cursor-expired`, `start-out-of-range`, scope 및 인증 오류는 자동으로 다른 시작점으로 이동하지 않는다.
 
-`cargo test --features ha`, `npm test --prefix edge`, `node --test examples/ha-state.test.mjs`가 계약 검증과 영속화 경계를 검사한다. `deploy/ha/smoke.sh`는 실제 Kafka의 committed 입력을 기준으로 10,040건의 체결 ID 순서, 해시와 최종 상태를 비교하며 replay 제한, gateway 변경, checkpoint 직전 프로세스 SIGKILL, snapshot 전송 중 SIGKILL과 범위 오류를 시험한다. 단일 호스트 기능 시험이며 실제 LB 및 여러 장애 도메인의 복구 SLO 검증은 #52와 #53에서 수행한다.
+`cargo test --features ha`, `npm test --prefix edge`, `node --test examples/ha-state.test.mjs`가 계약 검증과 영속화 경계를 검사한다. `deploy/ha/smoke.sh`는 실제 Kafka의 committed 입력을 기준으로 10,040건의 체결 ID 순서, 해시와 최종 상태를 비교하며 replay 제한, gateway 변경, checkpoint 직전 프로세스 SIGKILL, snapshot 전송 중 SIGKILL과 범위 오류를 시험한다. 단일 호스트 기능 시험이며 실제 LB 및 여러 장애 도메인의 복구 SLO 검증은 #90에서 수행한다.
 
 클라이언트 적용 callback이 실패하면 해당 연결의 적용 실패를 고정하고 이미 대기 중인 후속 checkpoint도 저장하지 않는다. snapshot 전송 중 live 큐가 가득 차도 제한 시간 안에 snapshot-end와 그 경계의 checkpoint까지 전송한 뒤 replay-limit로 종료한다. 이 경우 caught-up은 보내지 않는다. Kafka reader는 생성부터 모든 오류, 취소와 종료까지 같은 blocking 작업이 소유하며 reader 종료 뒤 worker permit을 반환한다. 연결별 freshness 감시는 hub가 게시한 공유 상태를 읽으므로 연결 수에 비례하는 actor 조회를 만들지 않는다.
 

@@ -14,7 +14,7 @@
 
 `GET /livez`, `GET /readyz`, `POST /drain`은 loopback 관리 listener에서만 제공한다. `/metrics`와 `/snapshots`도 유지한다. `POST /drain`은 최초 호출 시각을 보존하고 즉시 반환한다. 반복 호출, SIGTERM과 회복된 신선도는 종료 예산을 연장하거나 READY로 되돌리지 않는다. accept 경로와 실제 WebSocket upgrade callback이 같은 상태를 확인하므로 drain 중 지연된 handshake도 503으로 거절한다. edge는 허용된 Retry-After를 전달한다.
 
-기본 예산은 routing 전파 대기 20초, HA 연결별 재접속 통지 분산 10초, flush 10초다. 이 동안 기존 stream, 인증 검사와 관리 HTTP를 유지한다. HA 연결은 마지막 영속화된 cursor로 재접속하며 기존 `/ws`에는 `server-shutdown` 오류를 보낸다. 그 뒤 입력 worker, hub, 관리 HTTP를 정리한다. broker 호출은 최대 10초 설정만 허용해 종료가 무한 대기하지 않게 한다. Pod의 전체 grace는 preStop과 sidecar 정리를 포함해 60초로 설정하며 실제 routing 전파 속도는 #52/#53에서 측정한다.
+기본 예산은 routing 전파 대기 20초, HA 연결별 재접속 통지 분산 10초, flush 10초다. 이 동안 기존 stream, 인증 검사와 관리 HTTP를 유지한다. HA 연결은 마지막 영속화된 cursor로 재접속하며 기존 `/ws`에는 `server-shutdown` 오류를 보낸다. 그 뒤 입력 worker, hub, 관리 HTTP를 정리한다. broker 호출은 최대 10초 설정만 허용해 종료가 무한 대기하지 않게 한다. Pod의 전체 grace는 preStop과 sidecar 정리를 포함해 60초로 설정하며 실제 routing 전파 속도는 #90에서 측정한다.
 
 preStop은 `container-probe ha-drain`을 호출하고 20초를 기다리는 형태로 연결한다. SIGTERM만 와도 같은 drain을 시작한다. 관리 POST만으로도 상태 머신은 끝까지 진행하고 gateway 프로세스가 종료된다. 강제 종료에서는 통지 대신 클라이언트의 3초 수신 deadline이 복구를 시작한다.
 

@@ -54,4 +54,4 @@ deploy/ha/smoke.sh
 
 `smoke.sh`는 고유 이름의 자체 Compose 프로젝트를 만들고 종료할 때 그 프로젝트의 volume만 제거한다. 동일 host port를 쓰는 수동 개발 클러스터는 먼저 내려야 한다. 합성 상태 복원, producer fencing, commit 전 Lease 상실 시 abort, read-only ACL, SIGSTOP 후 standby 인계와 stale writer 재개, API 단절, broker 1대 중단, 과반수 네트워크 단절, 전체 broker 재시작을 검사한다. 별도 빈 데이터셋에서 외부 입력 공백, commit 뒤 ACK 유실, 재전송과 1,024건 창 만료를 검사한다. 실제 broker commit 성공 직후 응답을 잃는 경우는 시험 빌드의 Writer 경계에서 오류를 주입해 검증한다. Publisher의 메모리가 전진하지 않은 상태에서 재시작하고, committed checkpoint 복원과 동일 ID 재전송 결과를 실제 로그와 대조한다. 네트워크 패킷을 유실시키는 시험과는 구분한다. CI의 `HA` workflow도 같은 시험을 실행한다. 출력과 artifact에는 수치 결과만 저장하고 인증 자료는 올리지 않는다.
 
-이 시험의 Kafka는 실제 복제와 transaction을 사용하지만 하나의 Docker 호스트에서 동작한다. 실제 장애 도메인, LoadBalancer, gateway 재접속 및 부하 SLO는 후속 이슈 #48~#53의 별도 검증 대상이다.
+이 시험의 Kafka는 실제 복제와 transaction을 사용하지만 하나의 Docker 호스트에서 동작한다. gateway 재접속은 #49에서 다뤘고, 실제 장애 도메인과 LoadBalancer는 #90, 부하 SLO는 #91의 별도 검증 대상이다.

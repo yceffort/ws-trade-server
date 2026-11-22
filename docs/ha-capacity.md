@@ -19,7 +19,7 @@ HA 기본 edge는 압축을 끄고 CPU request 250m/limit 2, memory request 128M
 
 개별 클라이언트의 동기 파일 교체와 fsync는 부하 발생기에도 큰 비용을 만든다. 현재 부하 도구는 Worker별 append journal에서 checkpoint들을 10ms씩 묶고 fsync 완료 후에만 durable 적용으로 집계한다. 이 저장 방식과 예제 FileStore의 결과를 혼용하지 않는다. 네트워크/서버 시간만 따로 재접속 시간으로 보고하지 않고 저장 대기까지 포함한다.
 
-1,000개 연결, 두 topic 각 50 events/s의 정상 부하와 계획 배포, rollback, N-1, 강제 재접속, feed failover, broker quorum, 노드와 네트워크 장애의 결과는 각각 보고서로 남긴다. 가용성이 보장되지 않는 quorum 손실을 계획 배포 p99 5초 시험에 합산하지 않는다. 합격 여부와 별도로 client event loop 지연, Pod 재시작, CPU throttling, peak RSS, Ready 수와 lag를 검토한다. 실제 외부 LB와 다중 물리 장애 도메인 결과가 남기 전에는 #52와 #53을 닫지 않는다.
+1,000개 연결, 두 topic 각 50 events/s의 정상 부하와 계획 배포, rollback, N-1, 강제 재접속, feed failover, broker quorum, 노드와 네트워크 장애의 결과는 각각 보고서로 남긴다. 가용성이 보장되지 않는 quorum 손실을 계획 배포 p99 5초 시험에 합산하지 않는다. 합격 여부와 별도로 client event loop 지연, Pod 재시작, CPU throttling, peak RSS, Ready 수와 lag를 검토한다. 실제 LB와 다중 AZ 결과는 #90에, 1,000 clients 병목 분석은 #91에 남긴다.
 
 부하 발생기 OOM을 줄이기 위해 클라이언트는 미처리 frame이 64KiB에 이르면 소켓 수신을 pause하고 32KiB 미만에서 resume한다. 기존 1MiB 상한도 유지한다. Worker의 V8 old generation은 192MiB, young generation은 32MiB로 제한하고 부모 Node는 384MiB로 제한한다. JS heap 한도는 전체 RSS 한도가 아니므로 Pod의 메모리 한도와 OOM 여부를 계속 확인한다.
 
@@ -33,7 +33,7 @@ HA 기본 edge는 압축을 끄고 CPU request 250m/limit 2, memory request 128M
 
 재전송 write timeout 뒤 checkpoint 위치가 후퇴할 수 있는 경로를 별도로 재현했다. Sink에 이벤트가 enqueue된 뒤 flush가 취소되면 전송 실패 전 위치로 checkpoint를 만들 수 있었다. 실제 WebSocket Sink 회귀에서 수정 전 이벤트 뒤의 오래된 checkpoint가 확인됐으며, 수정 후 전송 오류에서는 checkpoint를 추가하지 않는다. replay 용량 제한처럼 송신이 완료된 경계는 기존대로 checkpoint를 보존한다. 앞선 일반 적용 오류 10개의 상세 원인은 남아 있지 않아 모두 이 경로 때문이라고 단정하지 않는다.
 
-checkpoint 전송 오류 수정 커밋 `2d5fb98`과 고정 이미지로 1,000명 초기 접속을 다시 시험했다. 4 workers/20ms, 4 workers/5ms, 8 workers/5ms 세 설정 모두 60초 안에 전원이 catch-up하지 못했다. 5ms/4 workers 실행은 진단 시 978명이 caught-up이었으며 나머지 실행도 적용 오류와 부하 Pod OOM은 없었다. 세 실행의 설정과 이미지 digest, 결과, cgroup 근거를 `bench/results/ha/kind-final-1000-*.json`과 같은 이름의 cgroup 파일에 보관했다. 초기 접속 실패로 이 실행들에서는 rollout을 시작하지 않았다. 1,000명 SLO는 충족했다고 판단하지 않으며 병목 분석과 자원 분리 환경 측정을 #53에 남긴다.
+checkpoint 전송 오류 수정 커밋 `2d5fb98`과 고정 이미지로 1,000명 초기 접속을 다시 시험했다. 4 workers/20ms, 4 workers/5ms, 8 workers/5ms 세 설정 모두 60초 안에 전원이 catch-up하지 못했다. 5ms/4 workers 실행은 진단 시 978명이 caught-up이었으며 나머지 실행도 적용 오류와 부하 Pod OOM은 없었다. 세 실행의 설정과 이미지 digest, 결과, cgroup 근거를 `bench/results/ha/kind-final-1000-*.json`과 같은 이름의 cgroup 파일에 보관했다. 초기 접속 실패로 이 실행들에서는 rollout을 시작하지 않았다. 1,000명 SLO는 충족했다고 판단하지 않으며 병목 분석과 자원 분리 환경 측정을 #91에 남긴다.
 
 이 표와 artifact는 각 커밋 시점의 실행을 보존한다. 이후 최종 이미지의 30명 배포/rollback/장애 기능 검증과 노드 시험 결과, 실행 설정, image digest는 [#53의 검증 기록](https://github.com/yceffort/ws-trade-server/issues/53)에 추가한다. 기능 검증 통과를 1,000명 용량 검증이나 실제 외부 LB/물리 장애 도메인 검증으로 대신하지 않는다.
 
