@@ -88,7 +88,7 @@ HA envelope는 별도 schema로 만들고 기존 `proto/feed.proto`와 캡처 �
 
 세 토픽과 transaction 내부 토픽은 replication factor 3, min ISR 2를 전제로 한다. producer는 `acks=all`과 idempotence, logical shard에 고정한 `transactional.id`를 사용하고 unclean leader election은 끈다. ISR이 부족하면 성공한 것처럼 응답하지 않고 입력을 중단한다. Kafka 설정의 실제 지원 버전과 Rust client는 구현 단계에서 고정하고 장애 시험으로 확인한다. [Producer 설정](https://kafka.apache.org/41/configuration/producer-configs/)과 [Topic 설정](https://kafka.apache.org/41/configuration/topic-configs/) 참조.
 
-24시간은 용량과 retention 설정이 충족될 때의 목표다. 시간보다 먼저 byte 제한에 걸리거나 운영자가 데이터를 지우면 과거 cursor가 만료된다. consumer의 `auto.offset.reset`은 `none`으로 두고 범위 밖 offset을 자동으로 최신 위치로 바꾸지 않는다. aborted transaction과 제어 레코드 때문에 broker offset에 공백이 생길 수 있으므로 `offset + 1`만으로 체결 유실을 판정하지 않는다.
+24시간은 용량과 retention 설정이 충족될 때의 목표다. 시간보다 먼저 byte 제한에 걸리거나 운영자가 데이터를 지우면 과거 cursor가 만료된다. 목표 처리량에서의 실측 증가량과 환경별 설정은 [용량 기록](ha-capacity.md#체결-로그-보관-용량-2026-11-22)에 있다. consumer의 `auto.offset.reset`은 `none`으로 두고 범위 밖 offset을 자동으로 최신 위치로 바꾸지 않는다. aborted transaction과 제어 레코드 때문에 broker offset에 공백이 생길 수 있으므로 `offset + 1`만으로 체결 유실을 판정하지 않는다.
 
 ## feed 인계와 상태 복구
 

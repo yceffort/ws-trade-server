@@ -23,6 +23,8 @@ node examples/ha-client.mjs --urls ws://127.0.0.1:8080/experimental/ha/ws --toke
 
 `state`의 최초 요청은 cursor와 start_at을 모두 생략한다. 고정된 최신 상태와 no-data 토픽을 snapshot으로 받고 이어지는 이벤트를 적용한다. state도 cursor가 있으면 저장된 상태 다음 이벤트부터 재개한다. events 요청을 snapshot으로 자동 대체하지 않는다.
 
+보관 범위는 broker가 체결 로그의 시작 위치를 앞당기면서 줄어든다. 경계 앞을 가리키는 cursor는 events와 state 모두 `cursor-expired`로, 경계 앞의 `start_at`은 `start-out-of-range`로 끝나며 latest나 snapshot으로 옮겨 가지 않는다. 경계에 맞는 cursor(마지막 적용 위치 + 1이 시작 위치)는 그대로 복구된다. `ha-oracle retention <kafka.json> <source.json> <목표 초>`는 보관 시작 위치와 남아 있는 가장 오래된 committed 레코드의 시각, 그 시각부터 지금까지의 초를 출력한다. offset 차이를 시간으로 환산하지 않는다. 로그가 한 번이라도 지워졌는데 보관 시간이 목표보다 짧으면 종료 코드 2로 끝나고, 조회 실패는 1이다.
+
 ## 프레임과 영속화
 
 `event`에는 원래 체결 body, `event_id`, topic과 `position`을 담는다. 64비트 위치와 원본 순번은 문자열이다. `source-status`는 공급자의 연결과 시장 상태이며 거래가 없는 휴장도 구분한다. `caught-up`은 해당 replay 경계까지 전송했음을 뜻하며 클라이언트의 적용 ACK가 아니다.

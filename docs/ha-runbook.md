@@ -10,6 +10,8 @@ Ready 수, source와 broker 관측 나이, Kafka 위치 lag, replay worker와 �
 
 Producer fencing은 프로세스가 종료되는 사건이므로 scrape 직전 사라질 수 있다. `ha_producer_stopped`의 `reason=producer-fenced` 구조 로그를 지속 로그 수집기로 보관하고 Loki count_over_time으로 측정한다. 제공한 Loki rule은 수집기가 `namespace`, `component=feed` label을 붙인다는 전제다. token, credential, cursor, 실제 체결 payload를 log label이나 본문에 넣지 않는다. 계획된 feed 교체 때 한 번 발생한 fencing과 반복 fencing을 구분한다.
 
+체결 로그의 실제 보관 범위는 `ha-oracle retention <gateway.json> <source.json> 86400`으로 조회한다. 보관 시작 위치와 남아 있는 가장 오래된 committed 레코드의 시각을 출력하며, 로그가 지워졌는데 24시간보다 짧으면 종료 코드 2를 낸다. 주기적으로 실행해 2를 목표 미달로 본다.
+
 ## 조치
 
 | 관측 | 조치 |
@@ -20,6 +22,7 @@ Producer fencing은 프로세스가 종료되는 사건이므로 scrape 직전 �
 | drain 40초 초과 | 다음 slot 변경을 멈춘다. native broker 호출, replica task 종료와 sidecar 상태를 확인한다. 60초 grace 이후 강제 종료가 발생했으면 client oracle로 복구를 확인한다. |
 | policy freshness 만료 | 공급자 TLS, 자격 증명, version rollback과 subject generation을 확인한다. 오래된 정책의 유효 시간을 임의 연장하지 않는다. |
 | 반복 fencing 또는 writer 두 개 | source 입력을 멈추고 Lease 소유권과 transactional.id를 확인한다. 기존 committed checkpoint로만 복구하며 수신 여부가 불명확한 마지막 batch는 같은 ID로 replay한다. |
+| 보관 범위 목표 미달(`ha-oracle retention` 종료 코드 2) | 체결 증가량과 `retention.bytes`를 [용량 기록](ha-capacity.md#체결-로그-보관-용량-2026-11-22)과 비교한다. 늘릴 때 Compose는 `WTS_HA_RETENTION_BYTES`를 주고 `deploy/ha/bootstrap.sh`를 다시 실행하고, k8s는 settings의 `retentionBytes`를 바꾼 뒤 완료된 `wts-bootstrap-VERSION` Job을 지우고 bootstrap 단계를 다시 적용한다. 두 bootstrap 모두 기존 토픽에 같은 값을 적용한다. 이미 지워진 구간은 돌아오지 않으며 그 앞 cursor의 클라이언트는 `cursor-expired`를 받는다. |
 | broker quorum 부족 | 임의 초기화나 PVC 삭제 없이 quorum과 ISR을 복구한다. 가용성 5초 목표를 적용하지 않고 복구 후 committed oracle를 수행한다. |
 
 ## 배포 실패

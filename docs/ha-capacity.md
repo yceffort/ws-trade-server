@@ -77,3 +77,20 @@ checkpoint 전송 오류 수정 커밋 `2d5fb98`과 고정 이미지로 1,000명
 Pod 장애의 복구 시간은 kind보다 길었고 원인은 가리지 않았다. 장애 재접속 p99와 장애 주입부터의 복구 p99는 gateway-kill 0.59초와 1.70초, feed-failover 35.0초와 38.1초, broker-one 56.5초와 59.6초, broker-quorum 81.1초와 81.6초, gateway-restart 25.1초와 26.2초, full-restart 102.4초와 103.4초다. kind의 30 clients 실행은 차례로 0.53초와 1.59초, 22.9초와 25.9초, 재접속 없음, 62.9초와 63.2초, 8.4초와 9.5초, 15.1초와 15.6초였다. 여섯 가지 중 gateway-kill을 뺀 다섯에서 gateway 3개의 NLB target이 모두 등록 해제됐다가 다시 등록됐다. 다시 등록되기까지 feed-failover는 약 9초, broker-one은 약 21초, broker-quorum은 약 37초, gateway-restart는 약 5초, full-restart는 약 64초였다(2초 간격 기록). broker 한 대를 내렸을 때 gateway 전체가 준비 상태를 잃는 것은 kind에서 없던 일이며 [#94](https://github.com/yceffort/ws-trade-server/issues/94)에서 다룬다.
 
 AZ b의 서브넷을 차단하자 `receive-deadline` 353건과 `source-stale` 647건이 나왔다. 앞은 차단된 b 경로의 연결이 기한으로 끊긴 것, 뒤는 b와 무관한 gateway a와 c가 스스로 끊은 것으로 본다. 차단 17초 뒤 a와 c의 target이 등록 해제됐다가 33초에 다시 등록됐고, AZ a에 있던 active feed는 `ha-deadline`으로 재시작해 30초 뒤 다시 active가 됐다. 그동안 `rejected-503`이 5,834건 쌓였다. broker 한 대를 예고 없이 잃으면 그 AZ의 3분의 1이 아니라 전체 클라이언트가 한 번 끊긴다는 뜻이다([#94](https://github.com/yceffort/ws-trade-server/issues/94)). 로컬 재현으로 찾은 원인과 이후의 대응은 [설계 문서](ha-design.md#broker-한-대의-예고-없는-손실)에 적었고, 대응 뒤 AWS에서는 다시 재지 않았다. 이 실행은 상태 기록 도구의 버그로 차단 구간의 클라이언트 수 변화를 남기지 못했다. 인스턴스 종료에서는 EC2 종료가 OS 종료를 거쳐 gateway b가 스스로 drain했고 broker도 정상 종료해, gateway b의 337~345개만 끊겼다. gateway 2개가 500개씩 받는 동안 edge는 0.96~1.0 core로 단일 스레드 한계에 있었고 gateway 컨테이너는 0.95~1.04 core였다. 1,000 clients는 유지됐지만 N-1의 여유는 없다([#95](https://github.com/yceffort/ws-trade-server/issues/95)).
+
+## 체결 로그 보관 용량 (2026-11-22)
+
+[#98](https://github.com/yceffort/ws-trade-server/issues/98)의 측정이다. 단일 호스트 Compose(Kafka 4.1.1, 압축 없음, segment 16MiB)에서 feed 하나를 장중 모드로 182.85초 돌리며 `kafka-log-dirs`의 partition 크기, offset, committed 체결 수를 쟀다. 체결은 18,260건(초당 99.9건), offset은 21,912개였다. offset에는 상태 레코드와 transaction marker가 함께 들어 있어 체결 수와 같지 않다.
+
+| 항목 | 값 |
+| --- | --- |
+| `wts.events.v1` replica 하나의 증가량 | 10,561,012바이트(초당 약 57.8KB) |
+| 체결 1건당 디스크 | 약 578바이트(상태 레코드, marker, batch overhead 포함) |
+| 하루 환산 | replica 하나에 약 4.65GiB, replication factor 3이면 클러스터 전체 약 14GiB |
+| 개발 기본값 1GiB가 차는 시간 | 약 5.2시간 |
+
+이슈에 적은 payload 추정(하루 약 4.27GiB, 1GiB까지 약 5.62시간)보다 디스크 실측이 약 9% 크다. 하루 환산은 3분 측정을 곱한 값이며 24시간 연속 측정이 아니다.
+
+개발 환경은 `retention.bytes` 1GiB를 그대로 쓴다. 24시간 보관을 목표로 하는 검증 환경은 k8s의 `retentionBytes` 또는 Compose의 `WTS_HA_RETENTION_BYTES`를 8GiB(8589934592)로 둔다. 실측의 약 1.7배로, 식별자가 길거나 체결이 큰 경우와 삭제 단위인 segment(16MiB)만큼의 여유를 둔 값이다. 여기에 compact 토픽 몇십 MB를 더해도 settings 예시의 broker PVC 20Gi 안이다. 이 설정에서 실제로 24시간 동안 원래 cursor로 복구되는지는 장시간 시험을 하지 않아 확인하지 않았다.
+
+보관 경계의 동작은 `deploy/ha/retention-boundary.mjs`가 확인한다. DeleteRecords로 로그 시작 위치를 앞당긴 뒤, 경계에 맞는 cursor는 이어서 복구되고 경계 앞의 events cursor와 state cursor는 `cursor-expired`, 경계 앞의 `start_at`은 `start-out-of-range`로 끝나며 저장 상태가 바뀌지 않는지 본다. 시간과 용량 retention도 broker가 로그 시작 위치를 앞당기는 일이라 클라이언트가 보는 결과는 같다. broker의 retention 검사 주기(기본 5분)와 segment 삭제 시점은 이 시험에 들어 있지 않다.
