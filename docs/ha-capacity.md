@@ -41,7 +41,7 @@ checkpoint 전송 오류 수정 커밋 `2d5fb98`과 고정 이미지로 1,000명
 
 ## 1,000 clients 병목 판정 기준
 
-[#91](https://github.com/yceffort/ws-trade-server/issues/91)의 계단 측정(100, 250, 500, 1,000 clients, 설정당 3회)을 돌리기 전에 정한 기준이며 결과를 본 뒤에 고치지 않는다. 기존 보고서의 `connection-error`는 소켓 오류를 한 이름으로 뭉친 값이었다. 응답하지 않는 서버에 예제 클라이언트를 붙이면 수신 기한 3초가 handshake 중인 소켓을 끊는데 이것도 `connection-error`로 보고된다(`bench/ha/reasons.test.mjs`). 이제 부하 워커가 `bench/ha/reasons.mjs`로 ws의 오류 문구와 Node 오류 코드만 보고 고정 사유를 붙인다. 보고서의 `disconnect_reasons`는 실행 중 끊긴 횟수를 사유별로 누적한 값이다. `GET /status`와 실패 보고서의 `diagnostics`에 있는 `reasons`는 마지막 사유별 클라이언트 수다.
+[#91](https://github.com/yceffort/ws-trade-server/issues/91)의 계단 측정(100, 250, 500, 1,000 clients, 설정당 3회)을 돌리기 전에 정한 기준이며 결과를 본 뒤에 고치지 않는다. 기존 보고서의 `connection-error`는 소켓 오류를 한 이름으로 뭉친 값이었다. 응답하지 않는 서버에 예제 클라이언트를 붙이면 수신 기한 3초가 handshake 중인 소켓을 끊는데 이것도 `connection-error`로 보고된다(`bench/ha/reasons.test.mjs`). 이제 부하 워커가 `bench/ha/reasons.mjs`로 ws의 오류 문구와 Node 오류 코드만 보고 고정 사유를 붙인다. `disconnect_reasons`는 실행 중 끊긴 횟수를 사유별로 누적한 값이고 `reasons`는 마지막 사유별 클라이언트 수다. 끝까지 간 실행의 보고서에는 `disconnect_reasons`만 있고, 예외로 중단된 실행의 보고서에는 상태 수집에 성공한 경우에만 둘 다 `diagnostics` 안에 있다.
 
 | 부하 보고서의 사유 | 뜻 | 함께 볼 값 |
 | --- | --- | --- |
