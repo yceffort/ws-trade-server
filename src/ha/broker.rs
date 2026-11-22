@@ -29,6 +29,8 @@ pub(super) fn transient(error: &KafkaError) -> bool {
                     | RDKafkaErrorCode::RequestTimedOut
                     | RDKafkaErrorCode::BrokerNotAvailable
                     | RDKafkaErrorCode::NetworkException
+                    // fence된 broker가 metadata에서 빠지면 그 broker로 가던 요청이 이 코드로 끝난다(#94).
+                    | RDKafkaErrorCode::DestroyBroker
             )
         )
 }
@@ -68,11 +70,14 @@ impl Kafka {
         for (key, value) in &self.properties {
             config.set(key, value);
         }
+        // ProduceRequest는 socket timeout과 남은 message timeout 중 작은 값을 쓴다. 둘이 같으면 응답 없는 broker로 나간
+        // 요청이 재시도 없이 기한을 다 쓰므로, 요청 하나는 10초에 끊고 남은 시간에 새 leader로 다시 보낸다(#94).
+        let socket = self.timeout_ms.min(10_000).to_string();
         config
             .set("enable.ssl.certificate.verification", "true")
             .set("ssl.endpoint.identification.algorithm", "https")
-            .set("socket.timeout.ms", self.timeout_ms.to_string())
-            .set("socket.connection.setup.timeout.ms", self.timeout_ms.to_string());
+            .set("socket.timeout.ms", &socket)
+            .set("socket.connection.setup.timeout.ms", &socket);
         Ok(config)
     }
 
