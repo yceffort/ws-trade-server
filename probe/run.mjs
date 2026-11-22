@@ -74,7 +74,7 @@ export async function probe(config, dependencies = {}) {
           sample('auth', at); enter('subscribe'); at = performance.now()
           for (const topic of topics) client.send('SUBSCRIBE', { id: topic, destination: topic, receipt: topic })
           await until(() => { client.healthy(); return topics.every(topic => client.receipts.has(topic)) }, 'subscribe', signal, config.deadlineMs)
-          sample('subscribe', at); enter('first_event'); at = performance.now()
+          sample('subscribe', at); enter('first_event')
           await until(() => { client.healthy(); return applied > 0 && topics.every(topic => client.topicMessages[topic] > 0) }, 'first event', signal, config.deadlineMs)
           samples.first_event = Math.max(0, (firstAt - at) / 1000)
           enter('apply'); sample('apply', firstAt)
@@ -86,9 +86,14 @@ export async function probe(config, dependencies = {}) {
       const head = await command(config.headCommand)
       if (typeof head.log_id !== 'string' || !/^(0|[1-9]\d*)$/.test(head.next) || !config.topics.every(topic => head.topics?.includes(topic))) throw new Error('invalid-oracle-head')
       const store = new MemoryStore('events', [...config.topics].sort())
-      let pending = new Map(), bytes = 0, payloadDigest = zero, firstCount = null, caught = false, secondCaught = false, socket, attemptAt = 0, firstEvent = false
+      let pending = new Map(), bytes = 0, payloadDigest = zero, firstCount = null, reconnectCount = null, caught = false, secondCaught = false, socket, attemptAt = 0, firstEvent = false
       await runClient({ urls: [config.url], token, ca, store, maxAttempts: 3, startAt: { log_id: head.log_id, partition: 0, offset: head.next }, signal,
-        onAttempt(ws) { socket = ws; pending = new Map(); bytes = 0; caught = false; firstEvent = false; attemptAt = performance.now(); connection(ws) },
+        onAttempt(ws) {
+          socket = ws; pending = new Map(); bytes = 0; caught = false; secondCaught = false; firstEvent = false
+          // 이전 연결의 처리 큐가 비워진 뒤의 건수를 재접속 기준으로 삼는다.
+          reconnectCount = firstCount === null ? null : BigInt(store.load().count)
+          attemptAt = performance.now(); connection(ws)
+        },
         onDisconnect(reason) { if (!controller.signal.aborted && ['auth-invalid', 'auth-expired', 'auth-revoked', 'forbidden-scope'].includes(reason)) failure = 'auth' },
         onFrame(frame) {
           if (frame.type === 'connected') { sample('auth', attemptAt); enter('subscribe') }
@@ -115,10 +120,10 @@ export async function probe(config, dependencies = {}) {
       function progress() {
         const count = BigInt(store.load().count)
         if (caught && count > 0n && firstCount === null) { firstCount = count; enter('reconnect'); socket.terminate() }
-        else if (secondCaught && count > firstCount) controller.abort()
+        else if (secondCaught && reconnectCount !== null && count > reconnectCount) controller.abort()
         else if (caught) enter('first_event')
       }
-      if (failure || !secondCaught || firstCount === null || BigInt(store.load().count) <= firstCount) throw new Error('incomplete-probe')
+      if (failure || !secondCaught || reconnectCount === null || BigInt(store.load().count) <= reconnectCount) throw new Error('incomplete-probe')
       // 클라이언트 중지는 내부 controller만 멈춘다. oracle도 같은 전체 실행 기한 안에서 읽는다.
       enter('oracle')
       const at = performance.now(), state = store.load()

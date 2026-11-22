@@ -28,7 +28,7 @@ export class Metrics {
       lines.push(`wts_probe_next_deadline_seconds{${labels}} ${target.due}`, `wts_probe_running{${labels}} ${Number(target.running)}`, `wts_probe_worker_failures_total{${labels}} ${target.failures}`)
       if (target.last !== null) lines.push(`wts_probe_last_run_seconds{${labels}} ${target.last}`, `wts_probe_success{${labels}} ${Number(target.result.ok)}`)
       for (const stage of stages) {
-        if (target.result) lines.push(`wts_probe_failed_stage{${labels},stage="${stage}"} ${Number(!target.result.ok && target.result.stage === stage)}`)
+        if (stages.includes(target.result?.stage)) lines.push(`wts_probe_failed_stage{${labels},stage="${stage}"} ${Number(!target.result.ok && target.result.stage === stage)}`)
         const h = target.histograms.get(stage)
         if (!h) continue
         const scoped = `${labels},stage="${stage}"`
@@ -56,7 +56,7 @@ export function start(config) {
     worker.once('exit', () => {
       clearTimeout(timer); workers.delete(worker); target.running = false
       if (stopped) return
-      if (!result) { target.failures++; result = { ok: false, stage: 'connect', samples: {} } }
+      if (!result || result.worker_failed) { target.failures++; result = { ok: false, stage: null, samples: {} } }
       metrics.record(target, result)
       target.due = Date.now() / 1000 + (config.intervalMs + target.config.deadlineMs) / 1000 + 5
       console.log(JSON.stringify({ event: 'probe_result', target: target.config.target, protocol: target.config.protocol, ok: result.ok, stage: result.stage }))

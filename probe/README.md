@@ -25,11 +25,13 @@ node probe/server.mjs /path/to/probe.json
 curl http://127.0.0.1:9464/metrics
 ```
 
-관리 포트는 기본 loopback이고 요청으로 target을 바꿀 수 없다. 설정 파일만 대상을 정한다. 실행마다 새 worker를 만들고 기본 힙 64MiB, 최대 시도 3회, 총 기한 최대 60초로 제한한다. HA 수신 대기는 기존 클라이언트의 1MiB 한도, pending event는 1MiB/10,000개, oracle 출력은 4MiB/10,000개로 제한한다. 파일 읽기는 일반 파일과 크기 상한을 검사한다. 다음 실행은 이전 실행 종료 뒤 1초에서 5분 사이의 설정된 intervalMs를 기다린다. worker가 전체 기한을 넘기거나 메모리 한도로 죽으면 부모가 종료하고 `wts_probe_worker_failures_total`을 올린다. 초기에는 성공과 지연 표본을 내지 않는다. 성공한 실행의 단계별 시간만 histogram에 넣으며 표본 없는 p99는 측정되지 않음으로 표시한다.
+관리 포트는 기본 loopback이고 요청으로 target을 바꿀 수 없다. 설정 파일만 대상을 정한다. 실행마다 새 worker를 만들고 기본 힙 64MiB, 최대 시도 3회, 총 기한 최대 60초로 제한한다. HA 수신 대기는 기존 클라이언트의 1MiB 한도, pending event는 1MiB/10,000개, oracle 출력은 4MiB/10,000개로 제한한다. 파일 읽기는 일반 파일과 크기 상한을 검사한다. 다음 실행은 이전 실행 종료 뒤 1초에서 5분 사이의 설정된 intervalMs를 기다린다. worker가 전체 기한을 넘기거나 메모리 한도로 죽으면 부모가 종료하고 `wts_probe_worker_failures_total`을 올린다. 이때 관측하지 못한 실패 단계는 내보내지 않는다. 초기에는 성공과 지연 표본을 내지 않는다. 성공한 실행의 단계별 시간만 histogram에 넣으며 표본 없는 p99는 측정되지 않음으로 표시한다. 대시보드의 다음 완료 기한까지 남은 시간은 양수가 정상 대기, 음수가 기한 초과를 뜻한다.
 
-connect/TLS 시간은 소켓 생성부터 WebSocket open까지라 TLS만의 CPU 시간이 아니다. auth는 연결 시작부터 인증 응답까지이며 first_event/apply/catch_up은 해당 시도의 시작 또는 수신 시점을 기준으로 한다. STOMP apply는 첫 이벤트 수신부터 두 topic의 상태를 확인할 때까지, HA apply/catch_up은 시도 시작부터 마지막 checkpoint 적용/서버 caught-up까지다. 단계 시간은 서로 겹치므로 합산하지 않는다. 자동 reconnect 측정은 probe가 의도적으로 닫은 연결의 합성 표본이다. 계획 배포 재접속 p99와 장애 주입부터 복구까지의 시간은 [기존 부하 측정](../bench/ha/README.md)에서 따로 집계하고 이 histogram과 섞지 않는다. probe 정상은 1,000 clients 용량의 증거가 아니다.
+connect/TLS 시간은 소켓 생성부터 WebSocket open까지라 TLS만의 CPU 시간이 아니다. auth는 연결 시작부터 인증 응답까지이며 first_event/apply/catch_up은 해당 시도의 시작 또는 수신 시점을 기준으로 한다. STOMP first_event는 SUBSCRIBE 전송부터 첫 MESSAGE까지, apply는 첫 이벤트 수신부터 두 topic의 상태를 확인할 때까지다. HA apply/catch_up은 시도 시작부터 마지막 checkpoint 적용/서버 caught-up까지다. 단계 시간은 서로 겹치므로 합산하지 않는다. 자동 reconnect 측정은 probe가 의도적으로 닫은 연결의 합성 표본이다. 계획 배포 재접속 p99와 장애 주입부터 복구까지의 시간은 [기존 부하 측정](../bench/ha/README.md)에서 따로 집계하고 이 histogram과 섞지 않는다. probe 정상은 1,000 clients 용량의 증거가 아니다.
 
 ## Kubernetes와 Grafana
+
+빌드할 때 HA_IMAGE와 EDGE_IMAGE를 반드시 지정한다. CI에서는 같은 작업에서 만든 로컬 이미지를 사용하고, 레지스트리에서 가져오는 환경에서는 두 값 모두 검증한 `@sha256:` digest로 고정한다. Dockerfile 기본 로컬 태그는 사전 빌드된 acceptance 이미지가 있는 개발 환경용이며 레지스트리에서 받을 수 없다.
 
 ```sh
 docker build -f probe/Dockerfile --build-arg HA_IMAGE=YOUR_HA_IMAGE --build-arg EDGE_IMAGE=YOUR_EDGE_IMAGE -t YOUR_PROBE_IMAGE .
@@ -41,5 +43,7 @@ kubectl --context TEST_CONTEXT -n YOUR_NAMESPACE rollout restart deployment/wts-
 `deployment.json`은 namespace, digest로 고정한 image, credentialsSecret, sourceConfigMap, config를 갖는다. config는 위 실행 설정이다. Secret에는 token, ca.crt와 gateway.json을 두고 source ConfigMap에는 source.json을 둔다. STOMP만 검사하면 HA command는 필요 없다. 렌더러는 token 내용을 읽거나 Secret을 만들지 않는다. 설정 ConfigMap을 바꾼 뒤에는 위 restart를 실행해 새 설정을 적용한다. 네트워크 정책은 같은 namespace의 gateway WSS(8443), broker oracle(9092)와 wts-observability namespace의 metrics 수집만 추가 허용한다. 외부 LB를 검사할 때는 기존 CNI 정책에서 사용자가 지정한 대상 경로가 허용되어야 한다.
 
 [관측 스택](../deploy/k8s/ha/observability/README.md)을 다시 apply하면 `wts-probe` Service의 metrics를 5초마다 수집하고 Grafana WTS 폴더에 클라이언트 적용 probe 화면을 등록한다. probe-rules.yaml의 `wts_probe_expected_namespace` 기본값 wts-ha를 실제 설치 namespace로 바꾼다. namespace가 여럿이면 각 namespace를 별도 record로 선언한다. 기대 namespace의 전체 Service 소실도 WtsProbeMissing으로 알리며 다른 namespace의 성공이 이를 가리지 않는다.
+
+공유 관측 스택은 여러 HA 배포를 함께 볼 수 있도록 기본적으로 모든 namespace에서 지정된 Service 이름을 찾는다. 같은 이름의 다른 서비스도 수집 대상이 된다. 수집 범위를 제한할 환경은 scrape.yaml의 wts-ha와 wts-probe 두 job의 kubernetes_sd_configs에 `namespaces: { names: [YOUR_NAMESPACE] }`를 추가한다. 목록은 각 배포 settings의 namespace와 예상 namespace 규칙에서 가져와 함께 갱신한다.
 
 WtsProbeFailed는 적용 실패, WtsProbeWorkerFailed는 실행기 실패, WtsProbeStale은 실행 주기와 기한을 합친 다음 완료 시각 초과, WtsProbeMissing은 수집 실패 또는 endpoint 전체 소실이다. 실패 단계에서 TLS 신뢰, 인증 만료, 구독 권한, 합성 feed 정지, source/broker freshness, oracle 접근을 차례로 확인하고 복구 알림을 확인한다. 외부 통지는 [로컬 알림 경로](../docs/ha-runbook.md#alert-response) 검증 후 사용자가 지정한 대상으로만 설정한다.

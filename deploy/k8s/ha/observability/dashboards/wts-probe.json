@@ -275,6 +275,56 @@
         },
         "overrides": []
       }
+    },
+    {
+      "id": 7,
+      "title": "다음 완료 기한까지 남은 시간",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "wts-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 8
+      },
+      "description": "양수는 다음 완료 기한까지 남은 초, 음수는 초과한 초다. 초기 실행도 포함하며 표본 없음은 정상으로 채우지 않는다.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "wts_probe_next_deadline_seconds{namespace=~\"${namespace:regex}\",target=~\"${target:regex}\"} - time()",
+          "legendFormat": "{{target}} {{protocol}} {{stage}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "wts-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "측정되지 않음",
+          "custom": {
+            "spanNulls": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
     }
   ],
   "links": [

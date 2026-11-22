@@ -16,11 +16,11 @@ async function mock(t, respond) {
 }
 const events = [1, 2].map(n => ({ offset: String(n), id: `demo/trades/epoch/${n}`, topic: 'a', body: { price: n } }))
 const dependencies = { token: () => 'Bearer synthetic', command: async (argv, extra) => extra ? { log_id: 'test', start: '1', through: extra[1], events } : { log_id: 'test', next: '1', topics: ['a'] } }
-function send(socket, n) {
+function send(socket, n, caughtUp = true) {
   const e = events[n - 1]
   socket.send(JSON.stringify({ type: 'event', event_id: e.id, topic: e.topic, body: e.body, position: { log_id: 'test', partition: 0, offset: e.offset } }))
   socket.send(JSON.stringify({ type: 'checkpoint', offset: e.offset, cursor: `private-cursor-${n}` }))
-  socket.send('{"type":"caught-up"}')
+  if (caughtUp) socket.send('{"type":"caught-up"}')
 }
 test('HA는 재접속 뒤 checkpoint 적용과 권한 범위 oracle를 대조한다', async t => {
   const conf = await mock(t, (frame, socket, attempt) => { if (frame.type === 'connect') socket.send('{"type":"connected"}'); if (frame.type === 'resume') send(socket, attempt) })
@@ -63,4 +63,31 @@ test('계속 끊기는 서버의 재시도와 전체 실행 시간은 유한하�
   const result = await probe({ ...conf, deadlineMs: 200 }, dependencies)
   assert.equal(result.ok, false); assert.ok(result.attempts <= 3)
   assert.ok(performance.now() - at < 1000)
+})
+
+test('이전 연결의 catch-up은 다음 시도의 성공 근거가 되지 않는다', async t => {
+  const conf = await mock(t, (frame, socket, attempt) => {
+    if (frame.type === 'connect') socket.send('{"type":"connected"}')
+    if (frame.type !== 'resume') return
+    if (attempt === 1) send(socket, 1)
+    else if (attempt === 2) { socket.send('{"type":"caught-up"}'); setTimeout(() => socket.terminate(), 20) }
+    else { send(socket, 2, false); setTimeout(() => socket.terminate(), 20) }
+  })
+  const result = await probe(conf, dependencies)
+  assert.equal(result.ok, false)
+  assert.equal(result.attempts, 3)
+})
+
+test('종료 전에 큐에 들어온 이벤트는 재접속 이후 적용으로 세지 않는다', async t => {
+  const conf = await mock(t, (frame, socket, attempt) => {
+    if (frame.type === 'connect') socket.send('{"type":"connected"}')
+    if (frame.type !== 'resume') return
+    if (attempt === 1) {
+      // 한 TCP 쓰기에 묶어 caught-up 뒤 프레임도 클라이언트 처리 큐에 들어가게 한다.
+      socket._socket.cork(); send(socket, 1); send(socket, 2, false); socket._socket.uncork()
+    } else socket.send('{"type":"caught-up"}')
+  })
+  const result = await probe({ ...conf, deadlineMs: 1500 }, dependencies)
+  assert.equal(result.ok, false)
+  assert.equal(result.attempts, 2)
 })
