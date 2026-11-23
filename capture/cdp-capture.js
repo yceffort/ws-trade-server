@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // 페이지뿐 아니라 워커(SharedWorker 포함) 안에서 열리는 웹소켓의 핸드셰이크와 프레임을 CDP로 받아 적는다.
 // 의존성 없음(Node 22 이상의 내장 WebSocket 사용). 로그인하지 않은 임시 프로필로 띄운다.
-// 사용: node capture/cdp-capture.js <url> [둘째 url] [--seconds 30] [--out evidence/raw/frames.jsonl] [--headed]
+// 사용: node capture/cdp-capture.js <url> [둘째 url] [--seconds 30] [--out evidence/raw/frames.jsonl] [--headed] [--net-log evidence/raw/netlog.json]
+// CDP가 넘기는 프레임은 압축을 푼 뒤의 텍스트라서, 실제로 압축됐는지와 압축된 크기는 --net-log로 남기는 Chrome NetLog에서 본다.
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -14,6 +15,7 @@ const { values, positionals } = parseArgs({
     seconds: { type: 'string', default: '30' },
     out: { type: 'string', default: 'evidence/raw/frames.jsonl' },
     headed: { type: 'boolean', default: false },
+    'net-log': { type: 'string' },
     chrome: {
       type: 'string',
       default: process.env.CHROME ?? '/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta'
@@ -36,6 +38,7 @@ const chrome = spawn(
     '--no-first-run',
     '--no-default-browser-check',
     ...(values.headed ? [] : ['--headless=new']),
+    ...(values['net-log'] ? [`--log-net-log=${values['net-log']}`] : []),
     'about:blank'
   ],
   { stdio: 'ignore' }
