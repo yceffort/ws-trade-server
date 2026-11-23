@@ -262,7 +262,8 @@ try {
       if (code !== 0 && !stopped) failures.push({ reason: 'worker-exit' })
     })
   }
-  const startup = performance.now() + 60000
+  // 마지막 클라이언트는 worker.js에서 (clients - 1) * startupIntervalMs 뒤에야 시작한다.
+  const startup = performance.now() + (config.clients - 1) * config.startupIntervalMs + 60000
   while (ready.size < config.clients && !failures.length && performance.now() < startup) await delay(100)
   if (ready.size !== config.clients || failures.length) throw new Error('initial client catchup failed')
   const started = performance.now()
