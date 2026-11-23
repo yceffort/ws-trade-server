@@ -189,8 +189,29 @@ for (const overlap of [null, 'rollout-first', 'fault-first'])
         assert.equal((await call('/begin', { ...rollback, window: 'next' })).ok, false)
         assert.equal((await call('/cancel', rollback)).ok, true)
         assert.equal((await call('/begin', { ...rollback, window: 'next' })).ok, true)
+        writeFileSync(
+          join(directory, 'duplicate.json'),
+          JSON.stringify({
+            ...JSON.parse(readFileSync(join(directory, 'config.json'))),
+            stateDirectory: join(directory, 'duplicate-state'),
+            output: join(directory, 'duplicate-report.json'),
+            headCommand: [process.execPath, '-e', `console.log('{"log_id":"test","next":"1","topics":["a"]}')`]
+          })
+        )
+        const duplicate = spawn(
+          process.execPath,
+          [fileURLToPath(new URL('./run.js', import.meta.url)), join(directory, 'duplicate.json')],
+          { stdio: 'ignore' }
+        )
+        await once(duplicate, 'exit')
+        assert.match(
+          JSON.parse(readFileSync(join(directory, 'duplicate-report.json'))).reason,
+          /control socket already/
+        )
+        assert.ok(existsSync(socketPath))
         child.kill('SIGTERM')
         await exited
+        assert.equal(existsSync(socketPath), false)
       } finally {
         agent.destroy()
         if (child?.exitCode === null) {

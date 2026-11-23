@@ -1,6 +1,6 @@
 import { Worker } from 'node:worker_threads'
 import { createServer } from 'node:http'
-import { mkdirSync, readFileSync, writeFileSync, existsSync, unlinkSync, chmodSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -423,9 +423,9 @@ try {
 } finally {
   stopped = true
   for (const worker of workers) worker.postMessage({ type: 'stop' })
+  // 이 실행이 연 제어 소켓 파일은 close가 지운다. 경로로 지우면 다른 실행의 소켓까지 지운다.
   server?.close()
   server?.closeAllConnections()
-  if (config?.controlSocket && existsSync(config.controlSocket)) unlinkSync(config.controlSocket)
   await Promise.all(
     workers.map(async (worker, index) => {
       const timer = setTimeout(() => worker.terminate(), 5000)
