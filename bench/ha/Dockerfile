@@ -5,7 +5,7 @@ FROM ${EDGE_IMAGE}
 USER 0
 COPY --from=binaries /usr/local/bin/ha-oracle /app/ha-oracle
 RUN mkdir -p /app/edge && ln -s /app/node_modules /app/edge/node_modules
-COPY examples/ha-client.mjs examples/ha-state.mjs /app/examples/
-COPY bench/ha/*.mjs /app/bench/ha/
+COPY examples/ha-client.js examples/ha-state.js /app/examples/
+COPY bench/ha/*.js /app/bench/ha/
 USER 10001:10001
-CMD ["node", "/app/bench/ha/run.mjs", "/config/load.json"]
+CMD ["node", "/app/bench/ha/run.js", "/config/load.json"]

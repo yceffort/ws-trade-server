@@ -5,7 +5,7 @@
 ```sh
 cargo build --locked --release --bins
 npm ci --prefix edge
-node bench/soak.mjs --seconds 600 --cycles 6 --connections 40 --out bench/results/soak-local.json
+node bench/soak.js --seconds 600 --cycles 6 --connections 40 --out bench/results/soak-local.json
 ```
 
 Node 22 이상, OpenSSL, `ps`가 필요하다. 저장소 루트에서 실행한다. `--seconds`는 워밍업과 복구 시간을 제외한 유지 시간의 합이다. 기본값은 600초, 6회, 40개 연결이고 상한은 각각 1800초, 20회, 200개다. `--seconds`는 회차 수 이상이어야 한다. `--bin-dir`로 이미 빌드한 gateway/feed 경로를 지정할 수 있다. 환경 값, 원본 토큰과 체결 본문은 결과에 저장하지 않는다.

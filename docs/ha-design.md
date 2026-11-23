@@ -27,7 +27,7 @@ feed를 gateway Pod에서 분리하고, 복제된 Kafka 로그를 모든 gateway
 | `src/hub/state.rs`가 연결별 큐에 팬아웃 | 모든 gateway에 같은 로그를 공급하고 snapshot, 적용 offset을 함께 관리 |
 | `src/hub/cache.rs`가 본문과 로컬 수신 시각만 저장 | 로그 경계를 포함한 복원 가능한 상태. 현재 캐시는 과거 이벤트 재전송 저장소가 아님 |
 | `src/server.rs` 종료 시 listener, HTTP, bridge부터 중단 | routing 제거 대기와 기존 연결 처리를 분리하는 drain |
-| `examples/reconnect.mjs`가 재구독 후 로컬 snapshot 조회 | 어느 Pod로 가도 유효한 cursor와 snapshot/replay/live 전환 |
+| `examples/reconnect.js`가 재구독 후 로컬 snapshot 조회 | 어느 Pod로 가도 유효한 cursor와 snapshot/replay/live 전환 |
 | `deploy/k8s`의 feed+gateway+edge, replicas 1, Recreate | producer, 복제 로그, gateway+edge 배포의 독립된 수명 |
 
 ## 구성
@@ -192,7 +192,7 @@ AWS 실측의 AZ 차단에서 그 AZ와 무관한 gateway의 클라이언트까�
 
 결정은 넷이다. gateway는 지금처럼 3초 기준으로 준비 상태를 내려 새 연결을 거절하지만, 기존 연결에는 `source-stale`을 한 번 알리고 멈춤이 30초를 넘을 때만 닫는다. 30초는 수정 전 최장 멈춤 23.31초를 덮으면서 클라이언트가 데이터 없이 기다리는 시간의 상한이다. 복제본 실패는 기다리지 않고 닫는다. `DestroyBroker`는 일시 오류로 보고 복원 위치를 유지한다. feed의 `timeout_ms`는 30초로 늘리고, 요청 하나의 socket timeout은 10초로 제한해 남은 시간 안에 새 leader로 다시 보내게 한다. commit 결과가 불명확하면 재시작한다는 규칙은 그대로다. fence 자체를 3초 아래로 당기는 방법(`broker.session.timeout.ms` 축소)은 GC나 CPU 부족만으로 정상 broker가 fence될 수 있어 택하지 않았다.
 
-수정 뒤에는 `deploy/ha/broker-isolation.mjs`로 확인했다. gateway 2개에 클라이언트 20개를 붙이고 체결 partition의 leader를 25초 끊은 다음, 끊긴 연결 수와 committed 대조를 본다. 최악 배치(모든 leader, coordinator, controller가 한 broker)에서 10번 모두 끊김 0, committed 일치, feed 종료 0, replica 실패 0이었다. socket timeout 제한을 넣기 전에는 같은 배치에서 9번 중 2번 실패했다. 10번 연속 통과는 실패율이 그대로일 때도 약 8% 확률로 나올 수 있어, 원인 설명과 함께 판단 근거로 삼는다. smoke 시험은 배치를 바꾸지 않고 그때의 leader를 끊는다.
+수정 뒤에는 `deploy/ha/broker-isolation.js`로 확인했다. gateway 2개에 클라이언트 20개를 붙이고 체결 partition의 leader를 25초 끊은 다음, 끊긴 연결 수와 committed 대조를 본다. 최악 배치(모든 leader, coordinator, controller가 한 broker)에서 10번 모두 끊김 0, committed 일치, feed 종료 0, replica 실패 0이었다. socket timeout 제한을 넣기 전에는 같은 배치에서 9번 중 2번 실패했다. 10번 연속 통과는 실패율이 그대로일 때도 약 8% 확률로 나올 수 있어, 원인 설명과 함께 판단 근거로 삼는다. smoke 시험은 배치를 바꾸지 않고 그때의 leader를 끊는다.
 
 확인하지 않은 것도 적는다. AWS에서 다시 재지 않았으므로 NLB target이 등록 해제된 동안 기존 연결이 유지되는지, 실제 AZ 차단에서 멈춤이 30초 안에 끝나는지는 모른다. AWS에서는 Pod 삭제로 broker를 내렸을 때도 gateway 전체가 약 21초 동안 준비 상태를 잃었는데, 로컬의 정상 종료에서는 재현되지 않았고 원인을 확인하지 않았다. 단일 호스트의 `docker network disconnect`는 호스트 간 패킷 유실과 다를 수 있다. broker가 4개 이상이거나 replication factor가 다르면 follower 손실의 영향이 달라진다.
 

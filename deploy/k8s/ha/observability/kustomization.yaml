@@ -31,6 +31,6 @@ configMapGenerator:
   - name: alertmanager-config
     files: [stack/alertmanager.yml]
   - name: alert-receiver-source
-    files: [alert-receiver.mjs]
+    files: [alert-receiver.js]
   - name: loki-rules
     files: [rules.yaml=loki-rules.yaml]

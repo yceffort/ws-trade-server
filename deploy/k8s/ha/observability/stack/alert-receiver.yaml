@@ -14,7 +14,7 @@ spec:
       containers:
         - name: alert-receiver
           image: node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
-          command: [node, --max-old-space-size=64, /app/alert-receiver.mjs]
+          command: [node, --max-old-space-size=64, /app/alert-receiver.js]
           ports: [{ name: metrics, containerPort: 8080 }]
           readinessProbe: { httpGet: { path: /notifications, port: metrics }, periodSeconds: 5 }
           resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }

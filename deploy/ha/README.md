@@ -7,16 +7,16 @@
 Docker, Node.js 24, OpenSSL, Rust와 C 빌드 도구가 필요하다. 모든 명령은 저장소 루트에서 실행한다. host port 29091~29093을 사용한다.
 
 ```sh
-node deploy/ha/prepare.mjs
+node deploy/ha/prepare.js
 export COMPOSE_PROJECT_NAME=wts-ha-dev
 docker compose -f deploy/ha/compose.yaml up -d --wait --wait-timeout 180
 deploy/ha/bootstrap.sh
 cargo build --locked --features ha --bins
 target/debug/ha-feed init --kafka deploy/local/ha/feed.json --source deploy/local/ha/source.json
-node deploy/ha/dev-lease.mjs
+node deploy/ha/dev-lease.js
 ```
 
-다른 터미널에서 후보 두 개를 실행한다. `dev-lease.mjs`는 resourceVersion 비교 갱신을 제공하는 로컬 시험 서버다. 실제 Kubernetes API나 HA 인증 공급자를 대신하는 운영 서비스가 아니다.
+다른 터미널에서 후보 두 개를 실행한다. `dev-lease.js`는 resourceVersion 비교 갱신을 제공하는 로컬 시험 서버다. 실제 Kubernetes API나 HA 인증 공급자를 대신하는 운영 서비스가 아니다.
 
 ```sh
 target/debug/ha-feed run --kafka deploy/local/ha/feed.json --source deploy/local/ha/source.json --lease deploy/local/ha/lease-demo-a.json
@@ -54,6 +54,6 @@ cargo test --features ha
 deploy/ha/smoke.sh
 ```
 
-`smoke.sh`는 고유 이름의 자체 Compose 프로젝트를 만들고 종료할 때 그 프로젝트의 volume만 제거한다. 동일 host port를 쓰는 수동 개발 클러스터는 먼저 내려야 한다. 합성 상태 복원, producer fencing, commit 전 Lease 상실 시 abort, read-only ACL, SIGSTOP 후 standby 인계와 stale writer 재개, API 단절, broker 1대 중단, 체결 partition leader의 네트워크 단절 중 기존 클라이언트 유지와 committed 대조(`broker-isolation.mjs`), 보관 경계 밖 cursor의 명시적 만료(`retention-boundary.mjs`), 과반수 네트워크 단절, 전체 broker 재시작을 검사한다. 별도 빈 데이터셋에서 외부 입력 공백, commit 뒤 ACK 유실, 재전송과 1,024건 창 만료를 검사한다. 실제 broker commit 성공 직후 응답을 잃는 경우는 시험 빌드의 Writer 경계에서 오류를 주입해 검증한다. Publisher의 메모리가 전진하지 않은 상태에서 재시작하고, committed checkpoint 복원과 동일 ID 재전송 결과를 실제 로그와 대조한다. 네트워크 패킷을 유실시키는 시험과는 구분한다. CI의 `HA` workflow도 같은 시험을 실행한다. 출력과 artifact에는 수치 결과만 저장하고 인증 자료는 올리지 않는다.
+`smoke.sh`는 고유 이름의 자체 Compose 프로젝트를 만들고 종료할 때 그 프로젝트의 volume만 제거한다. 동일 host port를 쓰는 수동 개발 클러스터는 먼저 내려야 한다. 합성 상태 복원, producer fencing, commit 전 Lease 상실 시 abort, read-only ACL, SIGSTOP 후 standby 인계와 stale writer 재개, API 단절, broker 1대 중단, 체결 partition leader의 네트워크 단절 중 기존 클라이언트 유지와 committed 대조(`broker-isolation.js`), 보관 경계 밖 cursor의 명시적 만료(`retention-boundary.js`), 과반수 네트워크 단절, 전체 broker 재시작을 검사한다. 별도 빈 데이터셋에서 외부 입력 공백, commit 뒤 ACK 유실, 재전송과 1,024건 창 만료를 검사한다. 실제 broker commit 성공 직후 응답을 잃는 경우는 시험 빌드의 Writer 경계에서 오류를 주입해 검증한다. Publisher의 메모리가 전진하지 않은 상태에서 재시작하고, committed checkpoint 복원과 동일 ID 재전송 결과를 실제 로그와 대조한다. 네트워크 패킷을 유실시키는 시험과는 구분한다. CI의 `HA` workflow도 같은 시험을 실행한다. 출력과 artifact에는 수치 결과만 저장하고 인증 자료는 올리지 않는다.
 
 이 시험의 Kafka는 실제 복제와 transaction을 사용하지만 하나의 Docker 호스트에서 동작한다. gateway 재접속은 #49에서 다뤘고, 실제 장애 도메인과 LoadBalancer는 #90, 부하 SLO는 #91의 별도 검증 대상이다.

@@ -172,7 +172,7 @@ impl Drop for Provider {
 async fn https_policy_revocation_and_provider_outage_obey_the_sixty_second_bound() {
     let directory = std::env::temp_dir().join(format!("wts-policy-{}-{}", std::process::id(), now_ms()));
     std::fs::create_dir(&directory).unwrap();
-    let child = std::process::Command::new("node").arg("tests/ha-policy-provider.mjs").arg(&directory).spawn().unwrap();
+    let child = std::process::Command::new("node").arg("tests/ha-policy-provider.js").arg(&directory).spawn().unwrap();
     let mut provider = Provider { child, directory };
     let control = provider.directory.join("control.json");
     std::fs::write(&control, serde_json::to_vec(&json!({"policy":policy(1)})).unwrap()).unwrap();

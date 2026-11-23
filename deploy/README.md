@@ -3,10 +3,10 @@
 Rust feed와 gateway, Node TLS 프록시를 실행하는 합성 체결 데모다. 실제 증권사의 배포 구조를 관측한 결과가 아니다. Docker Engine과 Compose v2 이상, 호스트의 Node 22 이상, OpenSSL이 필요하다. 이미지 안에는 Rust 컴파일러나 소스, 캡처 원본을 넣지 않는다.
 
 ```sh
-node deploy/prepare.mjs
+node deploy/prepare.js
 docker compose up --build --detach --wait
 npm ci --prefix edge
-node deploy/check.mjs
+node deploy/check.js
 docker compose logs --follow gateway
 docker compose down --volumes
 ```
@@ -24,7 +24,7 @@ gateway의 readiness는 허용한 두 topic 모두에 최근 10초 이내 체결
 ```sh
 docker compose build
 npm ci --prefix edge
-node deploy/context-smoke.mjs
+node deploy/context-smoke.js
 bash deploy/compose-smoke.sh
 ```
 
@@ -36,4 +36,4 @@ context 검증은 합성 파일만 담은 임시 디렉터리에 실제 `.docker
 
 Kubernetes manifest와 임시 kind 클러스터 검증은 [Kubernetes 안내](k8s/README.md)에 있다. feed와 gateway가 같은 Pod의 볼륨을 공유하는 단일 replica 구성이다.
 
-`node deploy/prepare.mjs /새/디렉터리 service.example`처럼 디렉터리 뒤에 DNS 이름을 주면 localhost와 함께 인증서 SAN에 추가한다. kind의 클라이언트 Job은 이 옵션으로 Service DNS에 대한 TLS 호스트 검증을 수행한다.
+`node deploy/prepare.js /새/디렉터리 service.example`처럼 디렉터리 뒤에 DNS 이름을 주면 localhost와 함께 인증서 SAN에 추가한다. kind의 클라이언트 Job은 이 옵션으로 Service DNS에 대한 TLS 호스트 검증을 수행한다.

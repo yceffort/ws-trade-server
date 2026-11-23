@@ -33,7 +33,7 @@ WTS_LOG_FORMAT=text RUST_LOG=ws_trade_server::connection=debug,ws_trade_server=i
 
 ## edge 로그
 
-TLS 프록시(`edge/run.mjs`)도 gateway JSON과 같은 모양(timestamp, level, target, fields.event)으로 stderr에 한 줄씩 쓴다. 이벤트는 `edge_started`(`fields.url`), `edge_summary`, `edge_stopped` 셋뿐이다. 연결마다 남기지 않고 10초마다 직전 요약 이후 늘어난 사유별 횟수만 `edge_summary`로 내며, 늘어난 것이 없으면 쓰지 않는다. 종료할 때는 남은 증분을 낸 뒤 `edge_stopped`를 쓴다. 클라이언트 주소, 헤더, 토큰, 본문은 남기지 않는다.
+TLS 프록시(`edge/run.js`)도 gateway JSON과 같은 모양(timestamp, level, target, fields.event)으로 stderr에 한 줄씩 쓴다. 이벤트는 `edge_started`(`fields.url`), `edge_summary`, `edge_stopped` 셋뿐이다. 연결마다 남기지 않고 10초마다 직전 요약 이후 늘어난 사유별 횟수만 `edge_summary`로 내며, 늘어난 것이 없으면 쓰지 않는다. 종료할 때는 남은 증분을 낸 뒤 `edge_stopped`를 쓴다. 클라이언트 주소, 헤더, 토큰, 본문은 남기지 않는다.
 
 | 사유 | 뜻 |
 | --- | --- |

@@ -10,7 +10,7 @@ compose=(docker compose -f deploy/ha/compose.yaml)
 cleanup() {
   status=$?
   trap - EXIT
-  if ((status != 0)); then node deploy/ha/diagnose.mjs || true; fi
+  if ((status != 0)); then node deploy/ha/diagnose.js || true; fi
   if ! "${compose[@]}" down --volumes --remove-orphans; then
     echo "Compose 정리 실패: $COMPOSE_PROJECT_NAME" >&2
     if ((status == 0)); then status=1; fi
@@ -18,7 +18,7 @@ cleanup() {
   exit "$status"
 }
 trap cleanup EXIT
-node deploy/ha/prepare.mjs
+node deploy/ha/prepare.js
 npm ci --prefix edge --ignore-scripts
 cargo build --locked --features ha --bins
 cargo test --locked --features ha --lib https_policy_revocation_and_provider_outage_obey_the_sixty_second_bound -- --ignored --nocapture
@@ -32,10 +32,10 @@ cargo test --locked --features ha --test ha_protocol -- --ignored --nocapture
 WTS_HA_SHARED_TEST=1 cargo test --locked --features ha --test ha_protocol -- --ignored --nocapture
 cargo test --locked --features ha --test ha_lifecycle -- --ignored --nocapture
 mkdir -p deploy/local/ha/results
-node deploy/ha/producer-failover.mjs | tee deploy/local/ha/results/producer-failover.json
-node deploy/ha/broker-isolation.mjs | tee deploy/local/ha/results/broker-isolation.json
+node deploy/ha/producer-failover.js | tee deploy/local/ha/results/producer-failover.json
+node deploy/ha/broker-isolation.js | tee deploy/local/ha/results/broker-isolation.json
 cargo test --locked --features ha --test ha_broker replicated_log_survives_broker_loss_and_rejects_no_quorum -- --ignored --nocapture
-node deploy/ha/retention-boundary.mjs | tee deploy/local/ha/results/retention-boundary.json
+node deploy/ha/retention-boundary.js | tee deploy/local/ha/results/retention-boundary.json
 # 외부 입력 시험은 다른 빈 데이터셋에서 시작한다. 이 스크립트가 만든 프로젝트의 volume만 지운다.
 "${compose[@]}" down --volumes
 "${compose[@]}" up -d --wait --wait-timeout 180

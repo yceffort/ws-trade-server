@@ -21,7 +21,7 @@ impl Provider {
         std::fs::create_dir(&directory).unwrap();
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
         let child =
-            std::process::Command::new("node").arg("tests/ha-policy-provider.mjs").arg(&directory).spawn().unwrap();
+            std::process::Command::new("node").arg("tests/ha-policy-provider.js").arg(&directory).spawn().unwrap();
         let mut provider = Self {
             child,
             directory,

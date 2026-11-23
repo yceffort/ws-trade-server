@@ -98,7 +98,7 @@ async fn durable_client_recovers_across_gateways_and_replay_limits() {
     std::fs::write(&fixture,serde_json::to_vec(&json!({"urls":urls,"token_file":provider.as_ref().map(|p| p.directory.join("token")),"policy_control":provider.as_ref().map(|p|p.directory.join("control.json")),"topics":source.topics,"log_id":source.log_id,"tail":tail.to_string(),"start":expected[0]["offset"],"events":expected})).unwrap()).unwrap();
     let output = tokio::task::spawn_blocking(move || {
         std::process::Command::new("node")
-            .args(["tests/ha-client-oracle.mjs", fixture.to_str().unwrap()])
+            .args(["tests/ha-client-oracle.js", fixture.to_str().unwrap()])
             .output()
             .unwrap()
     })

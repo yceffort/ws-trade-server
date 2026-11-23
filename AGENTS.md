@@ -14,10 +14,10 @@ cargo test
 
 프레임 모양을 건드렸다면 `README.md`의 "캡처와 대조하기" 절차로 `contract/wts-stomp.json`과 비교한다.
 
-`capture/extract-contract.mjs`를 바꾸면 합성 캡처 테스트도 통과해야 한다.
+`capture/extract-contract.js`를 바꾸면 합성 캡처 테스트도 통과해야 한다.
 
 ```sh
-node --test capture/extract-contract.test.mjs
+node --test capture/extract-contract.test.js
 ```
 
 PR을 열거나 `main`에 푸시하면 `.github/workflows/ci.yml`이 위 명령을 Linux에서 다시 돌린다.
@@ -38,7 +38,7 @@ Rust 코드를 쓰거나 검토할 때 `rust-skills` 스킬을 쓴다. Codex는 
 ## 지켜야 할 것
 
 - 근거는 공개 자료만 쓴다. `evidence/raw/`의 값(토큰, 실제 체결 값)을 코드, 테스트, 문서에 옮기지 않는다.
-- `contract/`는 `capture/extract-contract.mjs`가 만든 결과물이다. 손으로 고치지 않는다.
+- `contract/`는 `capture/extract-contract.js`가 만든 결과물이다. 손으로 고치지 않는다.
 - 관측하지 않은 동작을 상상해서 넣지 않는다. 넣어야 하면 README의 "실측이 없어 넣은 것" 목록에 적는다.
 - 커밋, 푸시는 사람이 요청했을 때만 한다.
 - 주석은 코드만 봐서는 알 수 없는 이유에만, 한국어로 단다. 주석과 문서에 em dash, en dash, 가운뎃점을 쓰지 않고, 문서의 한 문단은 한 줄로 쓴다.

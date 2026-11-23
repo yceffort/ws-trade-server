@@ -2,10 +2,10 @@ name: Deployment
 
 on:
   pull_request:
-    paths: ['Dockerfile', '.dockerignore', 'compose.yaml', 'deploy/**', 'edge/**', 'src/**', 'proto/**', 'Cargo.*', 'build.rs', 'bench/soak/client.mjs', '.github/workflows/deploy.yml']
+    paths: ['Dockerfile', '.dockerignore', 'compose.yaml', 'deploy/**', 'edge/**', 'src/**', 'proto/**', 'Cargo.*', 'build.rs', 'bench/soak/client.js', '.github/workflows/deploy.yml']
   push:
     branches: [main]
-    paths: ['Dockerfile', '.dockerignore', 'compose.yaml', 'deploy/**', 'edge/**', 'src/**', 'proto/**', 'Cargo.*', 'build.rs', 'bench/soak/client.mjs', '.github/workflows/deploy.yml']
+    paths: ['Dockerfile', '.dockerignore', 'compose.yaml', 'deploy/**', 'edge/**', 'src/**', 'proto/**', 'Cargo.*', 'build.rs', 'bench/soak/client.js', '.github/workflows/deploy.yml']
   workflow_dispatch:
 
 concurrency:
@@ -27,7 +27,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --prefix edge
-      - run: node deploy/context-smoke.mjs
+      - run: node deploy/context-smoke.js
       - run: docker compose build
       - run: bash deploy/compose-smoke.sh
       - name: Install kind and kubectl

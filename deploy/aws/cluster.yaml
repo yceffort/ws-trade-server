@@ -25,7 +25,7 @@ iam:
       serviceAccountName: aws-load-balancer-controller
       wellKnownPolicies: { awsLoadBalancerController: true }
 managedNodeGroups:
-  # preflight.mjs가 zone마다 적격 hostname 2개를 요구하므로 AZ마다 2대짜리 그룹을 따로 둔다.
+  # preflight.js가 zone마다 적격 hostname 2개를 요구하므로 AZ마다 2대짜리 그룹을 따로 둔다.
   - name: server-a
     availabilityZones: [ap-northeast-2a]
     instanceTypes: [c7g.xlarge, m7g.xlarge]

@@ -23,7 +23,7 @@ done) &
 SAMPLER=$!
 trap 'kill $SAMPLER 2>/dev/null' EXIT
 
-node bench/ha/job-run.mjs "$CONTEXT" "$SETTINGS" "$OPTIONS" "$OUT"
+node bench/ha/job-run.js "$CONTEXT" "$SETTINGS" "$OPTIONS" "$OUT"
 STATUS=$?
 kill $SAMPLER 2>/dev/null; wait $SAMPLER 2>/dev/null
 
@@ -32,7 +32,7 @@ LOAD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/component=ha-load -o name 
 for POD in $(gateways); do
   kubectl -n "$NS" logs "$POD" -c edge --since-time="$STARTED" 2>/dev/null | grep edge_summary > "$OUT/edge-$(basename "$POD").log"
 done
-# 끝난 Pod가 남아 있으면 다음 실행의 job-run.mjs가 보고서 없이 종료한 Pod로 읽는다. Pod가 사라질 때까지 기다린다.
+# 끝난 Pod가 남아 있으면 다음 실행의 job-run.js가 보고서 없이 종료한 Pod로 읽는다. Pod가 사라질 때까지 기다린다.
 kubectl -n "$NS" delete job wts-ha-load --ignore-not-found --wait --timeout=120s >/dev/null
 kubectl -n "$NS" delete pods -l app.kubernetes.io/component=ha-load --ignore-not-found --grace-period=1 --wait --timeout=120s >/dev/null
 exit $STATUS

@@ -15,11 +15,11 @@ cleanup() {
   exit "$result"
 }
 trap cleanup EXIT
-node deploy/prepare.mjs "$WTS_SECRETS_DIR"
+node deploy/prepare.js "$WTS_SECRETS_DIR"
 docker compose up --detach --no-build --wait --wait-timeout 120
 endpoint="wss://$(docker compose port edge 8443)/ws"
-node deploy/check.mjs "$endpoint" "$WTS_SECRETS_DIR"
-node deploy/check.mjs "$endpoint" "$WTS_SECRETS_DIR" reject
+node deploy/check.js "$endpoint" "$WTS_SECRETS_DIR"
+node deploy/check.js "$endpoint" "$WTS_SECRETS_DIR" reject
 for service in feed gateway edge; do
   container=$(docker compose ps --quiet "$service")
   test "$(docker inspect --format '{{.Config.User}} {{.HostConfig.ReadonlyRootfs}}' "$container")" = '10001:10001 true'
@@ -41,8 +41,8 @@ for attempt in {1..20}; do
   sleep 1
 done
 docker compose exec -T gateway container-probe ready
-node deploy/check.mjs "$endpoint" "$WTS_SECRETS_DIR"
-node deploy/check.mjs "$endpoint" "$WTS_SECRETS_DIR" shutdown > "$temporary/shutdown.log" 2>&1 &
+node deploy/check.js "$endpoint" "$WTS_SECRETS_DIR"
+node deploy/check.js "$endpoint" "$WTS_SECRETS_DIR" shutdown > "$temporary/shutdown.log" 2>&1 &
 client_pid=$!
 for attempt in {1..10}; do
   if grep -q ready-for-shutdown "$temporary/shutdown.log"; then break; fi
