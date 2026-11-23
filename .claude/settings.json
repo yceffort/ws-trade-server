@@ -1,0 +1,5 @@
+{
+  "permissions": {
+    "ask": ["Bash(*deploy/aws/*.sh*)", "Bash(eksctl create *)", "Bash(eksctl delete *)"]
+  }
+}
