@@ -24,7 +24,8 @@ try {
         })
         res.on('end', () => {
           try {
-            res.statusCode === 200 ? resolve(JSON.parse(bytes)) : reject(new Error('verification rejected'))
+            if (res.statusCode === 200) resolve(JSON.parse(bytes))
+            else reject(new Error('verification rejected'))
           } catch {
             reject(new Error('invalid verification response'))
           }

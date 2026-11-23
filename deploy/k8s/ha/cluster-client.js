@@ -28,7 +28,8 @@ async function attempt(url, cursor) {
       const timer = setTimeout(() => reject(new Error('cluster client deadline exceeded')), 20000)
       const done = (error, result) => {
         clearTimeout(timer)
-        error ? reject(error) : resolve(result)
+        if (error) reject(error)
+        else resolve(result)
       }
       socket.on('error', () => done(new Error('cluster TLS/WebSocket connection failed')))
       socket.on('open', () => socket.send(JSON.stringify({ type: 'connect', token })))

@@ -22,9 +22,7 @@ const windows = new Map()
 let server,
   config,
   stopped = false,
-  activeScope = null,
-  observationTimer,
-  observationTask
+  activeScope = null
 async function mark(scope) {
   const previous = activeScope
   if (scope) activeScope = scope
@@ -270,11 +268,11 @@ try {
   const started = performance.now()
   const observe = () => {
     if (stopped) return
-    observationTask = sample()
+    sample()
       .then(value => console.log(JSON.stringify(loadSample(value))))
       .catch(() => console.log(JSON.stringify(loadSample({ client_event_loop_p99_ms: null }))))
       .finally(() => {
-        if (!stopped) observationTimer = setTimeout(observe, 5000)
+        if (!stopped) setTimeout(observe, 5000)
       })
   }
   observe()
@@ -320,18 +318,16 @@ try {
         }
         response.writeHead(result.ok ? 200 : 409, { 'content-type': 'application/json' }).end(JSON.stringify(result))
       } catch (error) {
-        response
-          .writeHead(409)
-          .end(
-            JSON.stringify({
-              ok: false,
-              reason: error.code
-                ? 'external-command-or-io-failed'
-                : error instanceof SyntaxError
-                  ? 'invalid-json'
-                  : error.message
-            })
-          )
+        response.writeHead(409).end(
+          JSON.stringify({
+            ok: false,
+            reason: error.code
+              ? 'external-command-or-io-failed'
+              : error instanceof SyntaxError
+                ? 'invalid-json'
+                : error.message
+          })
+        )
       }
     })
     server.maxConnections = 1

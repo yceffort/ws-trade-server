@@ -101,6 +101,7 @@ export class FileStore extends MemoryStore {
       try {
         unlinkSync(temporary)
       } catch (error) {
+        // oxlint-disable-next-line no-unsafe-finally -- 기존 동작 유지: 임시 파일 정리 실패가 앞선 오류를 덮는다.
         if (error.code !== 'ENOENT') throw error
       }
     }

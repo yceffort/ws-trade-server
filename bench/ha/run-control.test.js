@@ -64,7 +64,7 @@ for (const overlap of [null, 'rollout-first', 'fault-first'])
           actionStarted = join(directory, 'action-started')
         writeFileSync(
           actionFile,
-          `import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(actionStarted)},'1');setTimeout(()=>console.log('{\"ok\":true}'),2000)`
+          `import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(actionStarted)},'1');setTimeout(()=>console.log('{"ok":true}'),2000)`
         )
         writeFileSync(
           join(directory, 'config.json'),

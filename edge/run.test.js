@@ -85,7 +85,7 @@ test('workers share one port, relay connections and stop together', { timeout: 1
 })
 
 test('a crashed worker is replaced without stopping the edge', { timeout: 15000 }, async t => {
-  const { child, events, until, exited } = edge({ WTS_EDGE_WORKERS: '2' })
+  const { child, until, exited } = edge({ WTS_EDGE_WORKERS: '2' })
   t.after(async () => {
     child.kill('SIGTERM')
     await exited
