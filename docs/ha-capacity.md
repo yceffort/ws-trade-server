@@ -41,7 +41,7 @@ checkpoint 전송 오류 수정 커밋 `2d5fb98`과 고정 이미지로 1,000명
 
 ## 1,000 clients 병목 판정 기준
 
-[#91](https://github.com/yceffort/ws-trade-server/issues/91)의 계단 측정(100, 250, 500, 1,000 clients, 설정당 3회)을 돌리기 전에 정한 기준이며 결과를 본 뒤에 고치지 않는다. 기존 보고서의 `connection-error`는 소켓 오류를 한 이름으로 뭉친 값이었다. 응답하지 않는 서버에 예제 클라이언트를 붙이면 수신 기한 3초가 handshake 중인 소켓을 끊는데 이것도 `connection-error`로 보고된다(`bench/ha/reasons.test.mjs`). 이제 부하 워커가 `bench/ha/reasons.mjs`로 ws의 오류 문구와 Node 오류 코드만 보고 고정 사유를 붙인다. `disconnect_reasons`는 실행 중 끊긴 횟수를 사유별로 누적한 값이고 `reasons`는 마지막 사유별 클라이언트 수다. 끝까지 간 실행의 보고서에는 `disconnect_reasons`만 있고, 예외로 중단된 실행의 보고서에는 상태 수집에 성공한 경우에만 둘 다 `diagnostics` 안에 있다.
+[#91](https://github.com/yceffort/ws-trade-server/issues/91)의 계단 측정(100, 250, 500, 1,000 clients, 설정당 3회)을 돌리기 전에 정한 기준이며 결과를 본 뒤에 고치지 않는다. 기존 보고서의 `connection-error`는 소켓 오류를 한 이름으로 뭉친 값이었다. 응답하지 않는 서버에 예제 클라이언트를 붙이면 수신 기한 3초가 handshake 중인 소켓을 끊는데 이것도 `connection-error`로 보고된다(`bench/ha/reasons.test.js`). 이제 부하 워커가 `bench/ha/reasons.js`로 ws의 오류 문구와 Node 오류 코드만 보고 고정 사유를 붙인다. `disconnect_reasons`는 실행 중 끊긴 횟수를 사유별로 누적한 값이고 `reasons`는 마지막 사유별 클라이언트 수다. 끝까지 간 실행의 보고서에는 `disconnect_reasons`만 있고, 예외로 중단된 실행의 보고서에는 상태 수집에 성공한 경우에만 둘 다 `diagnostics` 안에 있다.
 
 | 부하 보고서의 사유 | 뜻 | 함께 볼 값 |
 | --- | --- | --- |
@@ -93,11 +93,11 @@ AZ b의 서브넷을 차단하자 `receive-deadline` 353건과 `source-stale` 64
 
 개발 환경은 `retention.bytes` 1GiB를 그대로 쓴다. 24시간 보관을 목표로 하는 검증 환경은 k8s의 `retentionBytes` 또는 Compose의 `WTS_HA_RETENTION_BYTES`를 8GiB(8589934592)로 둔다. 실측의 약 1.7배로, 식별자가 길거나 체결이 큰 경우와 삭제 단위인 segment(16MiB)만큼의 여유를 둔 값이다. 여기에 compact 토픽 몇십 MB를 더해도 settings 예시의 broker PVC 20Gi 안이다. 이 설정에서 실제로 24시간 동안 원래 cursor로 복구되는지는 장시간 시험을 하지 않아 확인하지 않았다.
 
-보관 경계의 동작은 `deploy/ha/retention-boundary.mjs`가 확인한다. DeleteRecords로 로그 시작 위치를 앞당긴 뒤, 경계에 맞는 cursor는 이어서 복구되고 경계 앞의 events cursor와 state cursor는 `cursor-expired`, 경계 앞의 `start_at`은 `start-out-of-range`로 끝나며 저장 상태가 바뀌지 않는지 본다. 시간과 용량 retention도 broker가 로그 시작 위치를 앞당기는 일이라 클라이언트가 보는 결과는 같다. broker의 retention 검사 주기(기본 5분)와 segment 삭제 시점은 이 시험에 들어 있지 않다.
+보관 경계의 동작은 `deploy/ha/retention-boundary.js`가 확인한다. DeleteRecords로 로그 시작 위치를 앞당긴 뒤, 경계에 맞는 cursor는 이어서 복구되고 경계 앞의 events cursor와 state cursor는 `cursor-expired`, 경계 앞의 `start_at`은 `start-out-of-range`로 끝나며 저장 상태가 바뀌지 않는지 본다. 시간과 용량 retention도 broker가 로그 시작 위치를 앞당기는 일이라 클라이언트가 보는 결과는 같다. broker의 retention 검사 주기(기본 5분)와 segment 삭제 시점은 이 시험에 들어 있지 않다.
 
 ## edge 하나의 한계 (2026-11-23)
 
-[#95](https://github.com/yceffort/ws-trade-server/issues/95)의 측정이다. AWS에서 gateway가 2개만 남아 Pod마다 500 연결을 받는 동안 edge가 0.96~1.0 core로 단일 스레드 한계에 있었다. edge만 따로 포화시키려고 `edge/capacity.mjs`로 쟀다. 합성 upstream이 연결마다 10ms마다 450바이트 프레임을 보내고, 가벼운 수신 클라이언트는 받은 수만 센다. Apple M1(고성능 코어 4개, 효율 코어 4개) 한 대에서 upstream, edge, 클라이언트를 함께 돌렸으며 결과는 `bench/results/ha/edge-capacity-m1.json`에 있다.
+[#95](https://github.com/yceffort/ws-trade-server/issues/95)의 측정이다. AWS에서 gateway가 2개만 남아 Pod마다 500 연결을 받는 동안 edge가 0.96~1.0 core로 단일 스레드 한계에 있었다. edge만 따로 포화시키려고 `edge/capacity.js`로 쟀다. 합성 upstream이 연결마다 10ms마다 450바이트 프레임을 보내고, 가벼운 수신 클라이언트는 받은 수만 센다. Apple M1(고성능 코어 4개, 효율 코어 4개) 한 대에서 upstream, edge, 클라이언트를 함께 돌렸으며 결과는 `bench/results/ha/edge-capacity-m1.json`에 있다.
 
 | edge worker | 연결 시도 | 연결 성공 | 초당 전달 | edge core | 접속 실패 |
 | --- | --- | --- | --- | --- | --- |

@@ -11,7 +11,7 @@ STOMP는 `/ws`에서 두 합성 공개 topic의 RECEIPT 뒤 MESSAGE를 받아 �
 ```sh
 npm ci --prefix edge --ignore-scripts
 cargo build --bin gateway --bin feed
-node --test probe/*.test.mjs
+node --test probe/*.test.js
 ```
 
 종단 시험이 임시 인증서와 토큰을 만들고 실제 feed, gateway, TLS edge를 시작해 정상 적용, 신뢰하지 않는 인증서, 인증 거절과 데이터 정지를 구분한다. HA 시험은 로컬 합성 WebSocket 서버로 checkpoint 재접속, 본문 대조 실패와 데이터 정지를 검증한다. 실제 Kafka transaction과 LB 장애 도메인은 [HA 수용 시험](../bench/ha/README.md)의 별도 범위다. fixture에 실제 계정이나 캡처 값은 없다.
@@ -21,7 +21,7 @@ node --test probe/*.test.mjs
 `config.example.json`을 복사해 사용자가 지정한 합성 계정, WSS 주소, CA와 token 파일 경로로 바꾼다. STOMP 토큰은 Bearer 접두사가 없어도 되고, HA 토큰은 기존 HA 클라이언트처럼 `Bearer ` 접두사를 포함한다. HA의 head/range command는 그 환경의 read-committed broker와 같은 source 설정을 읽는 `ha-oracle` 바이너리여야 한다. 임의 JSON fixture로 외부 환경의 oracle를 대신하지 않는다. 공개 CA 인증서라면 caFile을 생략한다. 샘플 토큰이나 내부 localhost 주소를 외부 서비스에 그대로 쓰지 않는다.
 
 ```sh
-node probe/server.mjs /path/to/probe.json
+node probe/server.js /path/to/probe.json
 curl http://127.0.0.1:9464/metrics
 ```
 
@@ -35,7 +35,7 @@ connect/TLS 시간은 소켓 생성부터 WebSocket open까지라 TLS만의 CPU 
 
 ```sh
 docker build -f probe/Dockerfile --build-arg HA_IMAGE=YOUR_HA_IMAGE --build-arg EDGE_IMAGE=YOUR_EDGE_IMAGE -t YOUR_PROBE_IMAGE .
-node probe/render.mjs /path/to/deployment.json > /tmp/wts-probe.json
+node probe/render.js /path/to/deployment.json > /tmp/wts-probe.json
 kubectl --context TEST_CONTEXT apply -f /tmp/wts-probe.json
 kubectl --context TEST_CONTEXT -n YOUR_NAMESPACE rollout restart deployment/wts-probe
 ```

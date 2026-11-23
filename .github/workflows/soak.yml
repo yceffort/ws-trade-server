@@ -46,7 +46,7 @@ jobs:
           SOAK_SECONDS: ${{ inputs.seconds }}
           SOAK_CYCLES: ${{ inputs.cycles }}
           SOAK_CONNECTIONS: ${{ inputs.connections }}
-        run: node bench/soak.mjs --seconds "$SOAK_SECONDS" --cycles "$SOAK_CYCLES" --connections "$SOAK_CONNECTIONS" --out /tmp/soak.json
+        run: node bench/soak.js --seconds "$SOAK_SECONDS" --cycles "$SOAK_CYCLES" --connections "$SOAK_CONNECTIONS" --out /tmp/soak.json
       - name: Show result
         if: always()
         run: test ! -f /tmp/soak.json || cat /tmp/soak.json

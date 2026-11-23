@@ -17,12 +17,12 @@
 1. `deploy/ha/Dockerfile`, `edge/Dockerfile`, `bench/ha/Dockerfile`로 이미지 세 개를 만들어 ECR 저장소 `wts-ha/gateway`, `wts-ha/edge`, `wts-ha/load`에 올리고 digest를 적어 둔다. 노드가 arm64이므로 arm64로 빌드한다.
 2. `deploy/aws/up.sh 7`을 실행한다. 인자는 모든 노드 그룹을 0대로 줄일 때까지의 시간이다.
 3. settings를 만든다. `zones`는 AZ 이름 세 개, `storageClass`는 `wts-gp3`, `gatewayIngressCIDRs`는 NLB 서브넷 세 개(`192.168.192.0/28`, `.16/28`, `.32/28`), `clientCIDRs`는 VPC CIDR, `apiCIDRs`는 `kubernetes` Service의 ClusterIP와 endpoint 주소다. `gatewayServiceAnnotations`에는 `service.beta.kubernetes.io/aws-load-balancer-type: external`, `aws-load-balancer-nlb-target-type: ip`, `aws-load-balancer-scheme: internal`, `aws-load-balancer-subnets: <NLB 서브넷 ID 세 개>`를 넣는다.
-4. `render.mjs settings.json foundation`을 적용하고 gateway Service에 NLB 이름이 붙기를 기다린다. 그 이름을 settings의 `gatewayNames`에 넣은 뒤 `dev-secrets.mjs`를 실행해 `secrets.json`과 `development.json`을 적용한다. 인증서 SAN에 NLB 이름이 들어가야 클라이언트가 TLS를 검증한다. 새 Pod가 NLB target으로 healthy가 된 뒤에 Ready가 되게 하려면 workloads를 적용하기 전에 namespace에 `elbv2.k8s.aws/pod-readiness-gate-inject=enabled` label을 붙인다.
+4. `render.js settings.json foundation`을 적용하고 gateway Service에 NLB 이름이 붙기를 기다린다. 그 이름을 settings의 `gatewayNames`에 넣은 뒤 `dev-secrets.js`를 실행해 `secrets.json`과 `development.json`을 적용한다. 인증서 SAN에 NLB 이름이 들어가야 클라이언트가 TLS를 검증한다. 새 Pod가 NLB target으로 healthy가 된 뒤에 Ready가 되게 하려면 workloads를 적용하기 전에 namespace에 `elbv2.k8s.aws/pod-readiness-gate-inject=enabled` label을 붙인다.
 5. broker 3대가 Ready가 되면 `bootstrap`, `workloads` 순서로 적용한다.
 6. NetworkPolicy 집행은 `aws eks update-addon --cluster-name wts-ha-aws --addon-name vpc-cni --configuration-values '{"enableNetworkPolicy":"true"}'`로 켠다. 이번 측정은 집행을 끈 상태에서 NLB 경로를 먼저 확인하고 켰다.
 7. 부하 노드는 `aws eks update-nodegroup-config --cluster-name wts-ha-aws --nodegroup-name load --scaling-config minSize=0,maxSize=1,desiredSize=1`로 켠다. `options.json`에는 NLB 주소의 `urls`, NLB 서브넷의 `externalEgress`, `nodeSelector: {"wts/role":"load"}`와 `dedicated=load:NoSchedule` toleration을 넣는다.
-8. 실행마다 `dev-token.mjs`로 client token을 새로 만들어 `wts-dev-client-VERSION` Secret을 교체한 뒤 `deploy/aws/measure.sh settings.json options.json 출력디렉터리`를 실행한다. token 수명이 한 시간이라 그보다 긴 측정은 token을 바꾸지 않으면 `auth-expired`로 끝난다.
-9. 계획 배포는 부하 Job이 초기 접속을 마친 뒤 `rollout.mjs`를 `kube-verify.mjs`와 함께 실행한다. 이번 측정은 readiness gate가 없는 상태를 먼저 재려고 label을 나중에 붙였고, 그 뒤에 만들어진 Pod부터 gate가 적용됐다.
+8. 실행마다 `dev-token.js`로 client token을 새로 만들어 `wts-dev-client-VERSION` Secret을 교체한 뒤 `deploy/aws/measure.sh settings.json options.json 출력디렉터리`를 실행한다. token 수명이 한 시간이라 그보다 긴 측정은 token을 바꾸지 않으면 `auth-expired`로 끝난다.
+9. 계획 배포는 부하 Job이 초기 접속을 마친 뒤 `rollout.js`를 `kube-verify.js`와 함께 실행한다. 이번 측정은 readiness gate가 없는 상태를 먼저 재려고 label을 나중에 붙였고, 그 뒤에 만들어진 Pod부터 gate가 적용됐다.
 10. `deploy/aws/down.sh`로 지운다. 마지막 줄이 "남은 자원 없음"인지 확인한다. 점검은 리전의 EC2, EBS, ELB를 전부 세므로 같은 리전에 다른 자원이 있는 계정에서는 그만큼 남은 것으로 나온다.
 
 ## kind와 달랐던 것
@@ -36,7 +36,7 @@
 - readiness gate가 없으면 slot을 교체할 때마다 새 target이 healthy가 되기 16초 전에 옛 target이 draining으로 넘어갔다. gate를 켜면 그 구간이 없었다.
 - edge의 `tls_aborted` 기준선은 Pod마다 10초에 9건이었다. kind의 6건에 NLB health check가 더해진 값이다.
 - spot 노드는 세 번 교체됐다(재조정 권고). CoreDNS 두 개가 모두 한 AZ에 있어서 AZ 장애는 CoreDNS가 없는 AZ에 주입했다.
-- `job-run.mjs`는 polling 중의 kubectl 호출이 한 번 실패하면 보고서 없이 끝났다. 이 측정에서는 `measure.sh`가 부하 Pod의 보고서를 직접 기다렸다. 이후 [#96](https://github.com/yceffort/ws-trade-server/issues/96)에서 실행 기한 안에서 다시 묻게 고치고 그 우회를 지웠다.
+- `job-run.js`는 polling 중의 kubectl 호출이 한 번 실패하면 보고서 없이 끝났다. 이 측정에서는 `measure.sh`가 부하 Pod의 보고서를 직접 기다렸다. 이후 [#96](https://github.com/yceffort/ws-trade-server/issues/96)에서 실행 기한 안에서 다시 묻게 고치고 그 우회를 지웠다.
 
 ## 비용
 

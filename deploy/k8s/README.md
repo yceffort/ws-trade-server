@@ -31,7 +31,7 @@ kubectl -n ws-trade create secret generic ws-trade-credentials \
   --from-file=key.pem=/secure/ws-trade/key.pem
 ```
 
-인증 파일은 외부에서 제공한다. localhost 데모에는 `node deploy/prepare.mjs`로 만든 파일을 쓸 수 있다. 외부 호스트명으로 접속할 때는 그 이름을 포함한 신뢰 가능한 인증서가 필요하다. manifest에는 Secret 값을 포함하지 않는다. Secret은 암호화된 보관소 자체가 아니므로 클러스터의 접근 제어와 저장 시 암호화는 운영 환경에서 설정한다. 파일은 0440이며 Pod의 fsGroup 10001로 읽는다. `subPath` 없이 디렉터리를 마운트해 토큰 파일 갱신을 받을 수 있고 gateway가 주기적으로 다시 읽는다. kubelet의 반영 지연이 있으므로 즉시 폐기를 보장하지 않는다. 인증서 갱신은 rollout restart가 필요하다. [Secret 문서](https://kubernetes.io/docs/concepts/configuration/secret/)를 참고한다.
+인증 파일은 외부에서 제공한다. localhost 데모에는 `node deploy/prepare.js`로 만든 파일을 쓸 수 있다. 외부 호스트명으로 접속할 때는 그 이름을 포함한 신뢰 가능한 인증서가 필요하다. manifest에는 Secret 값을 포함하지 않는다. Secret은 암호화된 보관소 자체가 아니므로 클러스터의 접근 제어와 저장 시 암호화는 운영 환경에서 설정한다. 파일은 0440이며 Pod의 fsGroup 10001로 읽는다. `subPath` 없이 디렉터리를 마운트해 토큰 파일 갱신을 받을 수 있고 gateway가 주기적으로 다시 읽는다. kubelet의 반영 지연이 있으므로 즉시 폐기를 보장하지 않는다. 인증서 갱신은 rollout restart가 필요하다. [Secret 문서](https://kubernetes.io/docs/concepts/configuration/secret/)를 참고한다.
 
 레지스트리 이미지 주소는 별도 Kustomize overlay에서 바꾼다. 아래는 `deploy/overlays/cluster/kustomization.yaml`의 예다. 이름과 digest는 실제 배포 값으로 교체한다. 비공개 레지스트리라면 imagePullSecrets도 추가한다.
 

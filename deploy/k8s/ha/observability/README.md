@@ -89,13 +89,13 @@ Grafana의 WTS 폴더에 `wts-overview` 대시보드를 파일로 자동 등록�
 
 자원 지표는 kubelet cAdvisor(CPU 코어, throttling 구간 비율, RSS, working set)와 kube-state-metrics 2.16.0(Pod 목록, CPU/메모리 제한, 마지막 OOM 종료 사유, 재시작)에서 수집한다. kube-state-metrics는 pods list/watch만 허용한다. Prometheus는 kubelet의 HTTPS 지표 경로를 직접 수집하고 `nodes/metrics` GET만 허용한다. `nodes/proxy` 권한은 부여하지 않는다. kubelet serving CA와 SAN을 검증하며 신뢰 설정이 틀리면 수집 실패로 남긴다. edge는 restartPolicy Always인 init container라 일반 컨테이너와 init container 자원 및 재시작 지표를 함께 조회한다. 기본 CNI는 NetworkPolicy 집행 검증을 대신하지 않는다.
 
-`bench/ha/run.mjs`는 5초마다 각 worker의 실행 시작 후 event-loop p99 중 최댓값을 초 단위 JSON으로 출력한다. 전체 worker의 분포를 합친 p99가 아니다. `ha_experiment` 로그는 rollout, rollback, fault의 시작과 끝만 기록하며 대시보드 annotation으로 보인다. 실행 식별자, 토큰, cursor와 payload는 출력하지 않는다. 이 로그를 모으려면 부하 Job도 같은 Alloy 수집 범위(`app.kubernetes.io/part-of=wts-ha`)에 있어야 한다. 이전 부하 이미지에는 이 출력이 없으므로 이미지를 다시 빌드한다.
+`bench/ha/run.js`는 5초마다 각 worker의 실행 시작 후 event-loop p99 중 최댓값을 초 단위 JSON으로 출력한다. 전체 worker의 분포를 합친 p99가 아니다. `ha_experiment` 로그는 rollout, rollback, fault의 시작과 끝만 기록하며 대시보드 annotation으로 보인다. 실행 식별자, 토큰, cursor와 payload는 출력하지 않는다. 이 로그를 모으려면 부하 Job도 같은 Alloy 수집 범위(`app.kubernetes.io/part-of=wts-ha`)에 있어야 한다. 이전 부하 이미지에는 이 출력이 없으므로 이미지를 다시 빌드한다.
 
 빈 질의와 표본 없는 p99는 0으로 채우지 않고 측정되지 않음으로 표시한다. 송신 큐 적재와 flush는 클라이언트 적용 성공이 아니다. Kafka 위치 lag는 control record를 포함하는 위치 차이이며 체결 건수나 지연 시간으로 환산하지 않는다. 링 덮어쓰기, seq 누락, 최신 우선 병합과 느린 연결 차단도 합산하지 않는다. OOM 패널은 마지막 종료 사유이며 누적 횟수가 아니다.
 
 ```sh
-node deploy/k8s/ha/observability/dashboard-check.mjs
-node --test bench/ha/observability.test.mjs
+node deploy/k8s/ha/observability/dashboard-check.js
+node --test bench/ha/observability.test.js
 ```
 
 첫 명령은 실제 Prometheus 3.5.0 promtool로 모든 패널의 PromQL을 검사하고, 두 namespace의 분리, counter reset, 지표 없음과 표본 없는 p99를 검증한다. 실제 배포에서는 부하 Job과 gateway의 namespace를 선택해 CPU/throttling 및 event-loop 지연, rollout annotation과 같은 시간대 로그를 함께 확인한다. 각 수집 endpoint의 `up`도 확인한다. 대시보드가 열리는 것만으로 1,000 clients 용량이나 실제 장애 도메인을 검증했다고 판단하지 않는다.

@@ -39,14 +39,14 @@ jobs:
           import { writeFileSync } from 'node:fs'
           const settings=JSON.parse(process.env.SETTINGS), faults=process.env.FAULTS==='true'
           const options={clients:1000,workers:4,durationSeconds:600,enableFaults:faults,requireReconnectSlo:false}
-          if(faults)options.actions=['gateway-kill','feed-failover','broker-one'].map((name,i)=>({name,atSeconds:60+i*120,command:['node','/app/bench/ha/kube-fault.mjs',name,settings.namespace]}))
+          if(faults)options.actions=['gateway-kill','feed-failover','broker-one'].map((name,i)=>({name,atSeconds:60+i*120,command:['node','/app/bench/ha/kube-fault.js',name,settings.namespace]}))
           writeFileSync(`${process.env.RUNNER_TEMP}/ha-options.json`,JSON.stringify(options))
           JS
       - name: Compare durable client applications with committed Kafka records
         env:
           KUBECONFIG: ${{ runner.temp }}/ha-kubeconfig
           CONTEXT: ${{ vars.WTS_HA_CONTEXT }}
-        run: node bench/ha/job-run.mjs "$CONTEXT" "$RUNNER_TEMP/ha-settings.json" "$RUNNER_TEMP/ha-options.json" "$RUNNER_TEMP/ha-results"
+        run: node bench/ha/job-run.js "$CONTEXT" "$RUNNER_TEMP/ha-settings.json" "$RUNNER_TEMP/ha-options.json" "$RUNNER_TEMP/ha-results"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

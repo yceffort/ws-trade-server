@@ -74,7 +74,7 @@ docker run --rm --entrypoint /bin/promtool -v "$PWD/deploy/k8s/ha/observability:
 수신기는 최대 100개 통지를 메모리에 보관하고 alertname, namespace, 상태만 남긴다. 요청 제한 64KiB 안에 규칙 annotation과 generatorURL도 들어가도록 Alertmanager는 한 통지에 최대 16개 알림만 보낸다. 긴 Pod 이름과 이 저장소의 가장 긴 식을 넣은 16개 묶음의 발생과 복구를 시험한다. 그룹이 16개를 넘으면 나머지는 webhook에서 생략되므로 전체 알림은 Alertmanager에서 확인한다. 규칙이나 라벨을 확장하면 바이트 한도를 다시 검증한다. 재시작하면 기록을 잃으며 감사 저장소가 아니다. Alertmanager도 이 개발 구성에서는 emptyDir라 재시작 뒤 중복 억제 상태와 silence가 사라질 수 있다. Prometheus가 죽으면 스스로 알릴 수 없고 Alertmanager가 죽으면 같은 경로로 장애를 전달할 수 없다. WtsWatchdog 수신 간격을 관측 스택 외부에서 확인해야 이 공백을 감지할 수 있다. 실제 외부 통지는 사용자가 지정한 대상과 범위에서 별도 설정한다.
 
 ```sh
-node deploy/k8s/ha/observability/alert-smoke.mjs
+node deploy/k8s/ha/observability/alert-smoke.js
 kubectl --context CONTEXT -n wts-observability port-forward svc/alert-receiver 18080:8080
 ```
 

@@ -35,16 +35,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - run: npm ci --ignore-scripts
+      - run: npm run lint
+      - run: npm run format:check
       - run: npm ci --prefix edge --ignore-scripts
-      - run: node --test capture/extract-contract.test.mjs examples/*.test.mjs
+      - run: node --test capture/extract-contract.test.js examples/*.test.js
       - run: npm test --prefix edge
       - name: Exercise real WebSocket clients
         run: |
           cargo build --locked --bin gateway --bin feed
-          node tests/websocket-e2e.test.mjs
-          node --test probe/*.test.mjs
+          node tests/websocket-e2e.test.js
+          node --test probe/*.test.js
       - name: Exercise combined lifecycle scenarios
-        run: node bench/soak.mjs --seconds 6 --cycles 2 --connections 4 --bin-dir target/debug --out /tmp/soak.json
+        run: node bench/soak.js --seconds 6 --cycles 2 --connections 4 --bin-dir target/debug --out /tmp/soak.json
       - name: Show lifecycle result
         if: always()
         run: test ! -f /tmp/soak.json || cat /tmp/soak.json

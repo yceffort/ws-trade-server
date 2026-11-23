@@ -1,0 +1,163 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { once } from 'node:events'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { setTimeout as sleep } from 'node:timers/promises'
+import { WebSocketServer } from '../edge/node_modules/ws/wrapper.mjs'
+import { start } from './server.js'
+import { render } from './render.js'
+
+test('지속 실행기는 결과를 수집하고 종료할 때 worker와 타이머를 정리한다', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'wts-probe-'))
+  const tokenFile = join(directory, 'token')
+  writeFileSync(tokenFile, 'synthetic')
+  const mock = new WebSocketServer({ host: '127.0.0.1', port: 0, handleProtocols: () => 'v12.stomp' })
+  await once(mock, 'listening')
+  mock.on('connection', socket => socket.on('message', () => socket.send('ERROR\nmessage:auth-invalid\n\n\0')))
+  const processHandle = start({
+    port: 0,
+    intervalMs: 1000,
+    targets: [
+      {
+        target: 'local',
+        protocol: 'stomp',
+        url: `ws://127.0.0.1:${mock.address().port}/ws`,
+        tokenFile,
+        deadlineMs: 500
+      }
+    ]
+  })
+  try {
+    const end = Date.now() + 5000
+    while (processHandle.metrics.targets[0].last === null && Date.now() < end) await sleep(20)
+    assert.notEqual(processHandle.metrics.targets[0].last, null)
+    const response = await fetch(`http://127.0.0.1:${processHandle.server.address().port}/metrics`)
+    const metrics = await response.text()
+    assert.match(metrics, /wts_probe_success.* 0/)
+    assert.match(metrics, /stage="auth"} 1/)
+    assert.doesNotMatch(metrics, /synthetic|Bearer|cursor/)
+  } finally {
+    await processHandle.close()
+    for (const socket of mock.clients) socket.terminate()
+    mock.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('Kubernetes probe는 관리 API 없이 metrics와 필요한 내부 경로만 연다', () => {
+  const spec = render({
+    namespace: 'wts-ha',
+    image: `local/probe@sha256:${'a'.repeat(64)}`,
+    credentialsSecret: 'client',
+    sourceConfigMap: 'source',
+    config: {
+      intervalMs: 30000,
+      targets: [
+        {
+          target: 'wss',
+          protocol: 'stomp',
+          url: 'wss://example.test/ws',
+          tokenFile: '/credentials/token',
+          deadlineMs: 1000
+        }
+      ]
+    }
+  })
+  const pod = spec.items.find(item => item.kind === 'Deployment').spec.template.spec
+  assert.equal(pod.automountServiceAccountToken, false)
+  assert.equal(pod.containers[0].securityContext.readOnlyRootFilesystem, true)
+  assert.equal(spec.items.find(item => item.kind === 'Service').spec.ports[0].port, 9464)
+  assert.equal(spec.items.filter(item => item.kind === 'NetworkPolicy').length, 3)
+})
+
+test('실제 worker가 표본 없음에서 재접속 적용 성공과 지연 표본으로 전환한다', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'wts-probe-'))
+  const tokenFile = join(directory, 'token')
+  writeFileSync(tokenFile, 'synthetic')
+  const mock = new WebSocketServer({ host: '127.0.0.1', port: 0, handleProtocols: () => 'v12.stomp' })
+  await once(mock, 'listening')
+  let connections = 0
+  mock.on('connection', socket => {
+    connections++
+    let id,
+      sequence = 0
+    socket.on('message', bytes => {
+      const [command, ...lines] = bytes.toString().split('\n')
+      const headers = Object.fromEntries(
+        lines
+          .filter(line => line.includes(':'))
+          .map(line => {
+            const colon = line.indexOf(':')
+            return [line.slice(0, colon), line.slice(colon + 1)]
+          })
+      )
+      if (command === 'CONNECT') {
+        id = headers['connection-id']
+        socket.send('CONNECTED\n\n\0')
+      }
+      if (command === 'SUBSCRIBE')
+        setTimeout(() => {
+          if (socket.readyState !== 1) return
+          socket.send(`RECEIPT\nreceipt-id:${headers.receipt}\n\n\0`)
+          socket.send(`MESSAGE\nsubscription:${headers.id}\nmessage-id:${id}-${++sequence}\ncontent-length:2\n\n{}\0`)
+        }, 40)
+    })
+  })
+  const handle = start({
+    port: 0,
+    intervalMs: 1000,
+    targets: [
+      {
+        target: 'local',
+        protocol: 'stomp',
+        url: `ws://127.0.0.1:${mock.address().port}/ws`,
+        tokenFile,
+        deadlineMs: 2000
+      }
+    ]
+  })
+  try {
+    assert.match(handle.metrics.text(), /wts_probe_running.* 1/)
+    assert.doesNotMatch(handle.metrics.text(), /wts_probe_success|wts_probe_stage_seconds/)
+    const end = Date.now() + 5000
+    while (handle.metrics.targets[0].last === null && Date.now() < end) await sleep(20)
+    const target = handle.metrics.targets[0]
+    assert.equal(target.result.ok, true)
+    assert.equal(connections, 2)
+    assert.ok(target.result.samples.first_event >= 0.03)
+    assert.match(handle.metrics.text(), /wts_probe_success.* 1/)
+    assert.match(handle.metrics.text(), /wts_probe_stage_seconds_count.*stage="apply".* 1/)
+  } finally {
+    await handle.close()
+    for (const socket of mock.clients) socket.terminate()
+    mock.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('worker 자체 오류에는 관측하지 않은 연결 실패 단계를 붙이지 않는다', async () => {
+  const handle = start({
+    port: 0,
+    intervalMs: 1000,
+    targets: [
+      {
+        target: 'broken',
+        protocol: 'stomp',
+        url: 'wss://localhost:1/ws',
+        caFile: '/missing-wts-probe-ca',
+        deadlineMs: 100
+      }
+    ]
+  })
+  try {
+    const end = Date.now() + 5000
+    while (handle.metrics.targets[0].last === null && Date.now() < end) await sleep(20)
+    assert.match(handle.metrics.text(), /wts_probe_worker_failures_total.* 1/)
+    assert.match(handle.metrics.text(), /wts_probe_success.* 0/)
+    assert.doesNotMatch(handle.metrics.text(), /wts_probe_failed_stage/)
+  } finally {
+    await handle.close()
+  }
+})

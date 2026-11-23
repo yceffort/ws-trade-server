@@ -19,7 +19,7 @@ spec:
         - name: client
           image: ws-trade-edge:local
           imagePullPolicy: IfNotPresent
-          command: [node, /app/check/deploy/check.mjs, 'wss://ws-trade.ws-trade.svc:443/ws', /run/secrets]
+          command: [node, /app/check/deploy/check.js, 'wss://ws-trade.ws-trade.svc:443/ws', /run/secrets]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -35,8 +35,8 @@ spec:
           configMap:
             name: ws-trade-check
             items:
-              - {key: check.mjs, path: deploy/check.mjs}
-              - {key: client.mjs, path: bench/soak/client.mjs}
+              - {key: check.js, path: deploy/check.js}
+              - {key: client.js, path: bench/soak/client.js}
         - name: auth
           secret:
             secretName: ws-trade-credentials

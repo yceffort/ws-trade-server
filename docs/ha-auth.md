@@ -1,6 +1,6 @@
 # HA 공통 인증
 
-선택적 `ha` feature의 `/experimental/ha/ws`는 HTTPS 정책 공급자와 RS256 access token을 사용하는 실험 프로파일을 제공한다. 실제 증권사 인증을 재현한 것이 아니다. `--ha-policy`를 지정한 gateway는 이 경로만 허용하며 별도 프로세스의 기존 JSON token 및 `/ws` 모드는 유지한다. 정책 공급자는 운영자가 별도로 구성해야 하며 가용성과 데이터 일관성도 운영 책임에 포함된다. 저장소의 `tests/ha-policy-provider.mjs`는 합성 시험 전용이다.
+선택적 `ha` feature의 `/experimental/ha/ws`는 HTTPS 정책 공급자와 RS256 access token을 사용하는 실험 프로파일을 제공한다. 실제 증권사 인증을 재현한 것이 아니다. `--ha-policy`를 지정한 gateway는 이 경로만 허용하며 별도 프로세스의 기존 JSON token 및 `/ws` 모드는 유지한다. 정책 공급자는 운영자가 별도로 구성해야 하며 가용성과 데이터 일관성도 운영 책임에 포함된다. 저장소의 `tests/ha-policy-provider.js`는 합성 시험 전용이다.
 
 ## 설정과 토큰
 
