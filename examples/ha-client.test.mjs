@@ -226,3 +226,27 @@ test('cancelling while the token provider waits returns the saved state without 
     assert.equal(seen.connections,0); assert.deepEqual(unhandled,[])
   } finally { process.off('unhandledRejection',record); close(mock) }
 })
+
+test('a client stalled while applying a frame is not mistaken for a silent server',async()=>{
+  // 서버는 별도 스레드에서 1초마다 heartbeat를 보낸다. 같은 event loop에 두면 클라이언트를 막을 때 서버도 함께 멈춘다.
+  const { Worker } = await import('node:worker_threads')
+  const worker=new Worker(`const { parentPort } = require('node:worker_threads')
+const { WebSocketServer } = require(${JSON.stringify(new URL('../edge/node_modules/ws/index.js',import.meta.url).pathname)})
+const server = new WebSocketServer({ host: '127.0.0.1', port: 0, handleProtocols: () => 'wts.ha.v1' })
+server.on('listening', () => parentPort.postMessage(server.address().port))
+server.on('connection', socket => {
+  const beat = setInterval(() => socket.send('{"type":"heartbeat"}'), 1000)
+  socket.on('close', () => clearInterval(beat))
+  socket.on('message', bytes => { if (JSON.parse(bytes).type === 'connect') socket.send('{"type":"connected"}') })
+})`,{eval:true})
+  const [port]=await once(worker,'message'),controller=new AbortController(),reasons=[],started=Date.now()
+  let stalled=false
+  setTimeout(()=>controller.abort(),7000)
+  try{
+    // 동기 fsync처럼 프레임 처리 중에 event loop를 3.5초 막는다.
+    await runClient({urls:[`ws://127.0.0.1:${port}/experimental/ha/ws`],token:()=>'Bearer test',store:new MemoryStore('events',['a']),startAt:{log_id:'test',partition:0,offset:'0'},signal:controller.signal,
+      onDisconnect(reason){reasons.push(reason)},
+      onFrame(frame){if(!stalled&&frame.type==='heartbeat'&&Date.now()-started>1500){stalled=true;const end=Date.now()+3500;while(Date.now()<end){}}}})
+    assert.ok(stalled); assert.deepEqual(reasons,['connection-closed'])
+  }finally{await worker.terminate()}
+})
