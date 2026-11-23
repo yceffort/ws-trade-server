@@ -39,13 +39,21 @@ export async function runClient({ urls, token, store, startAt, signal, ca, maxAt
     const closed = new Promise(resolve => socket.once('close', () => { onDisconnect(reason); resolve() }))
     const stop = () => socket.terminate()
     signal?.addEventListener('abort', stop, { once: true })
-    let receiveTimer
-    const receiveDeadline = () => {
+    let receiveTimer, receiveCheck, received = performance.now()
+    const expire = () => {
+      const silent = performance.now() - received
+      // 그사이 프레임이 왔거나 타이머가 조금 일찍 깼으면 마지막 수신부터 3초가 될 때까지 다시 기다린다.
+      if (silent < 3000) receiveDeadline(3000 - silent)
+      else if (queued > 0 && socket.isPaused) receiveDeadline()
+      else { reason = 'receive-deadline'; stop() }
+    }
+    const receiveDeadline = (delay = 3000) => {
       clearTimeout(receiveTimer)
-      receiveTimer = setTimeout(() => {
-        if (queued > 0 && socket.isPaused) receiveDeadline()
-        else { reason = 'receive-deadline'; stop() }
-      },3000)
+      // 이미 예약한 판단도 취소한다. resume 직후 남은 판단이 새 기한을 건너뛰고 연결을 끊지 않게 한다.
+      clearImmediate(receiveCheck)
+      // 프레임 처리 중 동기 저장으로 event loop가 막히면 다음 회차의 타이머가 그동안 도착한 프레임보다 먼저 실행된다.
+      // 연결이 열린 뒤에는 setImmediate로 한 번 미뤄 쌓인 프레임을 먼저 읽고, 서버의 침묵과 클라이언트의 정지를 가른다.
+      receiveTimer = setTimeout(() => { if (socket.readyState === WebSocket.OPEN) receiveCheck = setImmediate(expire); else expire() }, delay)
     }
     receiveDeadline()
     const timer = setInterval(() => {
@@ -54,6 +62,7 @@ export async function runClient({ urls, token, store, startAt, signal, ca, maxAt
     socket.on('error', () => { reason = 'connection-error' })
     socket.once('open', () => socket.send(JSON.stringify({ type: 'connect', token: credential })))
     socket.on('message', (data, binary) => {
+      received = performance.now()
       receiveDeadline()
       queued += data.length
       if (binary || queued > 1024 * 1024) { reason = 'client-overflow'; return stop() }
@@ -89,6 +98,7 @@ export async function runClient({ urls, token, store, startAt, signal, ca, maxAt
     await closed
     clearInterval(timer)
     clearTimeout(receiveTimer)
+    clearImmediate(receiveCheck)
     signal?.removeEventListener('abort', stop)
     await chain
     if (signal?.aborted) return store.load()

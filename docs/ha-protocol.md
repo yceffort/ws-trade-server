@@ -47,4 +47,4 @@ snapshot은 최대 512KiB이며 `snapshot-begin`, 32KiB 원본 바이트 단위�
 
 클라이언트 적용 callback이 실패하면 해당 연결의 적용 실패를 고정하고 이미 대기 중인 후속 checkpoint도 저장하지 않는다. snapshot 전송 중 live 큐가 가득 차도 제한 시간 안에 snapshot-end와 그 경계의 checkpoint까지 전송한 뒤 replay-limit로 종료한다. 이 경우 caught-up은 보내지 않는다. Kafka reader는 생성부터 모든 오류, 취소와 종료까지 같은 blocking 작업이 소유하며 reader 종료 뒤 worker permit을 반환한다. 연결별 freshness 감시는 hub가 게시한 공유 상태를 읽으므로 연결 수에 비례하는 actor 조회를 만들지 않는다.
 
-예제 클라이언트가 미처리 입력 때문에 소켓 수신을 pause한 동안에는 서버의 무응답으로 판정하지 않는다. 큐를 처리하고 resume하면 3초 수신 deadline을 다시 시작한다. 수신을 멈추지 않은 조용한 서버의 연결은 기존대로 3초 후 종료한다.
+예제 클라이언트가 미처리 입력 때문에 소켓 수신을 pause한 동안에는 서버의 무응답으로 판정하지 않는다. 큐를 처리하고 resume하면 3초 수신 deadline을 다시 시작한다. 연결이 열린 뒤 프레임 처리 중 동기 저장 등으로 event loop가 막혔다가 돌아오면, 그동안 도착한 프레임을 먼저 읽은 뒤 마지막 수신 시각을 기준으로 판단한다. 수신을 멈추지 않은 조용한 서버의 연결은 기존대로 3초 후 종료한다.
