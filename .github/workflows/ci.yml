@@ -35,6 +35,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - run: npm ci --ignore-scripts
+      - run: npm run lint
+      - run: npm run format:check
       - run: npm ci --prefix edge --ignore-scripts
       - run: node --test capture/extract-contract.test.js examples/*.test.js
       - run: npm test --prefix edge
