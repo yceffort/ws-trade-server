@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from '../edge/node_modules/ws/wrapper.mjs'
 import { runClient } from './ha-client.mjs'
 import { MemoryStore } from './ha-state.mjs'
@@ -231,7 +232,7 @@ test('a client stalled while applying a frame is not mistaken for a silent serve
   // 서버는 별도 스레드에서 1초마다 heartbeat를 보낸다. 같은 event loop에 두면 클라이언트를 막을 때 서버도 함께 멈춘다.
   const { Worker } = await import('node:worker_threads')
   const worker=new Worker(`const { parentPort } = require('node:worker_threads')
-const { WebSocketServer } = require(${JSON.stringify(new URL('../edge/node_modules/ws/index.js',import.meta.url).pathname)})
+const { WebSocketServer } = require(${JSON.stringify(fileURLToPath(new URL('../edge/node_modules/ws/index.js',import.meta.url)))})
 const server = new WebSocketServer({ host: '127.0.0.1', port: 0, handleProtocols: () => 'wts.ha.v1' })
 server.on('listening', () => parentPort.postMessage(server.address().port))
 server.on('connection', socket => {
