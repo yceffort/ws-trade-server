@@ -97,6 +97,11 @@ test('manifest preserves three zones, single surge, loopback probes, independent
   assert.match(bootstrap,/--config retention\.bytes=8589934592/)
   assert.match(bootstrap,/--alter --entity-type topics --entity-name wts\.events\.v1 --add-config retention\.ms=86400000,retention\.bytes=8589934592/)
   for(const retention of [{retentionBytes:1024},{retentionMs:'86400000'},{retentionBytes:-1}])assert.throws(()=>render({...settings,...retention}),/invalid event retention/)
+  const edgeOf=extra=>render({...settings,...extra}).items.find(o=>o.kind==='Deployment'&&o.metadata.name.startsWith('wts-gateway')).spec.template.spec.initContainers.find(c=>c.name==='edge')
+  assert.equal(edgeOf({}).env.find(e=>e.name==='WTS_EDGE_WORKERS').value,'2')
+  assert.equal(edgeOf({}).resources.limits.memory,'1Gi')
+  assert.equal(edgeOf({edgeWorkers:1}).resources.limits.memory,'512Mi')
+  assert.throws(()=>render({...settings,edgeWorkers:3}),/edgeWorkers/)
 })
 
 test('rollback repairs failed second slot before checking untouched third slot',async()=>{

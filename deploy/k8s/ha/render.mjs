@@ -11,6 +11,10 @@ export function render(s) {
   if (s.metricsNamespace && !name.test(s.metricsNamespace)) throw new Error('invalid metrics namespace')
   // 기본 1GiB는 개발용이다. 목표 처리량에서 24시간을 보관하려면 docs/ha-capacity.md의 산정대로 늘린다.
   const retention = {ms:s.retentionMs ?? 86400000, bytes:s.retentionBytes ?? 1073741824}
+  // gateway 하나를 잃으면 남은 Pod가 연결을 절반씩 더 받는다. edge는 프로세스마다 스레드 하나라 worker 둘로 나눈다(#95).
+  // worker마다 연결 상한과 버퍼가 따로 있어 메모리 limit도 함께 늘린다.
+  const edgeWorkers = s.edgeWorkers ?? 2
+  if (![1,2].includes(edgeWorkers)) throw new Error('edgeWorkers must be 1 or 2')
   if (!Number.isSafeInteger(retention.ms) || retention.ms < 60000 || !Number.isSafeInteger(retention.bytes) || retention.bytes < 16777216) throw new Error('invalid event retention')
   const annotations = s.gatewayServiceAnnotations ?? {}
   if (typeof annotations !== 'object' || Array.isArray(annotations) || Object.entries(annotations).some(([key,value]) => !/^([a-z0-9.-]+\/)?[A-Za-z0-9][-_.A-Za-z0-9]*$/.test(key) || typeof value !== 'string')) throw new Error('invalid gateway Service annotations')
@@ -47,8 +51,8 @@ export function render(s) {
   for (const [index,slot] of ['a','b','c'].entries()) {
     const label = {...labels('gateway'),'wts-slot':slot}
     const edge = {name:'edge',image:s.edgeImage,imagePullPolicy:'IfNotPresent',restartPolicy:'Always',securityContext,
-      env:Object.entries({WTS_BACKEND:'ws://127.0.0.1:8080/experimental/ha/ws',WTS_EDGE_HOST:'0.0.0.0',WTS_EDGE_PORT:'8443',WTS_TLS_CERT_FILE:'/tls/cert.pem',WTS_TLS_KEY_FILE:'/tls/key.pem',WTS_COMPRESSION:'none',NODE_OPTIONS:'--max-old-space-size=128'}).map(([name,value])=>({name,value})),
-      ports:[{name:'wss',containerPort:8443}],volumeMounts:[mount('tls','/tls')],resources:{requests:{cpu:'250m',memory:'128Mi'},limits:{cpu:'2',memory:'512Mi'}},
+      env:Object.entries({WTS_BACKEND:'ws://127.0.0.1:8080/experimental/ha/ws',WTS_EDGE_HOST:'0.0.0.0',WTS_EDGE_PORT:'8443',WTS_TLS_CERT_FILE:'/tls/cert.pem',WTS_TLS_KEY_FILE:'/tls/key.pem',WTS_COMPRESSION:'none',WTS_EDGE_WORKERS:String(edgeWorkers),NODE_OPTIONS:'--max-old-space-size=128'}).map(([name,value])=>({name,value})),
+      ports:[{name:'wss',containerPort:8443}],volumeMounts:[mount('tls','/tls')],resources:{requests:{cpu:'250m',memory:'128Mi'},limits:{cpu:'2',memory:edgeWorkers === 2 ? '1Gi' : '512Mi'}},
       startupProbe:{tcpSocket:{port:'wss'},periodSeconds:2,timeoutSeconds:1,failureThreshold:30},readinessProbe:{tcpSocket:{port:'wss'},periodSeconds:2,timeoutSeconds:1},livenessProbe:{tcpSocket:{port:'wss'},periodSeconds:10,timeoutSeconds:1}}
     const gateway = {name:'gateway',image:s.gatewayImage,imagePullPolicy:'IfNotPresent',securityContext,
       args:['gateway','--addr','127.0.0.1:8080','--http-addr','127.0.0.1:8081','--ha-kafka','/credentials/gateway.json','--ha-source','/source/source.json','--ha-cursor-keys','/credentials/cursor-keys.json','--ha-policy','/credentials/policy-client.json','--max-connections','10000'],

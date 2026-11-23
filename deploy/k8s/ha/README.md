@@ -74,6 +74,8 @@ kind에 로컬 이미지를 넣을 때 `node deploy/k8s/ha/kind-images.mjs wts-h
 
 `version`은 bootstrap Job 이름의 63자 제한을 지키도록 49자 이하로 설정한다. `clientCIDRs`는 LoadBalancer의 외부 클라이언트 허용 범위이고, `gatewayIngressCIDRs`는 Pod에 실제 도착하는 패킷의 출발지 범위다. `externalTrafficPolicy: Cluster`에서 SNAT가 발생하는 환경은 관측한 노드 또는 LB 주소 범위를 후자에 지정해야 한다. 운영 CNI에서 허용된 외부 WSS 접속과 비허용 주소 차단을 각각 확인해야 하며, kind 기본 CNI 시험은 이 검증을 대신하지 않는다.
 
+`edgeWorkers`는 gateway Pod마다 띄우는 edge worker 수이며 1 또는 2다. 기본값 2는 gateway 하나를 잃어 남은 Pod가 연결을 더 받을 때 edge가 코어 하나에서 막히지 않게 하는 값이다([용량 기록](../../../docs/ha-capacity.md#edge-하나의-한계-2026-11-23)). 2이면 edge 메모리 limit은 1Gi, 1이면 512Mi다.
+
 `retentionMs`와 `retentionBytes`는 체결 로그의 보관 시간과 용량이며 기본값은 24시간과 1GiB다. 1GiB는 목표 처리량에서 약 5.2시간에 차는 개발용 값이고, 24시간 검증 환경은 `retentionBytes`를 8589934592(8GiB)로 둔다([용량 기록](../../../docs/ha-capacity.md#체결-로그-보관-용량-2026-11-22)). bootstrap은 처음 만드는 토픽에 이 값을 쓴다. bootstrap Job은 빈 데이터셋을 초기화하는 `ha-feed init`도 실행하므로 운용 중인 클러스터에 다시 적용하지 않는다. 이미 만든 클러스터는 settings를 바꾼 뒤 broker Pod에서 토픽 설정만 바꾼다. `RETENTION_MS`와 `RETENTION_BYTES`에는 settings의 `retentionMs`, `retentionBytes`와 같은 값을 넣는다. broker의 readiness probe와 같은 접속 설정을 쓴다.
 
 ```sh
