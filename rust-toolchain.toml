@@ -1,0 +1,3 @@
+# CI(.github/workflows)와 Dockerfile이 쓰는 Rust 판과 같아야 한다. 올릴 때 함께 바꾼다.
+[toolchain]
+channel = "1.95.0"
