@@ -1,6 +1,6 @@
 # HA 용량 시험 기록
 
-현재 결과는 한 호스트의 Docker와 kind에서 얻은 개발 검증이다. 운영 SLO, 실제 LB, 물리 zone 분산, CNI 정책 집행은 증명하지 않는다. 사용한 VM은 CPU 10개와 메모리 약 11.7GiB를 공유하며, control plane 1개와 worker 6개, broker 3개, feed 2개, gateway 3개와 부하 Pod가 같은 호스트를 사용한다. zone label은 3개에 각 worker 2개씩이다. Kubernetes Service의 TLS 경로를 사용했고 외부 LoadBalancer는 사용하지 않았다.
+앞부분의 결과는 한 호스트의 Docker와 kind에서 얻은 개발 검증이다. 이 앞부분의 kind 결과는 운영 SLO, 실제 LB, 물리 zone 분산, CNI 정책 집행을 증명하지 않는다. 뒤의 AWS EKS 실측(2026-11-22)은 내부 NLB 경로와 VPC CNI의 NetworkPolicy 허용 및 거부를 시험했지만 외부 공개 LB와 운영 SLO는 검증하지 않았다. 체결 로그 보관 용량과 edge 하나의 한계는 각 절에 측정 환경과 날짜를 적었다. kind 시험에 사용한 VM은 CPU 10개와 메모리 약 11.7GiB를 공유하며, control plane 1개와 worker 6개, broker 3개, feed 2개, gateway 3개와 부하 Pod가 같은 호스트를 사용한다. zone label은 3개에 각 worker 2개씩이다. Kubernetes Service의 TLS 경로를 사용했고 외부 LoadBalancer는 사용하지 않았다.
 
 | 시험 | 결과 | 증거 |
 | --- | --- | --- |
