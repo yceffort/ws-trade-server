@@ -1,0 +1,136 @@
+{
+ "issue": 95,
+ "measured_at": "2026-11-23",
+ "tool": "edge/capacity.mjs",
+ "environment": {
+  "host": "Apple M1, 8 cores (4 performance, 4 efficiency), macOS, Node 24.14.0",
+  "same_host": "synthetic upstream, edge and receiving clients share one host",
+  "per_connection_rate": "one 450-byte text frame every 10ms from the synthetic upstream",
+  "rss_note": "macOS RSS of the primary and workers is summed, so shared pages are counted more than once",
+  "fields": "open is the number of connections still open at the end of the window, opened is the cumulative count, closed counts close codes of connections that opened and then closed"
+ },
+ "command": "WTS_EDGE_WORKERS=<1|2> node edge/capacity.mjs <steps> 20 4 20",
+ "runs": [
+  {
+   "clients": 200,
+   "workers": 1,
+   "open": 200,
+   "opened": 200,
+   "sent_per_s": 16772,
+   "delivered_per_s": 16770,
+   "edge_cores": 0.31,
+   "workers_replaced": false,
+   "rss_mib": 96,
+   "failed": {},
+   "closed": {}
+  },
+  {
+   "clients": 400,
+   "workers": 1,
+   "open": 400,
+   "opened": 400,
+   "sent_per_s": 33604,
+   "delivered_per_s": 33605,
+   "edge_cores": 0.49,
+   "workers_replaced": false,
+   "rss_mib": 158,
+   "failed": {},
+   "closed": {}
+  },
+  {
+   "clients": 600,
+   "workers": 1,
+   "open": 600,
+   "opened": 600,
+   "sent_per_s": 53567,
+   "delivered_per_s": 53556,
+   "edge_cores": 0.79,
+   "workers_replaced": false,
+   "rss_mib": 254,
+   "failed": {},
+   "closed": {}
+  },
+  {
+   "clients": 800,
+   "workers": 1,
+   "open": 750,
+   "opened": 750,
+   "sent_per_s": 72915,
+   "delivered_per_s": 72881,
+   "edge_cores": 0.96,
+   "workers_replaced": false,
+   "rss_mib": 291,
+   "failed": {
+    "ECONNRESET": 50
+   },
+   "closed": {}
+  },
+  {
+   "clients": 1000,
+   "workers": 1,
+   "open": 899,
+   "opened": 899,
+   "sent_per_s": 87119,
+   "delivered_per_s": 87118,
+   "edge_cores": 0.95,
+   "workers_replaced": false,
+   "rss_mib": 321,
+   "failed": {
+    "ECONNRESET": 101
+   },
+   "closed": {}
+  },
+  {
+   "clients": 600,
+   "workers": 2,
+   "open": 600,
+   "opened": 600,
+   "sent_per_s": 53270,
+   "delivered_per_s": 53281,
+   "edge_cores": 1.11,
+   "workers_replaced": false,
+   "rss_mib": 300,
+   "failed": {},
+   "closed": {}
+  },
+  {
+   "clients": 1000,
+   "workers": 2,
+   "open": 1000,
+   "opened": 1000,
+   "sent_per_s": 91509,
+   "delivered_per_s": 91511,
+   "edge_cores": 1.67,
+   "workers_replaced": false,
+   "rss_mib": 435,
+   "failed": {},
+   "closed": {}
+  },
+  {
+   "clients": 1400,
+   "workers": 2,
+   "open": 1400,
+   "opened": 1400,
+   "sent_per_s": 120076,
+   "delivered_per_s": 120103,
+   "edge_cores": 1.85,
+   "workers_replaced": false,
+   "rss_mib": 626,
+   "failed": {},
+   "closed": {}
+  },
+  {
+   "clients": 1800,
+   "workers": 2,
+   "open": 1800,
+   "opened": 1800,
+   "sent_per_s": 129338,
+   "delivered_per_s": 129334,
+   "edge_cores": 1.87,
+   "workers_replaced": false,
+   "rss_mib": 658,
+   "failed": {},
+   "closed": {}
+  }
+ ]
+}

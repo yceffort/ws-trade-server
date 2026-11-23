@@ -31,3 +31,5 @@ node edge/compare.mjs 1000
 비교기는 매번 별도 Node 프로세스에서 평문 WS 프록시, echo 백엔드와 클라이언트를 띄우고 동일한 합성 MESSAGE 1000개를 왕복한다. 데이터 SHA-256과 해제된 본문 일치를 확인한다. 소켓의 read/write 바이트는 WebSocket 헤더와 압축된 payload를 포함하고 TCP/IP 헤더는 제외한다. CPU와 최대 RSS는 프록시만의 수치가 아니라 세 역할을 모두 포함한 프로세스 전체 수치다. 이 벤치는 TLS를 제외해 압축 설정만 비교한다. 실제 팬아웃 부하의 성능 결론으로 일반화하지 않는다.
 
 컨테이너에서는 `WTS_BACKEND`, `WTS_EDGE_HOST`, `WTS_EDGE_PORT`, `WTS_TLS_CERT_FILE`, `WTS_TLS_KEY_FILE`, `WTS_COMPRESSION=deflate`로 설정한다. 위치 인자가 있으면 해당 환경 변수보다 우선한다. `WTS_EDGE_HOST=0.0.0.0`은 외부 인터페이스에도 listener를 연다. 서비스용 이미지와 실행 절차는 [배포 안내](../deploy/README.md)에 있다.
+
+`WTS_EDGE_WORKERS`(기본 1, 최대 16)를 2 이상으로 두면 Node cluster worker 여러 개가 같은 포트를 나눠 받는다. 프로세스 하나가 TLS handshake와 중계를 모두 처리해 코어 하나에서 막히는 것을 피하려는 설정이다([#95](https://github.com/yceffort/ws-trade-server/issues/95)). 연결 상한과 버퍼는 worker마다 따로 있고, 로그에는 `worker` 필드가 붙는다. 종료 신호는 primary가 모든 worker에 전달한다. 한 worker가 죽으면 그 자리만 다시 띄우고, 듣기도 전에 죽으면 전체를 종료 코드 1로 끝낸다. `node edge/capacity.mjs 200,400,600`은 합성 upstream으로 edge 하나가 받을 수 있는 연결 수를 잰다. 결과와 해석은 `docs/ha-capacity.md`에 있다.

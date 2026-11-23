@@ -31,6 +31,8 @@ pub(super) fn transient(error: &KafkaError) -> bool {
                     | RDKafkaErrorCode::NetworkException
                     // fence된 broker가 metadata에서 빠지면 그 broker로 가던 요청이 이 코드로 끝난다(#94).
                     | RDKafkaErrorCode::DestroyBroker
+                    // 새 leader의 high watermark가 아직 따라잡지 않았다. librdkafka도 ListOffsets에서 leader 교체와 같은 갱신 대상으로 본다.
+                    | RDKafkaErrorCode::OffsetNotAvailable
             )
         )
 }

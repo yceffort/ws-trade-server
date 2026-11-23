@@ -1,6 +1,6 @@
 # 복구 가능한 WebSocket 프로토콜
 
-[#49](https://github.com/yceffort/ws-trade-server/issues/49)의 실험 구현이다. 기존 `/ws`와 캡처 계약은 유지한다. `ha` feature와 [복제 로그](../deploy/ha/README.md)를 준비하고 모든 gateway에 같은 cursor 키, source 설정과 인증 주체를 배포한다. 공유 JWT와 온라인 정책 갱신은 #51의 후속 작업이다.
+[#49](https://github.com/yceffort/ws-trade-server/issues/49)의 실험 구현이다. 기존 `/ws`와 캡처 계약은 유지한다. `ha` feature와 [복제 로그](../deploy/ha/README.md)를 준비하고 모든 gateway에 같은 cursor 키, source 설정과 인증 주체를 배포한다. 공유 JWT와 정책 갱신은 [공유 인증](ha-auth.md)에 있다([#51](https://github.com/yceffort/ws-trade-server/issues/51)).
 
 ```sh
 cargo build --features ha --bin gateway
