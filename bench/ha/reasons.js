@@ -1,5 +1,15 @@
 // 접속과 연결 실패에 붙이는 고정 사유. ws가 붙이는 고정 문구와 Node의 오류 코드만 보고 주소, 헤더, 본문은 읽지 않는다.
-export const REASONS = ['handshake-timeout', 'connect-aborted', 'rejected-502', 'rejected-503', 'rejected-other', 'connect-refused', 'connect-reset', 'connect-error', 'connection-error']
+export const REASONS = [
+  'handshake-timeout',
+  'connect-aborted',
+  'rejected-502',
+  'rejected-503',
+  'rejected-other',
+  'connect-refused',
+  'connect-reset',
+  'connect-error',
+  'connection-error'
+]
 
 function classify(error, opened) {
   // 연결된 뒤의 소켓 오류는 ws가 error 없이 닫으므로 여기에는 프로토콜 오류만 온다.
@@ -16,8 +26,13 @@ function classify(error, opened) {
 
 // 소켓 하나의 첫 오류를 사유로 기억한다. 오류 없이 닫히면 null이다.
 export function watch(socket) {
-  let opened = false, reason = null
-  socket.once('open', () => { opened = true })
-  socket.on('error', error => { reason ??= classify(error, opened) })
+  let opened = false,
+    reason = null
+  socket.once('open', () => {
+    opened = true
+  })
+  socket.on('error', error => {
+    reason ??= classify(error, opened)
+  })
   return () => reason
 }

@@ -16,7 +16,14 @@ try {
   } else {
     await client.ready()
     assert.equal(client.ws.extensions, 'permessage-deflate')
-    await until(() => { client.healthy(); return topics.every((topic) => client.topicMessages[topic] >= 3) }, 'both topics', client.signal)
+    await until(
+      () => {
+        client.healthy()
+        return topics.every(topic => client.topicMessages[topic] >= 3)
+      },
+      'both topics',
+      client.signal
+    )
     if (mode === 'shutdown') {
       console.log('ready-for-shutdown')
       await until(() => client.closed, 'server shutdown', client.signal, 12000)
@@ -25,4 +32,6 @@ try {
     } else await client.close()
   }
   console.log(JSON.stringify({ ok: true, mode, messages: client.messages, topics: client.topicMessages }))
-} finally { client.terminate() }
+} finally {
+  client.terminate()
+}

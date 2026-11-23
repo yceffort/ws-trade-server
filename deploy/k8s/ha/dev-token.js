@@ -15,6 +15,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     const settings = JSON.parse(readFileSync(process.argv[2]))
     const topics = JSON.parse(render(settings).items.find(o => o.kind === 'ConfigMap').data['source.json']).topics
-    console.log(clientToken(createPrivateKey(readFileSync(join(process.argv[3], 'client-key.pem'))), `https://wts-policy.${settings.namespace}.svc`, topics))
-  } catch { console.error('settings와 dev-secrets.js의 출력 디렉터리가 필요합니다.'); process.exitCode = 1 }
+    console.log(
+      clientToken(
+        createPrivateKey(readFileSync(join(process.argv[3], 'client-key.pem'))),
+        `https://wts-policy.${settings.namespace}.svc`,
+        topics
+      )
+    )
+  } catch {
+    console.error('settings와 dev-secrets.js의 출력 디렉터리가 필요합니다.')
+    process.exitCode = 1
+  }
 }

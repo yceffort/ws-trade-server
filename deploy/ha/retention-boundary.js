@@ -9,20 +9,32 @@ import { admin, compose, launch, oracle, ownedProject } from './stack.js'
 
 ownedProject()
 const command = ([file, ...args], extra = []) => {
-  try { return { code: 0, out: JSON.parse(execFileSync(file, [...args, ...extra], { encoding: 'utf8' })) } }
-  catch (error) { return { code: error.status, out: error.stdout ? JSON.parse(error.stdout) : null } }
+  try {
+    return { code: 0, out: JSON.parse(execFileSync(file, [...args, ...extra], { encoding: 'utf8' })) }
+  } catch (error) {
+    return { code: error.status, out: error.stdout ? JSON.parse(error.stdout) : null }
+  }
 }
 const stack = await launch({ gateways: 1 })
 try {
   const head = command(oracle('head')).out
   const startAt = { log_id: head.log_id, partition: 0, offset: head.next }
-  const client = (store, extra = {}) => runClient({ urls: stack.urls, token: () => stack.token, store, startAt, ...extra })
+  const client = (store, extra = {}) =>
+    runClient({ urls: stack.urls, token: () => stack.token, store, startAt, ...extra })
   // 목표 위치 이상의 checkpoint를 저장하면 멈춘다. 그 시점의 상태와 cursor가 store에 남는다.
   const advance = async (store, target) => {
     const controller = new AbortController()
     // 진행하지 못하면 runClient가 계속 재시도하므로 기한을 두고, 기한으로 끝났으면 목표에 닿았는지 따로 확인한다.
-    await client(store, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]), onCommit(state) { if (BigInt(state.offset) >= target) controller.abort() } })
-    assert.ok(store.load().offset !== null && BigInt(store.load().offset) >= target, `client did not reach offset ${target}`)
+    await client(store, {
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]),
+      onCommit(state) {
+        if (BigInt(state.offset) >= target) controller.abort()
+      }
+    })
+    assert.ok(
+      store.load().offset !== null && BigInt(store.load().offset) >= target,
+      `client did not reach offset ${target}`
+    )
     return store
   }
   const old = await advance(new MemoryStore('events', head.topics), BigInt(head.next) + 200n)
@@ -30,8 +42,18 @@ try {
   const kept = await advance(new MemoryStore('events', head.topics), BigInt(state.load().offset) + 200n)
   // cursor는 적용한 위치를 가리키고 재개는 그다음부터다. 경계를 kept 바로 다음으로 두면 kept만 보관 범위 안에 남는다.
   const boundary = BigInt(kept.load().offset) + 1n
-  const request = JSON.stringify({ version: 1, partitions: [{ topic: 'wts.events.v1', partition: 0, offset: Number(boundary) }] })
-  compose(['exec', '-T', 'kafka1', 'sh', '-c', `printf '%s' '${request}' > /tmp/delete-records.json && /opt/kafka/bin/kafka-delete-records.sh ${admin.join(' ')} --offset-json-file /tmp/delete-records.json >/dev/null`])
+  const request = JSON.stringify({
+    version: 1,
+    partitions: [{ topic: 'wts.events.v1', partition: 0, offset: Number(boundary) }]
+  })
+  compose([
+    'exec',
+    '-T',
+    'kafka1',
+    'sh',
+    '-c',
+    `printf '%s' '${request}' > /tmp/delete-records.json && /opt/kafka/bin/kafka-delete-records.sh ${admin.join(' ')} --offset-json-file /tmp/delete-records.json >/dev/null`
+  ])
   const retention = command(oracle('retention'), ['86400'])
   assert.equal(retention.code, 2, 'retention below the target must exit with 2')
   assert.equal(retention.out.start, boundary.toString())
@@ -42,9 +64,20 @@ try {
     await assert.rejects(client(store, { maxAttempts: 1, signal: AbortSignal.timeout(15000) }), /cursor-expired/)
     assert.deepEqual(store.load(), before, 'an expired cursor must not change the saved state')
   }
-  await assert.rejects(client(new MemoryStore('events', head.topics), { maxAttempts: 1, signal: AbortSignal.timeout(15000) }), /start-out-of-range/)
+  await assert.rejects(
+    client(new MemoryStore('events', head.topics), { maxAttempts: 1, signal: AbortSignal.timeout(15000) }),
+    /start-out-of-range/
+  )
   await advance(kept, boundary + 100n)
-  console.log(JSON.stringify({ result: 'pass', boundary: boundary.toString(), expired_cursors: 2, resumed_at_boundary: true, retention: retention.out }))
+  console.log(
+    JSON.stringify({
+      result: 'pass',
+      boundary: boundary.toString(),
+      expired_cursors: 2,
+      resumed_at_boundary: true,
+      retention: retention.out
+    })
+  )
 } finally {
   await stack.stop()
 }

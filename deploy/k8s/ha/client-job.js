@@ -1,11 +1,105 @@
 import { readFileSync } from 'node:fs'
-const [path]=process.argv.slice(2)
-const s=JSON.parse(readFileSync(path))
-const namespace=s.namespace
-const name='wts-ha-client'
-const labels={'app.kubernetes.io/part-of':'wts-ha','app.kubernetes.io/component':'dev-client'}
-const selector={matchLabels:labels}
-const securityContext={allowPrivilegeEscalation:false,readOnlyRootFilesystem:true,capabilities:{drop:['ALL']}}
-const urls=process.env.WTS_URLS?JSON.parse(process.env.WTS_URLS):[`wss://wts-gateway.${namespace}.svc/experimental/ha/ws`,`wss://wts-gateway.${namespace}.svc/experimental/ha/ws`]
-const items=[{apiVersion:'v1',kind:'ConfigMap',metadata:{name,namespace},data:{'client.js':readFileSync('deploy/k8s/ha/cluster-client.js','utf8')}},{apiVersion:'batch/v1',kind:'Job',metadata:{name,namespace},spec:{backoffLimit:0,activeDeadlineSeconds:60,template:{metadata:{labels},spec:{restartPolicy:'Never',automountServiceAccountToken:false,securityContext:{runAsNonRoot:true,runAsUser:10001,runAsGroup:10001,fsGroup:10001,seccompProfile:{type:'RuntimeDefault'}},containers:[{name:'client',image:s.edgeImage,command:['node','/script/client.js'],securityContext,env:[{name:'NODE_EXTRA_CA_CERTS',value:'/client/ca.crt'},{name:'WTS_URLS',value:JSON.stringify(urls)}],volumeMounts:[{name:'script',mountPath:'/script',readOnly:true},{name:'client',mountPath:'/client',readOnly:true}],resources:{requests:{cpu:'100m',memory:'64Mi'},limits:{cpu:'1',memory:'256Mi'}}}],volumes:[{name:'script',configMap:{name}},{name:'client',secret:{secretName:`wts-dev-client-${s.version}`,defaultMode:0o440}}]}}}},{apiVersion:'networking.k8s.io/v1',kind:'NetworkPolicy',metadata:{name,namespace},spec:{podSelector:selector,policyTypes:['Ingress','Egress'],egress:[{to:[{namespaceSelector:{matchLabels:{'kubernetes.io/metadata.name':'kube-system'}},podSelector:{matchLabels:{'k8s-app':'kube-dns'}}}],ports:[{protocol:'UDP',port:53},{protocol:'TCP',port:53}]},{to:[{podSelector:{matchLabels:{'app.kubernetes.io/component':'gateway'}}}],ports:[{protocol:'TCP',port:8443}]}]}},{apiVersion:'networking.k8s.io/v1',kind:'NetworkPolicy',metadata:{name:'dev-client-ingress',namespace},spec:{podSelector:{matchLabels:{'app.kubernetes.io/component':'gateway'}},policyTypes:['Ingress'],ingress:[{from:[{podSelector:selector}],ports:[{protocol:'TCP',port:8443}]}]}}]
-console.log(JSON.stringify({apiVersion:'v1',kind:'List',items},null,2))
+const [path] = process.argv.slice(2)
+const s = JSON.parse(readFileSync(path))
+const namespace = s.namespace
+const name = 'wts-ha-client'
+const labels = { 'app.kubernetes.io/part-of': 'wts-ha', 'app.kubernetes.io/component': 'dev-client' }
+const selector = { matchLabels: labels }
+const securityContext = {
+  allowPrivilegeEscalation: false,
+  readOnlyRootFilesystem: true,
+  capabilities: { drop: ['ALL'] }
+}
+const urls = process.env.WTS_URLS
+  ? JSON.parse(process.env.WTS_URLS)
+  : [`wss://wts-gateway.${namespace}.svc/experimental/ha/ws`, `wss://wts-gateway.${namespace}.svc/experimental/ha/ws`]
+const items = [
+  {
+    apiVersion: 'v1',
+    kind: 'ConfigMap',
+    metadata: { name, namespace },
+    data: { 'client.js': readFileSync('deploy/k8s/ha/cluster-client.js', 'utf8') }
+  },
+  {
+    apiVersion: 'batch/v1',
+    kind: 'Job',
+    metadata: { name, namespace },
+    spec: {
+      backoffLimit: 0,
+      activeDeadlineSeconds: 60,
+      template: {
+        metadata: { labels },
+        spec: {
+          restartPolicy: 'Never',
+          automountServiceAccountToken: false,
+          securityContext: {
+            runAsNonRoot: true,
+            runAsUser: 10001,
+            runAsGroup: 10001,
+            fsGroup: 10001,
+            seccompProfile: { type: 'RuntimeDefault' }
+          },
+          containers: [
+            {
+              name: 'client',
+              image: s.edgeImage,
+              command: ['node', '/script/client.js'],
+              securityContext,
+              env: [
+                { name: 'NODE_EXTRA_CA_CERTS', value: '/client/ca.crt' },
+                { name: 'WTS_URLS', value: JSON.stringify(urls) }
+              ],
+              volumeMounts: [
+                { name: 'script', mountPath: '/script', readOnly: true },
+                { name: 'client', mountPath: '/client', readOnly: true }
+              ],
+              resources: { requests: { cpu: '100m', memory: '64Mi' }, limits: { cpu: '1', memory: '256Mi' } }
+            }
+          ],
+          volumes: [
+            { name: 'script', configMap: { name } },
+            { name: 'client', secret: { secretName: `wts-dev-client-${s.version}`, defaultMode: 0o440 } }
+          ]
+        }
+      }
+    }
+  },
+  {
+    apiVersion: 'networking.k8s.io/v1',
+    kind: 'NetworkPolicy',
+    metadata: { name, namespace },
+    spec: {
+      podSelector: selector,
+      policyTypes: ['Ingress', 'Egress'],
+      egress: [
+        {
+          to: [
+            {
+              namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' } },
+              podSelector: { matchLabels: { 'k8s-app': 'kube-dns' } }
+            }
+          ],
+          ports: [
+            { protocol: 'UDP', port: 53 },
+            { protocol: 'TCP', port: 53 }
+          ]
+        },
+        {
+          to: [{ podSelector: { matchLabels: { 'app.kubernetes.io/component': 'gateway' } } }],
+          ports: [{ protocol: 'TCP', port: 8443 }]
+        }
+      ]
+    }
+  },
+  {
+    apiVersion: 'networking.k8s.io/v1',
+    kind: 'NetworkPolicy',
+    metadata: { name: 'dev-client-ingress', namespace },
+    spec: {
+      podSelector: { matchLabels: { 'app.kubernetes.io/component': 'gateway' } },
+      policyTypes: ['Ingress'],
+      ingress: [{ from: [{ podSelector: selector }], ports: [{ protocol: 'TCP', port: 8443 }] }]
+    }
+  }
+]
+console.log(JSON.stringify({ apiVersion: 'v1', kind: 'List', items }, null, 2))

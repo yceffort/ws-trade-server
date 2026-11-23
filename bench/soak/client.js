@@ -8,7 +8,7 @@ export const topics = ['/topic/v1/kr/stock/trade/A005930', '/topic/v1/us/stock/t
 
 export async function until(check, label, signal, millis = 5000) {
   const deadline = Date.now() + millis
-  while (!await check()) {
+  while (!(await check())) {
     signal?.throwIfAborted()
     assert(Date.now() < deadline, `timeout: ${label}`)
     await sleep(20, undefined, { signal })
@@ -20,18 +20,25 @@ export class Client {
     this.id = `soak-${randomUUID()}`
     this.signal = signal
     this.messages = 0
-    this.topicMessages = Object.fromEntries(topics.map((topic) => [topic, 0]))
+    this.topicMessages = Object.fromEntries(topics.map(topic => [topic, 0]))
     this.receipts = new Set()
     this.connected = false
     this.closed = false
     this.failure = null
     this.serverError = null
     this.ws = new WebSocket(url, 'v12.stomp', {
-      ca, handshakeTimeout: 3000, maxPayload: 65536,
-      perMessageDeflate: { clientNoContextTakeover: true, serverNoContextTakeover: true },
+      ca,
+      handshakeTimeout: 3000,
+      maxPayload: 65536,
+      perMessageDeflate: { clientNoContextTakeover: true, serverNoContextTakeover: true }
     })
-    this.ws.on('error', () => { this.failure ??= 'websocket_error' })
-    this.ws.on('close', () => { this.closed = true; clearInterval(this.heartbeat) })
+    this.ws.on('error', () => {
+      this.failure ??= 'websocket_error'
+    })
+    this.ws.on('close', () => {
+      this.closed = true
+      clearInterval(this.heartbeat)
+    })
     this.ws.on('message', (bytes, binary) => {
       try {
         assert(!binary, 'binary frame')
@@ -41,9 +48,12 @@ export class Client {
         const split = text.indexOf('\n\n')
         assert(split >= 0, 'missing separator')
         const [command, ...lines] = text.slice(0, split).split('\n')
-        const headers = Object.fromEntries(lines.map((line) => {
-          const colon = line.indexOf(':'); return [line.slice(0, colon), line.slice(colon + 1)]
-        }))
+        const headers = Object.fromEntries(
+          lines.map(line => {
+            const colon = line.indexOf(':')
+            return [line.slice(0, colon), line.slice(colon + 1)]
+          })
+        )
         if (command === 'CONNECTED') this.connected = true
         else if (command === 'RECEIPT') this.receipts.add(headers['receipt-id'])
         else if (command === 'ERROR') this.serverError = headers.message
@@ -56,7 +66,9 @@ export class Client {
           this.messages++
           this.topicMessages[headers.subscription]++
         } else throw new Error('unexpected command')
-      } catch (error) { this.failure ??= error.message }
+      } catch (error) {
+        this.failure ??= error.message
+      }
     })
     this.ws.on('open', () => {
       this.send('CONNECT', { 'connection-id': this.id, authorization: `Bearer ${token}` })
@@ -68,17 +80,37 @@ export class Client {
 
   send(command, headers) {
     assert.equal(this.ws.readyState, WebSocket.OPEN, 'socket must be open')
-    this.ws.send(`${command}\n${Object.entries(headers).map(([key, value]) => `${key}:${value}`).join('\n')}\n\n\0`)
+    this.ws.send(
+      `${command}\n${Object.entries(headers)
+        .map(([key, value]) => `${key}:${value}`)
+        .join('\n')}\n\n\0`
+    )
   }
 
   async ready() {
-    await until(() => { this.healthy(); return this.connected }, 'CONNECTED', this.signal)
+    await until(
+      () => {
+        this.healthy()
+        return this.connected
+      },
+      'CONNECTED',
+      this.signal
+    )
     for (const topic of topics) this.send('SUBSCRIBE', { id: topic, destination: topic, receipt: topic })
-    await until(() => { this.healthy(); return topics.every((topic) => this.receipts.has(topic) && this.topicMessages[topic] > 0) }, 'subscriptions and data', this.signal)
+    await until(
+      () => {
+        this.healthy()
+        return topics.every(topic => this.receipts.has(topic) && this.topicMessages[topic] > 0)
+      },
+      'subscriptions and data',
+      this.signal
+    )
     return this
   }
 
-  valid() { assert(!this.failure, this.failure ?? 'client failed') }
+  valid() {
+    assert(!this.failure, this.failure ?? 'client failed')
+  }
 
   healthy() {
     this.valid()
@@ -94,5 +126,8 @@ export class Client {
     assert(!this.serverError, `server error: ${this.serverError}`)
   }
 
-  terminate() { clearInterval(this.heartbeat); this.ws.terminate() }
+  terminate() {
+    clearInterval(this.heartbeat)
+    this.ws.terminate()
+  }
 }

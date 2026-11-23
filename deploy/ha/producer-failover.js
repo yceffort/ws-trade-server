@@ -15,12 +15,20 @@ const children = []
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const ended = child => child.exitCode !== null || child.signalCode !== null
 function start(command, args, env = {}) {
-  const child = spawn(command, args, { cwd: root, env: { ...process.env, RUST_LOG: 'info', ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(command, args, {
+    cwd: root,
+    env: { ...process.env, RUST_LOG: 'info', ...env },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
   child.output = ''
-  const collect = data => { child.output = (child.output + data.toString()).slice(-65536) }
+  const collect = data => {
+    child.output = (child.output + data.toString()).slice(-65536)
+  }
   child.stdout.on('data', collect)
   child.stderr.on('data', collect)
-  child.on('error', error => { child.failure = error })
+  child.on('error', error => {
+    child.failure = error
+  })
   children.push(child)
   return child
 }
@@ -33,13 +41,21 @@ async function until(predicate, timeout, message) {
   throw new Error(message)
 }
 async function active(child, timeout) {
-  await until(() => {
-    if (child.failure || ended(child)) throw new Error(`producer exited: ${child.output}`)
-    return child.output.includes('ha_producer_active')
-  }, timeout, 'producer activation deadline')
+  await until(
+    () => {
+      if (child.failure || ended(child)) throw new Error(`producer exited: ${child.output}`)
+      return child.output.includes('ha_producer_active')
+    },
+    timeout,
+    'producer activation deadline'
+  )
 }
 async function audit() {
-  const result = await exec(binary, ['audit', '--kafka', join(config, 'feed.json'), '--source', join(config, 'source.json')], { cwd: root, timeout: 40000, maxBuffer: 1024 * 1024 })
+  const result = await exec(
+    binary,
+    ['audit', '--kafka', join(config, 'feed.json'), '--source', join(config, 'source.json')],
+    { cwd: root, timeout: 40000, maxBuffer: 1024 * 1024 }
+  )
   return JSON.parse(result.stdout.trim())
 }
 try {
@@ -53,7 +69,15 @@ try {
     writeFileSync(path, JSON.stringify(lease), { mode: 0o600 })
     return path
   })
-  const command = lease => ['run', '--kafka', join(config, 'feed.json'), '--source', join(config, 'source.json'), '--lease', lease]
+  const command = lease => [
+    'run',
+    '--kafka',
+    join(config, 'feed.json'),
+    '--source',
+    join(config, 'source.json'),
+    '--lease',
+    lease
+  ]
   const first = start(binary, command(leases[0]))
   await active(first, 30000)
   const second = start(binary, command(leases[1]))
@@ -77,9 +101,21 @@ try {
   const final = await audit()
   await sleep(1500)
   assert.equal((await audit()).source_seq, final.source_seq)
-  console.log(JSON.stringify({ result: 'pass', failover_ms: failoverMs, committed_events: final.events, stale_writer_stopped: true, api_loss_stopped: true }))
+  console.log(
+    JSON.stringify({
+      result: 'pass',
+      failover_ms: failoverMs,
+      committed_events: final.events,
+      stale_writer_stopped: true,
+      api_loss_stopped: true
+    })
+  )
 } finally {
-  for (const child of children) if (!ended(child)) { child.kill('SIGCONT'); child.kill('SIGTERM') }
+  for (const child of children)
+    if (!ended(child)) {
+      child.kill('SIGCONT')
+      child.kill('SIGTERM')
+    }
   await sleep(300)
   for (const child of children) if (!ended(child)) child.kill('SIGKILL')
   rmSync(temp, { recursive: true, force: true })

@@ -19,11 +19,11 @@ function extract(steps) {
   const handshake = [
     { event: 'webSocketCreated', url: 'ws://localhost/ws' },
     { event: 'webSocketWillSendHandshakeRequest', request: { headers: { 'Sec-WebSocket-Protocol': 'v12.stomp' } } },
-    { event: 'webSocketHandshakeResponseReceived', response: { headers: { 'sec-websocket-protocol': 'v12.stomp' } } },
+    { event: 'webSocketHandshakeResponseReceived', response: { headers: { 'sec-websocket-protocol': 'v12.stomp' } } }
   ]
   const frames = steps.map(([direction, payloadData]) => ({
     event: direction === 'sent' ? 'webSocketFrameSent' : 'webSocketFrameReceived',
-    response: { opcode: 1, payloadData },
+    response: { opcode: 1, payloadData }
   }))
   const dir = mkdtempSync(join(tmpdir(), 'extract-contract-'))
   try {
@@ -37,17 +37,22 @@ function extract(steps) {
 
 const connect = [
   ['sent', frame('CONNECT', { 'connection-id': 'c' })],
-  ['received', frame('CONNECTED', { version: '1.2' })],
+  ['received', frame('CONNECTED', { version: '1.2' })]
 ]
 const subscribe = (id, receipt = `${id}-sub_receipt`) => [
   ['sent', frame('SUBSCRIBE', { id, receipt, destination: TOPIC })],
-  ['received', frame('RECEIPT', { 'receipt-id': receipt })],
+  ['received', frame('RECEIPT', { 'receipt-id': receipt })]
 ]
-const unsubscribe = (id) => [['sent', frame('UNSUBSCRIBE', { id, receipt: `${id}-unsub_receipt` })]]
+const unsubscribe = id => [['sent', frame('UNSUBSCRIBE', { id, receipt: `${id}-unsub_receipt` })]]
 let seq = 0
 const message = (subscription, price) => {
   const body = JSON.stringify({ code: 'TEST', price })
-  const headers = { 'message-id': `c-${++seq}`, subscription, 'content-length': body.length, 'content-type': 'application/json' }
+  const headers = {
+    'message-id': `c-${++seq}`,
+    subscription,
+    'content-length': body.length,
+    'content-type': 'application/json'
+  }
   return ['received', frame('MESSAGE', headers, body)]
 }
 
@@ -88,13 +93,20 @@ test('한쪽만 구독하던 구간의 메시지는 견주지 않는다', () => 
     message('a', 2),
     message('b', 2),
     ...unsubscribe('a'),
-    message('b', 3),
+    message('b', 3)
   ])
   assert.equal(contract.server.duplicateSubscriptions[0].deliveredToEach, true)
 })
 
 test('receipt 값을 다시 써도 그 구독보다 뒤에 받은 RECEIPT부터 센다', () => {
-  const contract = extract([...connect, ...subscribe('a', 'r'), message('a', 1), ...subscribe('b', 'r'), message('a', 2), message('b', 2)])
+  const contract = extract([
+    ...connect,
+    ...subscribe('a', 'r'),
+    message('a', 1),
+    ...subscribe('b', 'r'),
+    message('a', 2),
+    message('b', 2)
+  ])
   assert.equal(contract.server.duplicateSubscriptions[0].deliveredToEach, true)
 })
 
@@ -106,7 +118,7 @@ test('해지한 id를 다시 써도 그 구독보다 뒤에 보낸 UNSUBSCRIBE�
     ...subscribe('a', 'a-again'),
     ...subscribe('b'),
     message('a', 1),
-    message('b', 1),
+    message('b', 1)
   ])
   assert.equal(contract.server.duplicateSubscriptions[0].deliveredToEach, true)
 })

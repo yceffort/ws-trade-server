@@ -11,8 +11,8 @@ const { values, positionals } = parseArgs({
   options: {
     contract: { type: 'string', default: 'contract/wts-stomp.json' },
     seconds: { type: 'string', default: '25' },
-    out: { type: 'string', default: 'evidence/raw/replay.jsonl' },
-  },
+    out: { type: 'string', default: 'evidence/raw/replay.jsonl' }
+  }
 })
 const url = positionals[0]
 if (!url) {
@@ -25,16 +25,20 @@ const records = []
 const startedAt = Date.now()
 const record = (event, fields) => records.push({ ms: Date.now() - startedAt, event, ...fields })
 
-const serialize = (frame) =>
+const serialize = frame =>
   frame.heartbeat ? '\n' : `${frame.command}\n${frame.headers.map(([key, value]) => `${key}:${value}\n`).join('')}\n\0`
 
 const socket = new WebSocket(url, contract.handshake.offeredProtocols.split(', '))
 record('webSocketCreated', { url })
 // Node 내장 WebSocket은 자신이 제안한 확장을 알려 주지 않으므로 요청 쪽 확장은 적지 않는다
-record('webSocketWillSendHandshakeRequest', { request: { headers: { 'Sec-WebSocket-Protocol': contract.handshake.offeredProtocols } } })
+record('webSocketWillSendHandshakeRequest', {
+  request: { headers: { 'Sec-WebSocket-Protocol': contract.handshake.offeredProtocols } }
+})
 
 socket.onmessage = ({ data }) =>
-  record('webSocketFrameReceived', { response: { opcode: typeof data === 'string' ? 1 : 2, mask: false, payloadData: String(data) } })
+  record('webSocketFrameReceived', {
+    response: { opcode: typeof data === 'string' ? 1 : 2, mask: false, payloadData: String(data) }
+  })
 socket.onclose = ({ code, reason }) => record('webSocketClosed', { code, reason })
 socket.onerror = () => {
   console.error(`연결 실패: ${url}`)
@@ -54,10 +58,15 @@ socket.onopen = () => {
   }
 }
 
-setTimeout(() => {
-  socket.close()
-  writeFileSync(values.out, records.map((entry) => JSON.stringify(entry)).join('\n') + '\n')
-  const count = (event) => records.filter((entry) => entry.event === event).length
-  console.log(`sent ${count('webSocketFrameSent')}, received ${count('webSocketFrameReceived')}, closed ${count('webSocketClosed')} -> ${values.out}`)
-  process.exit(0)
-}, Number(values.seconds) * 1000)
+setTimeout(
+  () => {
+    socket.close()
+    writeFileSync(values.out, records.map(entry => JSON.stringify(entry)).join('\n') + '\n')
+    const count = event => records.filter(entry => entry.event === event).length
+    console.log(
+      `sent ${count('webSocketFrameSent')}, received ${count('webSocketFrameReceived')}, closed ${count('webSocketClosed')} -> ${values.out}`
+    )
+    process.exit(0)
+  },
+  Number(values.seconds) * 1000
+)

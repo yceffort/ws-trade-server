@@ -9,7 +9,7 @@ const contract = JSON.parse(await readFile(new URL('../contract/wts-stomp.json',
 export function endpointUrl(value) {
   const endpoint = new URL(value)
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)
-  assert((endpoint.protocol === 'wss:' || endpoint.protocol === 'ws:' && loopback) && endpoint.pathname === '/ws')
+  assert((endpoint.protocol === 'wss:' || (endpoint.protocol === 'ws:' && loopback)) && endpoint.pathname === '/ws')
   assert(!endpoint.username && !endpoint.password && !endpoint.search && !endpoint.hash)
   return endpoint.href
 }
@@ -24,10 +24,12 @@ function observe(client) {
       if (text === '\n') return
       const split = text.indexOf('\n\n')
       const [command, ...lines] = text.slice(0, split).split('\n')
-      const headers = Object.fromEntries(lines.map(line => {
-        const colon = line.indexOf(':')
-        return [line.slice(0, colon), line.slice(colon + 1)]
-      }))
+      const headers = Object.fromEntries(
+        lines.map(line => {
+          const colon = line.indexOf(':')
+          return [line.slice(0, colon), line.slice(colon + 1)]
+        })
+      )
       if (command === 'RECEIPT') {
         assert.equal(headers['response-code'], '200')
         if (headers['receipt-id'] === 'unsubscribe-kr') {
@@ -48,9 +50,13 @@ function observe(client) {
         assert.deepEqual(Object.keys(body), shape.keyOrders[0])
         for (const [key, value] of Object.entries(body)) {
           const types = shape.fields[key].types
-          assert(typeof value === 'string' ? types.includes('string') :
-            typeof value === 'number' && Number.isFinite(value) &&
-            (types.includes('decimal') || types.includes('integer') && Number.isInteger(value)))
+          assert(
+            typeof value === 'string'
+              ? types.includes('string')
+              : typeof value === 'number' &&
+                  Number.isFinite(value) &&
+                  (types.includes('decimal') || (types.includes('integer') && Number.isInteger(value)))
+          )
         }
       }
     } catch {
@@ -65,7 +71,8 @@ export async function checkWebSocket({ url, token, ca, signal = AbortSignal.time
   signal.throwIfAborted()
   url = endpointUrl(url)
   const result = { ok: false, protocol: 'v12.stomp', steps: [] }
-  let client, phase = 'connect'
+  let client,
+    phase = 'connect'
   const step = async (name, action) => {
     phase = name
     const started = performance.now()
@@ -81,20 +88,38 @@ export async function checkWebSocket({ url, token, ca, signal = AbortSignal.time
   }
   const progress = async () => {
     const before = { ...client.topicMessages }
-    await until(() => {
-      client.healthy()
-      return topics.every(topic => client.topicMessages[topic] >= before[topic] + 3)
-    }, 'both topics progress', signal)
+    await until(
+      () => {
+        client.healthy()
+        return topics.every(topic => client.topicMessages[topic] >= before[topic] + 3)
+      },
+      'both topics progress',
+      signal
+    )
   }
   try {
     await step('connect-subscribe', open)
     await step('receive', progress)
     await step('unsubscribe', async () => {
       client.send('UNSUBSCRIBE', { id: topics[0], receipt: 'unsubscribe-kr' })
-      await until(() => { client.healthy(); return client.receipts.has('unsubscribe-kr') }, 'unsubscribe receipt', signal)
+      await until(
+        () => {
+          client.healthy()
+          return client.receipts.has('unsubscribe-kr')
+        },
+        'unsubscribe receipt',
+        signal
+      )
       const before = { ...client.topicMessages }
       // 다른 구독이 계속 흐르는 동안 해지한 구독이 멈췄는지 확인한다.
-      await until(() => { client.healthy(); return client.topicMessages[topics[1]] >= before[topics[1]] + 5 }, 'remaining subscription', signal)
+      await until(
+        () => {
+          client.healthy()
+          return client.topicMessages[topics[1]] >= before[topics[1]] + 5
+        },
+        'remaining subscription',
+        signal
+      )
       assert.equal(client.topicMessages[topics[0]], before[topics[0]])
     })
     const firstSession = { ...client.topicMessages }
@@ -114,9 +139,13 @@ export async function checkWebSocket({ url, token, ca, signal = AbortSignal.time
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const { values } = parseArgs({ options: {
-      url: { type: 'string' }, 'token-file': { type: 'string' }, 'ca-file': { type: 'string' },
-    } })
+    const { values } = parseArgs({
+      options: {
+        url: { type: 'string' },
+        'token-file': { type: 'string' },
+        'ca-file': { type: 'string' }
+      }
+    })
     const url = endpointUrl(values.url)
     const token = (await readFile(values['token-file'], 'utf8')).trim()
     assert(token && !/[\r\n\0]/.test(token))

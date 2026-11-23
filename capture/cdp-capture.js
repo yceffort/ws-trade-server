@@ -16,9 +16,9 @@ const { values, positionals } = parseArgs({
     headed: { type: 'boolean', default: false },
     chrome: {
       type: 'string',
-      default: process.env.CHROME ?? '/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta',
-    },
-  },
+      default: process.env.CHROME ?? '/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta'
+    }
+  }
 })
 const url = positionals[0]
 if (!url) {
@@ -26,7 +26,7 @@ if (!url) {
   process.exit(1)
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const profile = mkdtempSync(join(tmpdir(), 'ws-capture-'))
 const chrome = spawn(
   values.chrome,
@@ -36,13 +36,14 @@ const chrome = spawn(
     '--no-first-run',
     '--no-default-browser-check',
     ...(values.headed ? [] : ['--headless=new']),
-    'about:blank',
+    'about:blank'
   ],
-  { stdio: 'ignore' },
+  { stdio: 'ignore' }
 )
 
 const portFile = join(profile, 'DevToolsActivePort')
-for (let i = 0; i < 100 && !(existsSync(portFile) && readFileSync(portFile, 'utf8').includes('\n')); i++) await sleep(100)
+for (let i = 0; i < 100 && !(existsSync(portFile) && readFileSync(portFile, 'utf8').includes('\n')); i++)
+  await sleep(100)
 const [port, path] = readFileSync(portFile, 'utf8').trim().split('\n')
 const cdp = new WebSocket(`ws://127.0.0.1:${port}${path}`)
 await new Promise((resolve, reject) => {
@@ -53,7 +54,7 @@ await new Promise((resolve, reject) => {
 let nextId = 0
 const pending = new Map()
 const send = (method, params = {}, sessionId) =>
-  new Promise((resolve) => {
+  new Promise(resolve => {
     const id = ++nextId
     pending.set(id, resolve)
     cdp.send(JSON.stringify({ id, method, params, sessionId }))
@@ -85,13 +86,13 @@ cdp.onmessage = ({ data }) => {
       ms: Date.now() - startedAt,
       target: targets.get(msg.sessionId),
       event: msg.method.slice('Network.'.length),
-      ...msg.params,
+      ...msg.params
     })
   }
 }
 
 const seconds = Number(values.seconds)
-const mark = (step) => records.push({ ms: Date.now() - startedAt, event: 'scenario', step })
+const mark = step => records.push({ ms: Date.now() - startedAt, event: 'scenario', step })
 
 await send('Target.setAutoAttach', autoAttach)
 await send('Target.createTarget', { url })
@@ -110,13 +111,13 @@ if (second) {
   await sleep(seconds * 1000)
 }
 
-writeFileSync(values.out, records.map((record) => JSON.stringify(record)).join('\n') + '\n')
+writeFileSync(values.out, records.map(record => JSON.stringify(record)).join('\n') + '\n')
 const counts = {}
 for (const { event, target } of records) {
   const key = `${target?.type ?? '?'} ${event}`
   counts[key] = (counts[key] ?? 0) + 1
 }
-console.log(`targets: ${[...new Set([...targets.values()].map((t) => t.type))].join(', ')}`)
+console.log(`targets: ${[...new Set([...targets.values()].map(t => t.type))].join(', ')}`)
 console.log(`records: ${records.length} -> ${values.out}`)
 console.table(counts)
 

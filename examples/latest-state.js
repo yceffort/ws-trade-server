@@ -6,7 +6,9 @@ export class LatestState {
     this.versions.set(topic, (this.versions.get(topic) ?? 0) + 1)
     this.values.set(topic, body)
   }
-  begin() { return new Map(this.versions) }
+  begin() {
+    return new Map(this.versions)
+  }
   snapshot(entries, before) {
     for (const [topic, entry] of Object.entries(entries)) {
       if (this.versions.get(topic) === before.get(topic)) this.values.set(topic, entry.body)
