@@ -42,7 +42,8 @@ async function mark(scope) {
     })
     workers.forEach(worker => worker.postMessage({ type: 'mark', scope, id }))
   })
-  activeScope = scope
+  // 늦게 끝난 해제가 그 사이에 시작된 다른 범위를 지우지 않게 한다.
+  if (!scope && activeScope === previous) activeScope = null
   const event = experiment(scope ?? previous, scope ? 'start' : 'finish')
   if (event) console.log(JSON.stringify(event))
 }
