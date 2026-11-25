@@ -1,0 +1,55 @@
+2026-11-25 서울 리전 EKS 1.35. 서버 노드는 on-demand c7g.xlarge 6대(AZ마다 2대), 부하 노드는 on-demand c7g.2xlarge 1대, 1,000 clients, 코드는 4ac2522다. 시각은 UTC이고 주소는 지웠다.
+
+## edge 컨테이너의 CPU와 메모리
+
+5초마다 gateway Pod의 edge 컨테이너에서 /proc/[pid]/stat의 utime+stime(CLK_TCK 100)과 cgroup의 memory.current, memory.peak, cpu.stat usage_usec를 읽었다. worker core는 연속한 두 표본의 tick 차이를 시간으로 나눈 값이고, 표에는 구간의 중앙값을 적었다. worker 2개일 때 primary 프로세스의 중앙값은 모든 구간에서 0.01 core 미만이었다. worker 1개일 때는 primary 없이 프로세스 하나가 연결을 받는다. 프로세스 합계와 cgroup의 구간 중앙값은 1% 안에서 같았다. memory.peak는 컨테이너가 시작된 뒤의 최댓값이라 같은 Pod의 앞 실행 값을 포함한다. 차단 실행에서는 차단된 b Pod에 대한 exec가 시간 제한을 기다리느라 표본 간격이 약 70초로 벌어져 표본이 2개뿐이다.
+
+| 구간, gateway | 연결 | worker core(큰 쪽, 작은 쪽) | 컨테이너 core | memory.current 최대 MiB | memory.peak MiB | 표본 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 정상, worker 2, a | 326 | 0.34, 0.33 (최대 0.36) | 0.67 | 215 | 220 | 93 |
+| 정상, worker 2, b | 357 | 0.40, 0.40 (최대 0.43) | 0.80 | 215 | 219 | 93 |
+| 정상, worker 2, c | 317 | 0.32, 0.31 (최대 0.35) | 0.63 | 210 | 214 | 93 |
+| 정상, worker 1, a | 340 | - | 0.69 | 110 | 115 | 23 |
+| 정상, worker 1, b | 344 | - | 0.69 | 117 | 123 | 23 |
+| 정상, worker 1, c | 316 | - | 0.65 | 106 | 112 | 23 |
+| 종료 전, worker 2, a | 450 | 0.53, 0.52 (최대 0.56) | 1.05 | 211 | 216 | 8 |
+| 종료 후 15~60초, a | 708 | 0.61, 0.60 (최대 0.75) | 1.21 | 278 | 284 | 8 |
+| 종료 후 60~240초, a | 730 | 0.74, 0.73 (최대 0.79) | 1.47 | 285 | 290 | 29 |
+| 종료 후 60~240초, c | 270 | 0.28, 0.27 (최대 0.31) | 0.55 | 178 | 183 | 29 |
+| 차단 후 60~180초, a | 507 | 0.52, 0.49 (최대 0.58) | 1.01 | 305 | 320 | 2 |
+| 차단 후 60~180초, c | 493 | 0.54, 0.53 (최대 0.60) | 1.07 | 272 | 282 | 2 |
+
+정상 실행 두 개(aws-steady-1000-2workers.json 600초, aws-steady-1000-1worker.json 180초)는 서로 다른 시각에 다른 인스턴스에서 돌았다. 둘 사이에 노드 그룹이 0대로 줄었다가 다시 올라왔다.
+
+## AZ b 인스턴스 종료 (aws-az-stop-1000-2workers.json)
+
+배치: AZ b에는 gateway b와 broker-1만 있었다. active feed, CoreDNS 2개, dev-policy는 AZ a, standby feed는 AZ c에 있었다. 측정을 시작할 때 NLB target 3개가 모두 healthy였는데도 gateway c에는 연결이 붙지 않아 a 450, b 550으로 시작했다. 원인은 확인하지 않았다.
+
+종료 08:55:54, od-b 다시 2대 08:59:55. gateway별 연결 수(10초 단위, 종료 기준 초):
+-10 a 450 b 550 c 0
+10 a 450 b 550 c 0
+20 a 635 b 111 c 158
+30 a 700 b 0 c 247
+40 a 722 c 255
+60 a 729 c 266
+100 a 730 c 270
+gateway b의 연결은 종료 21.7초 뒤부터 빠지기 시작해 34.4초에 0이 됐고, a와 c의 합은 109.0초에 1,000이 됐다.
+
+NLB target: b 08:56:36 draining. 새 b 09:00:35 initial, 09:01:06 healthy. a는 측정 시작 직후 08:54:44 initial, 08:55:16 healthy(아래 Degraded 때문이다).
+gateway a lifecycle: 08:54:39.886 Degraded, 08:54:40.788 Ready(연결이 몰리던 중. 08:54:37 표본에서 replay worker 32, 대기 23, source age 2.0초). 08:56:30.585 Degraded, 08:56:30.729 Ready. 08:59:26.885부터 08:59:28.106까지 Degraded와 Ready가 네 번 바뀌었고 각 0.1초였다.
+gateway c lifecycle: 측정 중 바뀌지 않았다.
+종료 구간(08:56:03~08:56:53)의 source age는 a 1.1초 이하, c 0.2초 이하였고 broker age는 둘 다 0.3초 이하였다.
+gateway가 스스로 끊은 연결(Pod 시작부터 누적, 측정 끝): a source-error 153, source-stale 70. c source-error 177. 사유별 시각은 남지 않았다. 아래 edge의 10초 집계로 보면 c의 177건은 모두 08:56:15~08:57:15에 났고, c는 그 전까지 연결이 0이었으므로 종료 뒤 c에 새로 붙은 연결이다. 그 연결이 b에서 넘어온 것인지 a에서 끊겨 넘어온 것인지는 가리지 못했다. a에서는 측정 시작 직후(08:54:36~46) 69개, 종료 뒤(08:56:06~56) 154개가 끊겨 각각 source-stale 70, source-error 153과 거의 같지만 같은 것인지는 확인하지 못했다.
+08:56:15부터 a와 c에 broker_client_error Resolve가 이어졌다. 지워진 broker-1의 이름을 찾지 못한 것이다.
+edge: a upstream_closed 192, upstream_unavailable 36. c upstream_closed 177. 10초 집계에서 a는 08:54:46에 upstream_closed 44, client_closed 25, upstream_unavailable 36, 08:56:16~08:56:56에 upstream_closed 148, client_closed 6이었고, c는 08:56:25~08:57:15에 upstream_closed 177이었다. a에서는 upstream_closed와 client_closed의 합 223이 gateway가 끊은 수 223과 같다. 연결이 없는 새 b Pod에서도 worker마다 10초에 약 4건의 tls_aborted가 나와, tls_aborted는 NLB의 TCP health check로 본다.
+
+## AZ b 서브넷 차단 (aws-az-isolate-1000-2workers.json)
+
+배치는 종료 실행과 같다. 시작 때 a 296, b 344, c 360.
+차단 09:23:48, 해제 09:26:49.
+gateway a: 09:23:49.285 Degraded, 09:24:04.985 Ready. gateway c: 09:23:49.332 Degraded, 09:24:05.040 Ready. gateway b: 09:23:49.190 Degraded, 09:26:55.490 Ready.
+NLB target: a와 c 09:23:54 draining, 09:24:10 initial, 09:24:37 healthy. b 09:24:26 unhealthy, 09:24:31 draining, 09:27:00 initial, 09:27:32 healthy.
+active feed는 재시작하지 않았고 lease holder가 바뀌지 않았다.
+gateway별 연결 수: 차단 0초 a 296 c 360, 60초 a 507 c 493, 이후 측정 끝까지 같았다. 표본 간격이 60~70초라 그 사이의 변화는 남지 않았다.
+gateway가 스스로 끊은 연결(종료 실행 끝의 누적값과의 차이, 두 실행 사이에는 클라이언트가 없었다): a source-stale 1, c source-stale 5, b heartbeat-timeout 344. edge의 10초 집계로 a의 1건은 09:23:47~57, c의 5건은 09:23:45~55에 났다. 클라이언트가 기록한 연결 종료는 receive-deadline 344와 source-stale 6뿐이다(rejected-503과 connect-aborted는 접속 실패다). 차단된 b의 클라이언트는 frame을 받지 못하므로 source-stale로 끝날 수 없고 b의 344개는 모두 끊겼으므로, receive-deadline 344는 b의 344개가 하나씩 차지한다. 따라서 a와 c의 기존 연결 중 끊긴 것은 많아야 6개다. 09:23:57 뒤로는 측정을 마치며 연결을 닫을 때(c 09:33:05)까지 a와 c에서 upstream_closed, client_closed, relay_error가 없었다. 6건에 차단 뒤 다시 붙은 연결이 섞였는지는 연결별 기록이 없어 가리지 못했다.
+edge: a upstream_unavailable 896, c upstream_unavailable 891. 합 1,787은 클라이언트가 받은 rejected-503 1,787건과 같다. Degraded인 동안 a와 c가 새 연결을 거절한 것이다.

@@ -1,0 +1,60 @@
+{
+  "ok": true,
+  "committed_missing": 0,
+  "duplicate_applies": 0,
+  "comparison": {
+    "ok": true,
+    "clients": 1000,
+    "committed_events": 61552,
+    "failures": []
+  },
+  "reconnect_p99_ms": null,
+  "reconnect_samples": 0,
+  "fault_reconnect_p99_ms": null,
+  "fault_reconnect_samples": 0,
+  "reconnect_slo_status": "not-measured",
+  "recovery_from_fault_p99_ms": null,
+  "disconnect_reasons": {
+    "receive-deadline": 344,
+    "rejected-503": 1787,
+    "connect-aborted": 288,
+    "source-stale": 6
+  },
+  "client_event_loop_p99_ms": 270.270463,
+  "client_event_loop_max_ms": 562.036735,
+  "log_id": "ha-v1",
+  "range_start": "1593891",
+  "verified_through": "1667678",
+  "duration_ms": 617905.2123110001,
+  "clients": 1000,
+  "actions": [],
+  "rollout_verifications": [],
+  "failures": [],
+  "environment": {
+    "kind": "aws-eks-internal-nlb",
+    "region": "ap-northeast-2",
+    "kubernetes": "1.35",
+    "server_nodes": "6 on-demand c7g.xlarge, 4 vCPU Graviton3, 2 per AZ",
+    "load_node": "dedicated on-demand c7g.2xlarge",
+    "nlb": {
+      "scheme": "internal",
+      "target_type": "ip",
+      "cross_zone": false
+    },
+    "network_policy_enforced": true,
+    "readiness_gate": true,
+    "external_lb_verified": true,
+    "physical_domains_verified": false,
+    "code_commit": "4ac2522",
+    "edge_workers": 2,
+    "images": {
+      "gateway": "wts-ha/gateway@sha256:e6ffdd9ab0a6ac75fd1987bd982426af4623a0e11ec63deac3cc2f494bfa85b0",
+      "edge": "wts-ha/edge@sha256:b4b7e11c6a3774dee99f2fbf31267a0dbcca06e0eb888278dfc3081820accd7c",
+      "load": "wts-ha/load@sha256:2ea9bbce5d7e4ef34c09fbb3fec587174aebb3488628fad681b76cbed8651d8b"
+    },
+    "fault": "AZ b의 서브넷 3개를 모두 거부하는 NACL로 180초 차단"
+  },
+  "measured_targets_met": false,
+  "production_slo_proven": false,
+  "external_evidence_review_required": true
+}

@@ -30,7 +30,7 @@
 
 - 구현: 복제 로그와 producer fencing, checkpoint 복구, [gateway 복원](docs/ha-gateway.md), 서명 cursor 재접속, 공유 JWT와 정책 갱신, [준비와 drain 상태 머신](docs/ha-lifecycle.md), 별도 k8s 구성과 직렬 rollout, [관측 스택과 알림](deploy/k8s/ha/observability/README.md), [WSS 합성 probe](probe/README.md).
 - 기능 시험(단일 호스트 Compose와 kind, CI의 `HA` workflow): producer 인계와 fencing, broker 1대 중단과 과반수 단절, gateway를 바꿔 가며 committed 대조, broker 하나를 예고 없이 끊는 동안 기존 연결 유지([#94](https://github.com/yceffort/ws-trade-server/issues/94)), 토큰 만료 뒤 재인증([#99](https://github.com/yceffort/ws-trade-server/issues/99)), 보관 경계 밖 cursor의 명시적 만료([#98](https://github.com/yceffort/ws-trade-server/issues/98)).
-- 운영 환경 실측(AWS EKS, 2026-11-22): 1,000 clients의 계획 배포와 feed failover가 누락 0, 중복 0으로 통과했다. 같은 측정에서 AZ 하나를 끊자 그 AZ와 무관한 gateway의 클라이언트까지 끊겼고(#94), gateway 2개가 남은 동안 edge가 단일 스레드 한계에 있었다([#95](https://github.com/yceffort/ws-trade-server/issues/95)). 두 문제의 대응은 로컬에서만 확인했고 AWS에서 다시 재지 않았다.
+- 운영 환경 실측(AWS EKS, 2026-11-22): 1,000 clients의 계획 배포와 feed failover가 누락 0, 중복 0으로 통과했다. 같은 측정에서 AZ 하나를 끊자 그 AZ와 무관한 gateway의 클라이언트까지 끊겼고(#94), gateway 2개가 남은 동안 edge가 단일 스레드 한계에 있었다([#95](https://github.com/yceffort/ws-trade-server/issues/95)). 대응 뒤 2026-11-25에 다시 재자 AZ를 차단해도 다른 AZ의 연결 656개 중 끊긴 것은 많아야 6개였고, gateway 하나가 730개를 받는 동안 edge worker 2개는 각각 0.8 core 아래였다. 대신 그 gateway와 broker가 함께 있던 노드의 CPU가 90% 안팎이었다.
 
 아직 실험 범위 밖이거나 검증하지 않은 것:
 
