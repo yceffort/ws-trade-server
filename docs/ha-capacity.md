@@ -122,7 +122,7 @@ edge는 이제 `WTS_EDGE_WORKERS`만큼 Node cluster worker를 띄워 같은 포
 | 정상, edge worker 2개, 600초 | 61,690 events 누락 0 중복 0, 끊김 0 | `aws-steady-1000-2workers.json` |
 | 정상, edge worker 1개, 180초 | 19,666 events 누락 0 중복 0, 끊김 0 | `aws-steady-1000-1worker.json` |
 | AZ b 인스턴스 종료 240초 | 62,100 events 누락 0 중복 0. gateway b의 550개가 종료 22~34초 뒤 빠졌고 109초에 a와 c에서 다시 1,000개가 됐다 | `aws-az-stop-1000-2workers.json` |
-| AZ b 서브넷 차단 180초 | 61,552 events 누락 0 중복 0. a와 c에 붙어 있던 656개 중 끊긴 것은 6개 | `aws-az-isolate-1000-2workers.json` |
+| AZ b 서브넷 차단 180초 | 61,552 events 누락 0 중복 0. a와 c에 붙어 있던 656개 중 끊긴 것은 많아야 6개 | `aws-az-isolate-1000-2workers.json` |
 
 worker 2개의 정상 실행은 원래 인스턴스 종료를 넣으려던 실행이다. `deploy/aws/az-fault.sh`는 노드 그룹 `server-b`를 찾는데 이번 on-demand 그룹의 이름은 `od-b`여서 종료할 인스턴스가 없었다. 그룹 이름만 바꾼 사본으로 종료 실험을 다시 돌렸고, 첫 실행은 장애 없는 정상 실행으로 쓴다.
 
@@ -132,6 +132,6 @@ N-1에서 edge worker는 코어 하나에 닿지 않았다. 종료 실행은 시
 
 M1에서 본 worker 2개의 약 40% 추가 CPU는 c7g에서 나오지 않았다. gateway 3개가 316~357개씩 받을 때 연결당 edge CPU는 worker 2개에서 1.99~2.25 mCPU, worker 1개에서 2.01~2.06 mCPU였다. 두 정상 실행은 다른 시각에 다른 인스턴스에서 한 번씩 돌았으므로 10% 안쪽의 차이는 가리지 못한다. c7g의 vCPU는 모두 같은 종류의 코어라 효율 코어 가설과 어긋나지 않지만, M1에서 코어를 고정해 다시 재지는 않았으므로 M1의 원인을 확인한 것은 아니다. 메모리는 worker 2개가 약 두 배였다(정상 구간 memory.peak 214~220MiB, worker 1개는 112~123MiB).
 
-broker 한 대를 예고 없이 잃어도 다른 AZ의 클라이언트는 끊기지 않았다. 2026-11-22에는 a와 c가 `source-stale`로 647개를 끊었는데 이번에는 6개였다. a와 c는 차단 직후 Degraded가 됐다가 15.7초 뒤 Ready로 돌아왔다. gateway는 준비 상태가 아닌 채로 30초가 지나야 기존 연결을 끊으므로(`STALE_GRACE`) 그동안 붙어 있던 연결이 유지됐다. 준비 상태를 잃은 a와 c의 NLB target은 약 6초 뒤 등록 해제됐다가 49초 뒤 다시 healthy가 됐고, 등록 해제된 동안에도 기존 연결은 끊기지 않았다. active feed는 재시작하지 않았다(2026-11-22에는 `ha-deadline`으로 재시작했다). 남은 영향은 새 연결이다. Degraded인 동안 a와 c가 새 upgrade를 503으로 거절해 b에서 넘어온 344개의 재접속이 1,787번 거절됐다(2026-11-22에는 5,834건). edge 로그의 `upstream_unavailable` 합이 이 수와 같다. 344개가 다시 붙은 시각은 표본 간격 때문에 차단 뒤 60초 안이라는 것까지만 안다.
+broker 한 대를 예고 없이 잃어도 다른 AZ의 클라이언트가 한꺼번에 끊기지 않았다. 2026-11-22에는 a와 c가 `source-stale`로 647개를 끊었는데 이번에는 6개였다. 클라이언트가 기록한 끊김은 b의 연결 수와 같은 `receive-deadline` 344건과 이 6건뿐이므로 a와 c의 기존 연결 중 끊긴 것은 많아야 6개다. 6건은 모두 차단 시각 앞뒤 10초 안에 났다. a와 c는 차단 직후 Degraded가 됐다가 15.7초 뒤 Ready로 돌아왔다. gateway는 준비 상태가 아닌 채로 30초가 지나야 기존 연결을 끊으므로(`STALE_GRACE`) 그동안 붙어 있던 연결이 유지됐다. 준비 상태를 잃은 a와 c의 NLB target은 약 6초 뒤 등록 해제됐다가 49초 뒤 다시 healthy가 됐고, 등록 해제된 동안에도 기존 연결은 끊기지 않았다. active feed는 재시작하지 않았다(2026-11-22에는 `ha-deadline`으로 재시작했다). 남은 영향은 새 연결이다. Degraded인 동안 a와 c가 새 upgrade를 503으로 거절해 b에서 넘어온 344개의 재접속이 1,787번 거절됐다(2026-11-22에는 5,834건). edge 로그의 `upstream_unavailable` 합이 이 수와 같다. 344개가 다시 붙은 시각은 표본 간격 때문에 차단 뒤 60초 안이라는 것까지만 안다.
 
-인스턴스 종료에서는 2026-11-22처럼 EC2 종료가 OS 종료를 거쳐 gateway b가 스스로 drain했다(`draining` 544건). b에서 넘어온 재접속 일부는 catch-up 중에 `source-error`로 끊겼다가 다시 붙었다. 종료 전 연결이 0이었던 c에서 177건이었고, a의 153건은 측정 시작 때의 것과 나누지 못했다. 같은 시각 a와 c에는 지워진 broker-1의 이름을 찾지 못하는 `broker_client_error`(Resolve)가 이어졌으나 둘의 인과는 확인하지 않았다. 이 실행의 `source-stale` 73건 중 70건은 a가 끊었고 시점은 기록으로 가리지 못했다. 종료 구간에 a와 c의 source age는 1.1초 이하였다.
+인스턴스 종료에서는 2026-11-22처럼 EC2 종료가 OS 종료를 거쳐 gateway b가 스스로 drain했다(`draining` 544건). 종료 뒤 1분 동안 gateway가 새로 붙은 연결을 다시 끊는 일이 이어졌다. c는 종료 전 연결이 0이었는데 08:56:15~08:57:15에 177개를 `source-error`로 끊었다. 그 연결이 b에서 넘어온 것인지 a에서 끊겨 넘어온 것인지는 가리지 못했다. a에서도 종료 뒤 154개가 끊겼으나 원래 a에 있던 연결인지는 모른다. 같은 시각 a와 c에는 지워진 broker-1의 이름을 찾지 못하는 `broker_client_error`(Resolve)가 이어졌으나 둘의 인과는 확인하지 않았다. 이 실행의 `source-stale` 73건 중 70건은 a가 끊었다. edge 집계로는 측정 시작 직후 a에서 69개가 끊겨 그때 난 것으로 보이지만, 사유별 시각이 남지 않아 확인하지는 못했다. 종료 구간에 a와 c의 source age는 1.1초 이하였다.
