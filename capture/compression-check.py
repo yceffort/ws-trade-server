@@ -22,6 +22,10 @@ frames = [f for f in frames if f.get('event') == 'webSocketFrameReceived']
 if len(by_source) != 1 or len({f['requestId'] for f in frames}) != 1:
     sys.exit('need a capture with exactly one WebSocket connection')
 (headers,) = by_source.values()
+# NetLog는 프레임마다, CDP는 메시지마다 남긴다. 제어 프레임(ping, close)은 메시지가 아니라서 CDP에 없다.
+headers = [h for h in headers if h['opcode'] < 8]
+if not all(h['final'] for h in headers):
+    sys.exit('fragmented messages cannot be paired with CDP frames')
 texts = [f['response']['payloadData'].encode() for f in frames]
 pairs = min(len(headers), len(frames))
 sizes = [int(h['payload_length']) for h in headers[:pairs]]
