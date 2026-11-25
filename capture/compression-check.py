@@ -15,11 +15,13 @@ by_source = {}
 for event in netlog['events']:
     if event['type'] == recv:
         by_source.setdefault(event['source']['id'], []).append({'time': float(event['time']), **event['params']})
-# 캡처 중 열린 웹소켓은 하나라서 프레임이 가장 많은 연결을 쓴다
-headers = max(by_source.values(), key=len)
 
 frames = [json.loads(line) for line in open(sys.argv[2]) if line.strip()]
 frames = [f for f in frames if f.get('event') == 'webSocketFrameReceived']
+# NetLog의 source id와 CDP의 requestId를 잇는 정보가 없어 받은 순서로만 짝짓는다. 그래서 연결이 하나인 캡처만 받는다.
+if len(by_source) != 1 or len({f['requestId'] for f in frames}) != 1:
+    sys.exit('need a capture with exactly one WebSocket connection')
+(headers,) = by_source.values()
 texts = [f['response']['payloadData'].encode() for f in frames]
 pairs = min(len(headers), len(frames))
 sizes = [int(h['payload_length']) for h in headers[:pairs]]
