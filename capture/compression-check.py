@@ -4,6 +4,7 @@
 # 바이트가 아니라 크기만 비교한다. 출력에는 개수와 크기만 있고 프레임 내용은 옮기지 않는다.
 # Node가 아니라 Python인 이유: Node에 들어 있는 zlib(Chromium 계열)은 같은 입력에서 시스템 zlib과 다른 압축 결과를 낸다.
 # 사용: python3 capture/compression-check.py evidence/raw/netlog.json evidence/raw/frames.jsonl
+import base64
 import json
 import statistics
 import sys
@@ -26,7 +27,13 @@ if len(by_source) != 1 or len({f['requestId'] for f in frames}) != 1:
 headers = [h for h in headers if h['opcode'] < 8]
 if not all(h['final'] for h in headers):
     sys.exit('fragmented messages cannot be paired with CDP frames')
-texts = [f['response']['payloadData'].encode() for f in frames]
+# CDP는 텍스트(opcode 1)는 문자열 그대로, 바이너리는 base64로 넘긴다
+texts = [
+    f['response']['payloadData'].encode()
+    if f['response']['opcode'] == 1
+    else base64.b64decode(f['response']['payloadData'])
+    for f in frames
+]
 pairs = min(len(headers), len(frames))
 sizes = [int(h['payload_length']) for h in headers[:pairs]]
 
