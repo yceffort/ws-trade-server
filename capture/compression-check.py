@@ -53,10 +53,12 @@ print(
 )
 
 # 사전을 연결 내내 이어 쓴다. MESSAGE뿐 아니라 CONNECTED, RECEIPT, heartbeat도 받은 순서대로 넣는다.
+# 압축하지 않은 메시지(RSV1 꺼짐)는 넣지 않는다. 받는 쪽 압축 해제기가 보지 못한 내용이 서버 사전에 있으면 다음 메시지를 풀 수 없다.
+deflated = [(text, size) for text, size, h in zip(texts, sizes, headers) if h['reserved1']]
 for wbits in (15, 12, 10):
     row = []
     for level in range(1, 10):
         deflate = zlib.compressobj(level, zlib.DEFLATED, -wbits)
-        same = sum(compressed(text, deflate) == size for text, size in zip(texts, sizes))
+        same = sum(compressed(text, deflate) == size for text, size in deflated)
         row.append(f'L{level} {same}')
-    print(f"window 2^{wbits}, frames with the same size of {pairs}: {', '.join(row)}")
+    print(f"window 2^{wbits}, compressed frames with the same size of {len(deflated)}: {', '.join(row)}")
