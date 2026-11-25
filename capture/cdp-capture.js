@@ -43,6 +43,7 @@ const chrome = spawn(
   ],
   { stdio: 'ignore' }
 )
+const exited = new Promise(resolve => chrome.once('exit', resolve))
 
 const portFile = join(profile, 'DevToolsActivePort')
 for (let i = 0; i < 100 && !(existsSync(portFile) && readFileSync(portFile, 'utf8').includes('\n')); i++)
@@ -125,7 +126,8 @@ console.log(`records: ${records.length} -> ${values.out}`)
 console.table(counts)
 
 await Promise.race([send('Browser.close'), sleep(2000)])
+// NetLog 파일은 Chrome이 끝나면서 마무리한다
+await Promise.race([exited, sleep(5000)])
 chrome.kill()
-await sleep(300)
 rmSync(profile, { recursive: true, force: true })
 process.exit(0)
