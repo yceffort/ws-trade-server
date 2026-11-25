@@ -27,6 +27,11 @@ if (!url) {
   console.error('usage: node capture/cdp-capture.js <url> [--seconds 30] [--out file.jsonl] [--headed]')
   process.exit(1)
 }
+// 이미 있는 경로는 Chrome이 열지 못해도 끝난 뒤의 검사를 통과하고, 열면 다시 받을 수 없는 이전 캡처를 덮어쓴다
+if (values['net-log'] && existsSync(values['net-log'])) {
+  console.error(`NetLog path already exists: ${values['net-log']}`)
+  process.exit(1)
+}
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const profile = mkdtempSync(join(tmpdir(), 'ws-capture-'))
