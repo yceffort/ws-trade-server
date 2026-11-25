@@ -130,4 +130,9 @@ await Promise.race([send('Browser.close'), sleep(2000)])
 await Promise.race([exited, sleep(5000)])
 chrome.kill()
 rmSync(profile, { recursive: true, force: true })
+// Chrome은 NetLog 파일을 열지 못해도 그대로 돌고, 그 오류는 버리는 stdio로만 나간다
+if (values['net-log'] && !existsSync(values['net-log'])) {
+  console.error(`NetLog was not written: ${values['net-log']}`)
+  process.exit(1)
+}
 process.exit(0)
