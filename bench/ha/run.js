@@ -1,6 +1,6 @@
 import { Worker } from 'node:worker_threads'
 import { createServer } from 'node:http'
-import { mkdirSync, readFileSync, writeFileSync, existsSync, unlinkSync, chmodSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -42,7 +42,8 @@ async function mark(scope) {
     })
     workers.forEach(worker => worker.postMessage({ type: 'mark', scope, id }))
   })
-  activeScope = scope
+  // 늦게 끝난 해제가 그 사이에 시작된 다른 범위를 지우지 않게 한다.
+  if (!scope && activeScope === previous) activeScope = null
   const event = experiment(scope ?? previous, scope ? 'start' : 'finish')
   if (event) console.log(JSON.stringify(event))
 }
@@ -262,7 +263,8 @@ try {
       if (code !== 0 && !stopped) failures.push({ reason: 'worker-exit' })
     })
   }
-  const startup = performance.now() + 60000
+  // 마지막 클라이언트는 worker.js에서 (clients - 1) * startupIntervalMs 뒤에야 시작한다.
+  const startup = performance.now() + (config.clients - 1) * config.startupIntervalMs + 60000
   while (ready.size < config.clients && !failures.length && performance.now() < startup) await delay(100)
   if (ready.size !== config.clients || failures.length) throw new Error('initial client catchup failed')
   const started = performance.now()
@@ -423,9 +425,9 @@ try {
 } finally {
   stopped = true
   for (const worker of workers) worker.postMessage({ type: 'stop' })
+  // 이 실행이 연 제어 소켓 파일은 close가 지운다. 경로로 지우면 다른 실행의 소켓까지 지운다.
   server?.close()
   server?.closeAllConnections()
-  if (config?.controlSocket && existsSync(config.controlSocket)) unlinkSync(config.controlSocket)
   await Promise.all(
     workers.map(async (worker, index) => {
       const timer = setTimeout(() => worker.terminate(), 5000)
