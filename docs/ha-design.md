@@ -194,7 +194,7 @@ AWS 실측의 AZ 차단에서 그 AZ와 무관한 gateway의 클라이언트까�
 
 수정 뒤에는 `deploy/ha/broker-isolation.js`로 확인했다. gateway 2개에 클라이언트 20개를 붙이고 체결 partition의 leader를 25초 끊은 다음, 끊긴 연결 수와 committed 대조를 본다. 최악 배치(모든 leader, coordinator, controller가 한 broker)에서 10번 모두 끊김 0, committed 일치, feed 종료 0, replica 실패 0이었다. socket timeout 제한을 넣기 전에는 같은 배치에서 9번 중 2번 실패했다. 10번 연속 통과는 실패율이 그대로일 때도 약 8% 확률로 나올 수 있어, 원인 설명과 함께 판단 근거로 삼는다. smoke 시험은 배치를 바꾸지 않고 그때의 leader를 끊는다.
 
-확인하지 않은 것도 적는다. AWS에서 다시 재지 않았으므로 NLB target이 등록 해제된 동안 기존 연결이 유지되는지, 실제 AZ 차단에서 멈춤이 30초 안에 끝나는지는 모른다. AWS에서는 Pod 삭제로 broker를 내렸을 때도 gateway 전체가 약 21초 동안 준비 상태를 잃었는데, 로컬의 정상 종료에서는 재현되지 않았고 원인을 확인하지 않았다. 단일 호스트의 `docker network disconnect`는 호스트 간 패킷 유실과 다를 수 있다. broker가 4개 이상이거나 replication factor가 다르면 follower 손실의 영향이 달라진다.
+2026-11-25에 AWS에서 AZ 하나의 서브넷을 차단해 다시 쟀다. 다른 AZ의 gateway는 15.7초 동안 준비 상태를 잃었고, 그 NLB target이 등록 해제된 동안에도 기존 연결 656개 중 650개가 유지됐다([용량 기록](ha-capacity.md#aws-n-1-재측정-2026-11-25)). 확인하지 않은 것도 적는다. AWS에서는 Pod 삭제로 broker를 내렸을 때도 gateway 전체가 약 21초 동안 준비 상태를 잃었는데, 로컬의 정상 종료에서는 재현되지 않았고 원인을 확인하지 않았다. 단일 호스트의 `docker network disconnect`는 호스트 간 패킷 유실과 다를 수 있다. broker가 4개 이상이거나 replication factor가 다르면 follower 손실의 영향이 달라진다.
 
 ## 비용과 다음 단계
 

@@ -111,4 +111,27 @@ AZ b의 서브넷을 차단하자 `receive-deadline` 353건과 `source-stale` 64
 
 edge는 이제 `WTS_EDGE_WORKERS`만큼 Node cluster worker를 띄워 같은 포트를 나눠 받는다. 한 worker가 죽으면 그 자리만 다시 띄우고, 듣기도 전에 죽으면 전체를 실패로 끝낸다. k8s 배포는 `edgeWorkers` 기본값 2를 쓰고, worker마다 연결 상한(1,024)과 버퍼가 따로 있어 edge 메모리 limit을 512Mi에서 1Gi로 올렸다. worker 2개로는 1,800 연결까지 접속 실패가 없었다.
 
-같은 600 연결에서 worker 2개는 1.11 core로 1개(0.79)보다 약 40% 더 썼다. 이 호스트의 효율 코어로 밀려난 영향으로 보지만 확인하지 않았다. N-1(1,000 clients, gateway 하나 손실)을 이 구성으로 AWS에서 다시 재지는 않았다. 로컬 전체 구성은 부하 발생기가 600~800 연결에서 먼저 포화되어 N-1 재측정에 쓰지 못했다.
+같은 600 연결에서 worker 2개는 1.11 core로 1개(0.79)보다 약 40% 더 썼다. 이 호스트의 효율 코어로 밀려난 영향으로 보지만 확인하지 않았다. N-1(1,000 clients, gateway 하나 손실)을 이 구성으로 AWS에서 다시 잰 결과는 [아래](#aws-n-1-재측정-2026-11-25)에 있다. 로컬 전체 구성은 부하 발생기가 600~800 연결에서 먼저 포화되어 N-1 재측정에 쓰지 못했다.
+
+## AWS N-1 재측정 (2026-11-25)
+
+[#95](https://github.com/yceffort/ws-trade-server/issues/95)와 [#94](https://github.com/yceffort/ws-trade-server/issues/94)의 재측정이다. 2026-11-22와 같은 `deploy/aws` 구성에서 서버 노드만 spot에서 on-demand c7g.xlarge(AZ마다 2대)로 바꿨다. spot으로 올렸을 때 15분 동안 세 번 교체돼 측정을 이어 갈 수 없었기 때문이다. readiness gate는 처음부터 켰고 edge worker는 기본값 2개, 코드는 4ac2522다. 장애는 AZ b에 냈다. 그때 b에는 gateway b와 broker-1만 있었고, active feed와 CoreDNS 2개와 dev-policy는 AZ a, standby feed는 AZ c에 있었다. 수집 방법, 구간별 수치, 시각별 기록은 `bench/results/ha/aws-edge-workers-2026-11-25.txt`에 있다.
+
+| 시험 | 결과 | 증거(`bench/results/ha/`) |
+| --- | --- | --- |
+| 정상, edge worker 2개, 600초 | 61,690 events 누락 0 중복 0, 끊김 0 | `aws-steady-1000-2workers.json` |
+| 정상, edge worker 1개, 180초 | 19,666 events 누락 0 중복 0, 끊김 0 | `aws-steady-1000-1worker.json` |
+| AZ b 인스턴스 종료 240초 | 62,100 events 누락 0 중복 0. gateway b의 550개가 종료 22~34초 뒤 빠졌고 109초에 a와 c에서 다시 1,000개가 됐다 | `aws-az-stop-1000-2workers.json` |
+| AZ b 서브넷 차단 180초 | 61,552 events 누락 0 중복 0. a와 c에 붙어 있던 656개 중 끊긴 것은 6개 | `aws-az-isolate-1000-2workers.json` |
+
+worker 2개의 정상 실행은 원래 인스턴스 종료를 넣으려던 실행이다. `deploy/aws/az-fault.sh`는 노드 그룹 `server-b`를 찾는데 이번 on-demand 그룹의 이름은 `od-b`여서 종료할 인스턴스가 없었다. 그룹 이름만 바꾼 사본으로 종료 실험을 다시 돌렸고, 첫 실행은 장애 없는 정상 실행으로 쓴다.
+
+N-1에서 edge worker는 코어 하나에 닿지 않았다. 종료 실행은 시작할 때 NLB target 3개가 모두 healthy였는데도 gateway c에 연결이 붙지 않아 a 450, b 550으로 시작했다. 원인은 확인하지 않았다. b를 잃은 뒤에는 a가 730개, c가 270개를 받아, gateway마다 500개였던 2026-11-22보다 한쪽에 더 몰렸다. 그동안 a의 edge worker 2개는 각각 0.73, 0.74 core(5초 표본 최대 0.79)였고 컨테이너 합계는 1.47 core, memory.peak는 290MiB였다. 차단 실행에서 a와 c가 500개 안팎을 받을 때는 worker마다 0.49~0.54 core였다. edge 메모리는 측정 내내 limit 1Gi의 3분의 1 아래였다(최대 320MiB).
+
+대신 노드 CPU가 80%를 넘었다. 노드 그룹을 0대에서 다시 올릴 때 AZ a의 노드 하나에 gateway a, broker-0, active feed, CoreDNS 2개가 함께 놓였고 같은 AZ의 다른 노드는 거의 비어 있었다. 종료 뒤 a가 730개를 받는 동안 이 노드는 4 vCPU 중 3.5~3.9 core(88~98%)를 썼다. 08:58:15 표본에서 edge가 1.51, gateway가 1.34, broker가 0.63 core였다. edge와 gateway만 더해도 약 2.85 core이므로 gateway가 노드를 혼자 써도 71%다. 차단 실행에서도 이 노드는 최대 85%였다. 부하 Pod는 네 실행 모두 한도 4 core에 가까운 3.85~4.0 core를 썼고 event loop p99가 114~270ms로 판정 기준 100ms를 넘었다. 실패가 없어 판정 기준을 적용할 일은 없었지만, 재접속에 걸린 시간에는 부하 발생기의 지연이 섞여 있을 수 있다.
+
+M1에서 본 worker 2개의 약 40% 추가 CPU는 c7g에서 나오지 않았다. gateway 3개가 316~357개씩 받을 때 연결당 edge CPU는 worker 2개에서 1.99~2.25 mCPU, worker 1개에서 2.01~2.06 mCPU였다. 두 정상 실행은 다른 시각에 다른 인스턴스에서 한 번씩 돌았으므로 10% 안쪽의 차이는 가리지 못한다. c7g의 vCPU는 모두 같은 종류의 코어라 효율 코어 가설과 어긋나지 않지만, M1에서 코어를 고정해 다시 재지는 않았으므로 M1의 원인을 확인한 것은 아니다. 메모리는 worker 2개가 약 두 배였다(정상 구간 memory.peak 214~220MiB, worker 1개는 112~123MiB).
+
+broker 한 대를 예고 없이 잃어도 다른 AZ의 클라이언트는 끊기지 않았다. 2026-11-22에는 a와 c가 `source-stale`로 647개를 끊었는데 이번에는 6개였다. a와 c는 차단 직후 Degraded가 됐다가 15.7초 뒤 Ready로 돌아왔다. gateway는 준비 상태가 아닌 채로 30초가 지나야 기존 연결을 끊으므로(`STALE_GRACE`) 그동안 붙어 있던 연결이 유지됐다. 준비 상태를 잃은 a와 c의 NLB target은 약 6초 뒤 등록 해제됐다가 49초 뒤 다시 healthy가 됐고, 등록 해제된 동안에도 기존 연결은 끊기지 않았다. active feed는 재시작하지 않았다(2026-11-22에는 `ha-deadline`으로 재시작했다). 남은 영향은 새 연결이다. Degraded인 동안 a와 c가 새 upgrade를 503으로 거절해 b에서 넘어온 344개의 재접속이 1,787번 거절됐다(2026-11-22에는 5,834건). edge 로그의 `upstream_unavailable` 합이 이 수와 같다. 344개가 다시 붙은 시각은 표본 간격 때문에 차단 뒤 60초 안이라는 것까지만 안다.
+
+인스턴스 종료에서는 2026-11-22처럼 EC2 종료가 OS 종료를 거쳐 gateway b가 스스로 drain했다(`draining` 544건). b에서 넘어온 재접속 일부는 catch-up 중에 `source-error`로 끊겼다가 다시 붙었다. 종료 전 연결이 0이었던 c에서 177건이었고, a의 153건은 측정 시작 때의 것과 나누지 못했다. 같은 시각 a와 c에는 지워진 broker-1의 이름을 찾지 못하는 `broker_client_error`(Resolve)가 이어졌으나 둘의 인과는 확인하지 않았다. 이 실행의 `source-stale` 73건 중 70건은 a가 끊었고 시점은 기록으로 가리지 못했다. 종료 구간에 a와 c의 source age는 1.1초 이하였다.
