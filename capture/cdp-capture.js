@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // 페이지뿐 아니라 워커(SharedWorker 포함) 안에서 열리는 웹소켓의 핸드셰이크와 프레임을 CDP로 받아 적는다.
 // 의존성 없음(Node 22 이상의 내장 WebSocket 사용). 로그인하지 않은 임시 프로필로 띄운다.
-// 사용: node capture/cdp-capture.js <url> [둘째 url] [--seconds 30] [--out evidence/raw/frames.jsonl] [--headed]
+// 사용: node capture/cdp-capture.js <url> [둘째 url] [--seconds 30] [--out evidence/raw/frames.jsonl] [--headed] [--net-log evidence/raw/netlog.json]
+// CDP가 넘기는 프레임은 압축을 푼 뒤의 텍스트라서, 실제로 압축됐는지와 압축된 크기는 --net-log로 남기는 Chrome NetLog에서 본다.
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -14,6 +15,7 @@ const { values, positionals } = parseArgs({
     seconds: { type: 'string', default: '30' },
     out: { type: 'string', default: 'evidence/raw/frames.jsonl' },
     headed: { type: 'boolean', default: false },
+    'net-log': { type: 'string' },
     chrome: {
       type: 'string',
       default: process.env.CHROME ?? '/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta'
@@ -23,6 +25,11 @@ const { values, positionals } = parseArgs({
 const url = positionals[0]
 if (!url) {
   console.error('usage: node capture/cdp-capture.js <url> [--seconds 30] [--out file.jsonl] [--headed]')
+  process.exit(1)
+}
+// 이미 있는 경로는 Chrome이 열지 못해도 끝난 뒤의 검사를 통과하고, 열면 다시 받을 수 없는 이전 캡처를 덮어쓴다
+if (values['net-log'] && existsSync(values['net-log'])) {
+  console.error(`NetLog path already exists: ${values['net-log']}`)
   process.exit(1)
 }
 
@@ -36,10 +43,12 @@ const chrome = spawn(
     '--no-first-run',
     '--no-default-browser-check',
     ...(values.headed ? [] : ['--headless=new']),
+    ...(values['net-log'] ? [`--log-net-log=${values['net-log']}`] : []),
     'about:blank'
   ],
   { stdio: 'ignore' }
 )
+const exited = new Promise(resolve => chrome.once('exit', resolve))
 
 const portFile = join(profile, 'DevToolsActivePort')
 for (let i = 0; i < 100 && !(existsSync(portFile) && readFileSync(portFile, 'utf8').includes('\n')); i++)
@@ -122,7 +131,13 @@ console.log(`records: ${records.length} -> ${values.out}`)
 console.table(counts)
 
 await Promise.race([send('Browser.close'), sleep(2000)])
+// NetLog 파일은 Chrome이 끝나면서 마무리한다
+await Promise.race([exited, sleep(5000)])
 chrome.kill()
-await sleep(300)
 rmSync(profile, { recursive: true, force: true })
+// Chrome은 NetLog 파일을 열지 못해도 그대로 돌고, 그 오류는 버리는 stdio로만 나간다
+if (values['net-log'] && !existsSync(values['net-log'])) {
+  console.error(`NetLog was not written: ${values['net-log']}`)
+  process.exit(1)
+}
 process.exit(0)
